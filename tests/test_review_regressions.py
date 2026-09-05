@@ -45,7 +45,7 @@ class ReviewRegressions(unittest.TestCase):
         self.assertIsNone(
             read_json(kit / "templates/project.json")["capabilities"]["godot_smoke"]
         )
-        bindings = read_json(kit / "docs/evidence/tested-inputs.json")["files"]
+        bindings = read_json(kit / "docs/evidence/current-inputs.json")["files"]
         for name, expected in bindings.items():
             self.assertEqual(sha256(kit / "examples/harbor-pocket" / name), expected)
 

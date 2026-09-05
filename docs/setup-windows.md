@@ -13,7 +13,7 @@ Keep the complete package at a location such as `C:\Tools\game-studio-kit` and a
     "godot": "C:\\Tools\\Godot\\Godot_v4.5.1-stable_win64.exe"
   },
   "timeout": 300,
-  "credentials": {"meshy": "MESHY_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY"}
+  "credentials": {"meshy": "MESHY_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY", "fish": "FISH_AUDIO_API_KEY"}
 }
 ```
 

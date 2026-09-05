@@ -7,7 +7,7 @@ from .common import StudioError, read_json
 
 DEFAULTS = {
     "executables": {},
-    "credentials": {"meshy": "MESHY_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY"},
+    "credentials": {"meshy": "MESHY_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY", "fish": "FISH_AUDIO_API_KEY"},
     "timeout": 180,
     "path_mappings": [],
 }

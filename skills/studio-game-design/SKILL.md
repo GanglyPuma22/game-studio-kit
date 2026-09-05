@@ -14,3 +14,5 @@ Separate gameplay authority from presentation. State who owns the ecological or 
 Use an event table such as `idle + E within range → responding → one clip + one cue → idle`. Pin ordinary camera, player speed/scale, affordance and expected duration before suggesting extra mechanics. Preserve existing project interfaces when implementing; engine migrations and broad physics changes need their own scope.
 
 Propose only the smallest encounter that answers the work card's question. Distinguish a functional cue from a final voice and a procedural object from an approved production design. Hand motion requirements to [animation](../studio-animation/SKILL.md), cue/event mapping to [audio](../studio-audio/SKILL.md), and decided state/feedback to [Godot](../studio-godot/SKILL.md). Return measurable acceptance questions, not an expanding lore document.
+
+For exploration questions, use [actionable discovery](../../references/actionable-discovery.md). For companion timing/continuity, use [knowledge and delivery](../../references/companion-delivery.md). These are small design references; they do not authorize game-specific lore, state frameworks or live voice integration.

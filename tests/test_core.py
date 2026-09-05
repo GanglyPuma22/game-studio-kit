@@ -338,6 +338,8 @@ class RecordTests(TempCase):
                     }
                 ],
             }
+        c["verdicts"]["audio"]["evidence"][0]["listening"] = {
+            "performed": True, "playback_route": "fixture playback", "interval_seconds": [0, 4]}
         c["settings"] = {"renderer": "test", "viewport": [1280, 720]}
         c["input_route"] = "test ordinary input route"
         c["acceptance"] = {

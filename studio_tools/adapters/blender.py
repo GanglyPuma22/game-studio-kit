@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 import struct
-from ..common import StudioError, read_json
+from ..common import StudioError, read_json, sha256
 from ..config import require_executable, app_path
 from ..processes import run
 
@@ -119,6 +119,14 @@ def inspect(config, source, output):
 def export(config, source, collection, output):
     if not Path(source).is_file():
         raise StudioError("Editable Blender source is missing")
+    source, output = Path(source).resolve(), Path(output).resolve()
+    if source == output or source.suffix.lower() != ".blend" or output.suffix.lower() != ".glb":
+        raise StudioError("Export needs distinct .blend source and .glb destination")
+    destinations = [output, output.with_suffix(".export.log"),
+                    output.with_suffix(".inspection.json"), output.with_suffix(".inspection.log")]
+    if any(p.exists() and p.samefile(source) for p in destinations):
+        raise StudioError("Export output and metadata must not alias editable source")
+    source_hash = sha256(source)
     run(
         command(
             config,
@@ -129,7 +137,10 @@ def export(config, source, collection, output):
         timeout=config["timeout"],
         log=Path(output).with_suffix(".export.log"),
     )
+    if sha256(source) != source_hash:
+        raise StudioError("Editable source changed during export; inspect source before continuing")
     return {
+        "source": {"name": source.name, "sha256": source_hash, "operation": "export_edited_source"},
         "glb": glb_info(output),
         "roundtrip": inspect(
             config, output, Path(output).with_suffix(".inspection.json")

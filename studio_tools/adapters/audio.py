@@ -121,6 +121,43 @@ def prepare(
         samples.append(value / 32768 * scale * envelope)
     result = write_wav(destination, samples, info["sample_rate"], channels)
     result.update(
-        loop=loop, loop_start_seconds=0, loop_end_seconds=result["duration_seconds"]
+        loop=loop, loop_start_seconds=0, loop_end_seconds=result["duration_seconds"],
+        boundary_treatment="endpoint_fades" if fade else "none",
+        crossfade_applied=False, listening="not_run"
     )
     return result
+
+
+def imported_loop(imported, start=0.0, end=None):
+    """Frame units from imported decoded duration/rate, never compressed bytes.
+
+    `duration_seconds` must come from the imported stream (e.g. get_length),
+    not the source WAV if import resampling/trimming changed it.
+    """
+    rate = imported.get("sample_rate")
+    duration = imported.get("duration_seconds")
+    end = duration if end is None else end
+    if (type(rate) is not int or rate <= 0
+        or any(type(x) not in (int, float) or not math.isfinite(x) for x in (duration, start, end))
+        or not 0 <= start < end <= duration):
+        raise StudioError("Imported loop needs decoded duration, positive sample rate and valid second boundaries")
+    # nearest-frame conversion, matching Godot roundi for nonnegative values
+    begin_frame = math.floor(start * rate + 0.5)
+    end_frame = math.floor(end * rate + 0.5)
+    if begin_frame >= end_frame:
+        raise StudioError("Imported loop interval must span at least one decoded frame")
+    return {
+        "loop_begin_frame": begin_frame, "loop_end_frame": end_frame,
+        "sample_rate": rate, "duration_seconds": duration,
+        "units": "decoded sample frames per channel", "listening": "not_run",
+    }
+
+
+def generate(config, provider, operation, body, record_path, output, budget, provenance, transport=None):
+    if provider == "elevenlabs":
+        from .elevenlabs import generate as submit
+    elif provider == "fish":
+        from .fish import generate as submit
+    else:
+        raise StudioError("Unknown audio provider")
+    return submit(config, operation, body, record_path, output, budget, provenance, transport)

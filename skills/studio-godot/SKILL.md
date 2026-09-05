@@ -24,3 +24,5 @@ Prefer explicit GLB interchange and retain `.blend` under ignored source. Inspec
 Set imported idle looping and response non-looping explicitly. Make one gameplay action own state; transition animation with a bounded blend and trigger its cue once. Verify repeated input/cooldown, walk-away/reset and collision at player scale. The fixture's technical smoke shares action names and verifies movement, pose changes, response count, audio-player start and return to idle. It uses injected actions and headless audio; it is not ordinary-input or listening evidence.
 
 Create the content-identified candidate after final changes, then pass the ordinary route, settings and captures to [review](../studio-review/SKILL.md). Inspect appearance, motion, sound and frame behavior independently. A headless launch alone does not pass any artistic or target-native acceptance claim.
+
+Check final authored placements against complete support footprints, including separate shelves: [source/contact](../../references/source-and-contact.md). For compressed WAV/QOA import, use [decoded loop units](../studio-audio/references/imported-loops.md); encoded byte counts are never frame counts.

@@ -1,8 +1,6 @@
 """Deliberately narrow Meshy profiles with durable, non-retrying submission."""
 
-import json
 import math
-import os
 from pathlib import Path
 import re
 import time
@@ -10,6 +8,7 @@ from urllib.parse import urlsplit
 from ..common import StudioError, digest, read_json, write_json, sha256, safe_id
 from ..config import credential
 from .http import Transport, ProviderError
+from .requests import claim, budget_check, redact
 
 BASE = "https://api.meshy.ai"
 ENDPOINTS = {
@@ -156,45 +155,6 @@ def profile(operation, body, eligibility=None):
     return result
 
 
-def claim(path, record):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with path.open("x", encoding="utf-8") as f:
-            json.dump(record, f, indent=2, allow_nan=False)
-            f.flush()
-            os.fsync(f.fileno())
-    except FileExistsError:
-        raise StudioError(
-            "Task record already exists; observe/resume it. Never resubmit an ambiguous paid request"
-        ) from None
-
-
-def budget_check(budget):
-    if (
-        not isinstance(budget, dict)
-        or budget.get("authorized") is not True
-        or not budget.get("work_card")
-        or not budget.get("rate_checked_at")
-        or not budget.get("units")
-    ):
-        raise StudioError(
-            "Paid submission needs the authorized work card, units, current rate check and budget"
-        )
-    maximum = budget.get("maximum")
-    estimated = budget.get("estimated")
-    if (
-        type(maximum) not in (int, float)
-        or type(estimated) not in (int, float)
-        or not math.isfinite(maximum)
-        or not math.isfinite(estimated)
-        or not 0 < estimated <= maximum
-    ):
-        raise StudioError(
-            "Estimated request cost must be positive and within the authorized budget"
-        )
-
-
 def submit(
     config, operation, body, record_path, budget, eligibility=None, transport=None
 ):
@@ -286,16 +246,7 @@ def observe(config, record_path, transport=None):
     # Providers sometimes echo request/auth context in diagnostic strings.
     key = credential(config, "meshy")
 
-    def redact(value):
-        if isinstance(value, str):
-            return value.replace(key, "[REDACTED]")
-        if isinstance(value, dict):
-            return {k: redact(v) for k, v in value.items()}
-        if isinstance(value, list):
-            return [redact(v) for v in value]
-        return value
-
-    record.update(status=status, response=redact(response))
+    record.update(status=status, response=redact(response, key))
     write_json(record_path, record)
     return record
 

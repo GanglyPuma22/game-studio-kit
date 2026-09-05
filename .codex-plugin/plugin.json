@@ -1,6 +1,6 @@
 {
   "name": "game-studio-kit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Self-contained game production skills: design, Blender, animation, terrain, audio, Godot and evidence review.",
   "author": {
     "name": "Game Studio Kit contributors"

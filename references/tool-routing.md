@@ -15,3 +15,12 @@
 `doctor` is offline-first. An executable's `ready` means it answered a version query; operations remain unverified until executed. Credential presence is not authentication, entitlement, balance or provider readiness. The helper always reports host computer use as unverified: the active agent must inspect its actual tool list and perform a bounded native app operation to establish it.
 
 Each output has one writer. Only one operator controls the visible desktop. Delegation is optional and follows host/user authorization; the ten skills are not ten persistent agents. Save the editable source before a mode switch and track who owns any launched process. Do not reuse another project's environment assumptions.
+
+
+| Concrete request | Staged reads and advancement |
+|---|---|
+| Refine a reef toward an approved reference | Director decision → art-direction/asset family → Blender one specimen → Godot/review; record close/play comparison before replication |
+| Repair ship legs cutting ground | [Source/contact](source-and-contact.md) → Blender source authority → Godot/review; test all complete pad footprints against final base and shelves |
+| Compare Fish and ElevenLabs speech | Audio speech → only those two profiles → shared preparation/listening; same intent, separate voices, explicit combined budget |
+| Improve surf loop | Audio ambience/preparation → Godot import → runtime listening; zero budget means existing/local original, no Fish speech read |
+| Animate a nonhumanoid | Animation → needed Blender rig/export → Godot transitions → motion review; no default humanoid provider |

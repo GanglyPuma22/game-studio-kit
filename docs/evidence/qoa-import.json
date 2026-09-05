@@ -1,0 +1,15 @@
+{
+  "engine": "4.7.stable.double.custom_build.5b4e0cb0f",
+  "source": "original stereo PCM fixture",
+  "sample_rate": 24000,
+  "duration_seconds": 24.0,
+  "data_bytes": 465328,
+  "format": 3,
+  "loop_end_frame": 576000,
+  "listening": "not_run",
+  "scope": "isolated headless QOA import and shipped loop assignment only",
+  "engine_diagnostics": [
+    "Godot was compiled without fontconfig; system font support disabled",
+    "Restricted socket creation/listen failed during editor import; no live/network operation requested"
+  ]
+}

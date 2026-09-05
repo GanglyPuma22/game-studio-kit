@@ -1,4 +1,6 @@
-# Implementation validation — September 5, 2026
+# Baseline implementation validation — September 5, 2026
+
+This section records the pre-audit baseline. The later loop-unit repair changes `main.gd`; historical tested-inputs.json and runtime-smoke.json remain untouched and do not attest the revised scene. See [audit revision validation](audit-improvements.md) and [current input identities](evidence/current-inputs.json).
 
 Executed on Python **3.14.4**. Core syntax also parsed with the Python 3.11 grammar; native Python 3.11 execution remains unperformed.
 

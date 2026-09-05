@@ -21,7 +21,25 @@ def verify_file(root, item):
         raise StudioError("Missing file: " + item["path"])
     if sha256(p) != item["sha256"]:
         raise StudioError("Hash mismatch: " + item["path"])
+    attachments = item.get("attachments", [])
+    if not isinstance(attachments, list):
+        raise StudioError("Evidence attachments must be a list")
+    for attachment in attachments:
+        verify_file(root, attachment)
     return p
+
+
+def validate_listening(listening, observer):
+    if not isinstance(listening, dict) or listening.get("performed") is not True:
+        raise StudioError("Listening pass requires actual listening evidence")
+    required(listening, ["playback_route", "interval_seconds"])
+    interval = listening["interval_seconds"]
+    if (not isinstance(observer, str) or not observer.strip()
+        or not isinstance(listening["playback_route"], str) or not listening["playback_route"].strip()
+        or not isinstance(interval, list) or len(interval) != 2
+        or any(type(n) not in (int, float) or not math.isfinite(n) for n in interval)
+        or not 0 <= interval[0] < interval[1]):
+        raise StudioError("Listening needs an observer, playback route and increasing reviewed interval")
 
 
 def validate(record, root):
@@ -122,6 +140,13 @@ def validate(record, root):
             required(cue["measured"], ["duration_seconds", "sample_rate", "channels"])
             if cue["listening"] not in VERDICTS:
                 raise StudioError("Unknown listening verdict")
+            for evidence in cue.get("listening_evidence", []):
+                verify_file(root, evidence)
+            if cue["listening"] == "pass":
+                if not cue.get("listening_evidence"):
+                    raise StudioError("Listening pass requires actual listening evidence")
+                for evidence in cue["listening_evidence"]:
+                    validate_listening(evidence.get("listening"), evidence.get("observer"))
             if cue["loop"]:
                 required(cue, ["loop_start_seconds", "loop_end_seconds"])
                 if (
