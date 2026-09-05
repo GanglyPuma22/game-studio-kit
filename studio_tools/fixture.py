@@ -85,6 +85,7 @@ def create(config, project, source_fixture=None):
             "project_id": "harbor-pocket",
             "engine": {"name": "Godot", "version": "4.5.1"},
             "target_platform": "desktop",
+            "capabilities": {"godot_smoke": "studio-smoke-v1"},
             "settings": {
                 "renderer": "gl_compatibility",
                 "viewport": [1280, 720],

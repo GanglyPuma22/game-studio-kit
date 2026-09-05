@@ -19,5 +19,8 @@
     ],
     "camera_fov_degrees": 70
   },
-  "input_route": "not_defined"
+  "input_route": "not_defined",
+  "capabilities": {
+    "godot_smoke": null
+  }
 }

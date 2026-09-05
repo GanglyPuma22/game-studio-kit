@@ -26,6 +26,12 @@ def build(config, recipe, root):
         raise StudioError(
             "Gaea needs an entitled installation and a UI-verified graph/command recipe"
         )
+    if not isinstance(recipe["variables"], dict) or {"graph", "output"}.intersection(
+        recipe["variables"]
+    ):
+        raise StudioError(
+            "Gaea variables must be an object; graph and output are reserved names"
+        )
     graph = Path(recipe["graph"]).resolve()
     if not graph.is_file() or sha256(graph) != recipe["graph_sha256"]:
         raise StudioError("Gaea graph missing or changed since UI verification")

@@ -351,17 +351,33 @@ def archive(record_path, directory, transport=None):
     urls = output_urls(record.get("response", {}))
     if not any(name.endswith(".glb") for name, url in urls):
         raise StudioError("Successful task has no GLB output; inspect response schema")
-    root = Path(directory)
+    task_id = safe_id(record.get("task_id"))
+    urls = [(task_id + "/" + name, url) for name, url in urls]
+    root = Path(directory).resolve()
     root.mkdir(parents=True, exist_ok=True)
     previous = {x["name"]: x for x in record.get("outputs", [])}
+    record["archive_complete"] = False
+    write_json(record_path, record)
+    for name, _url in urls:
+        path = root / name
+        if not path.resolve().is_relative_to(root) or path.is_symlink():
+            raise StudioError(
+                "Archive destination must remain inside its root without symlinks"
+            )
+        if path.exists() and (
+            name not in previous
+            or not path.is_file()
+            or sha256(path) != previous[name]["sha256"]
+        ):
+            raise StudioError(
+                "Archive destination already exists without matching task ownership/hash: "
+                + name
+            )
     for name, url in urls:
         path = root / name
-        if (
-            name in previous
-            and path.is_file()
-            and sha256(path) == previous[name]["sha256"]
-        ):
+        if path.is_file():
             continue
+        path.parent.mkdir(parents=True, exist_ok=True)
         (transport or Transport()).download(url, path)
         previous[name] = {
             "name": name,

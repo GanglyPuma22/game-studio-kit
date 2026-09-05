@@ -19,5 +19,8 @@
     ],
     "camera_fov_degrees": 70
   },
-  "input_route": "WASD/arrows; click and mouse look; E within 3 metres; Escape releases mouse"
+  "input_route": "WASD/arrows; click and mouse look; E within 3 metres; Escape releases mouse",
+  "capabilities": {
+    "godot_smoke": "studio-smoke-v1"
+  }
 }

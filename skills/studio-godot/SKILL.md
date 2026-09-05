@@ -9,13 +9,15 @@ Inputs: engine-pinned project or new work card, source/runtime asset records, an
 
 Use [portability](../../references/portability.md) for the absolute helper route. The original Godot 4.5.1 standard example can be generated with `fixture --project <empty GAME>` or copied from [harbor-pocket](../../examples/harbor-pocket/README.md). It includes a walkable area, 1.8 m marker, rigged bell, heightfield mound and E-triggered response/cue.
 
+For any project, run import followed by its project-specific checks and native review. `smoke` below is available only when the project implements and declares the [studio-smoke-v1 protocol](references/execution.md); the bundled fixture already does. A generic project template intentionally leaves this capability unset.
+
 ```text
 python <KIT>/scripts/studio.py godot import --project <GAME> --config <HOST>
 python <KIT>/scripts/studio.py godot smoke --project <GAME> --config <HOST>
 python <KIT>/scripts/studio.py godot run --project <GAME> --config <HOST>
 ```
 
-The `run` helper owns a bounded process (host timeout); a longer manual editor/play session can be launched by the host with its own ownership record. To export, first configure a real project preset and install the matching export templates, then use `godot export --preset <name> --output <relative build path>`. The studio does not invent credentials, export presets or target SDKs.
+The `run` helper owns a bounded process (host timeout); a longer manual editor/play session can be launched by the host with its own ownership record. To export, first configure a real project preset and install the matching export templates and set host `godot_export_templates` to their `export_templates` directory (see [isolated export setup](references/execution.md)), then use `godot export --preset <name> --output <relative build path>`. The studio does not invent credentials, export presets or target SDKs.
 
 Prefer explicit GLB interchange and retain `.blend` under ignored source. Inspect mesh/skin/clip identity after import. Map Principled base color to StandardMaterial3D albedo, roughness/metallic to matching properties, baked normal with correct orientation and alpha to intentional transparency/cutout. Blender node networks require bake/recreation; compare runtime lighting visually. See [material notes](references/materials.md).
 

@@ -234,6 +234,7 @@ class MeshyTests(TempCase):
             self.root / "task.json",
             {
                 "status": "SUCCEEDED",
+                "task_id": "rig-task",
                 "outputs": [],
                 "response": {
                     "result": {
@@ -515,6 +516,10 @@ class BlenderGodotTests(TempCase):
 
     def test_godot_commands_export_prerequisites(self):
         (self.root / "project.godot").write_text("test")
+        write_json(
+            self.root / "project.json",
+            {"capabilities": {"godot_smoke": "studio-smoke-v1"}},
+        )
         cfg = load(overrides={"executables": {"godot": sys.executable}})
         args = godot.command(
             cfg, self.root, "smoke", self.root / "artifact with spaces.json"
