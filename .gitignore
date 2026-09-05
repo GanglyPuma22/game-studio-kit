@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.studio-local.json
+.studio/
+.godot/
+*.blend1
+artifacts/
+.ruff_cache/

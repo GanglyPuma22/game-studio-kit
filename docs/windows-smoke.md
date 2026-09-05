@@ -1,0 +1,17 @@
+# Exact target-host smoke and handoff prompt
+
+Prerequisites: complete package registered in native Windows ChatGPT/Codex, new conversation, separate empty game directory, Python 3.11+, Blender 5.0.x, Godot 4.5.1 standard, configured executable paths, and the host's actual computer-use/capture/listening tools. Paid providers are not needed.
+
+Use this prompt in the new conversation after plugin registration:
+
+> Invoke the registered studio-director from Game Studio Kit. My working directory is `C:\Projects\Harbor Native Smoke`, outside the installed toolkit. Use the already configured host tools and host config at `C:\Studio Host\host.json`. Confirm the installed coordinator location, resolve its sibling studio-blender and studio-review skills and the shared helper from that location, and keep all generated outputs in this game directory. Create the original functional fixture, run Blender roundtrip inspection and Godot import/headless smoke, and then use available native computer use for the ordinary player route. No paid providers, marketplace changes, global installs, publication or unrelated desktop cleanup. Preserve user-open apps. Record exact content/workflow/engine identity and separate visual, interaction, motion, audio and performance verdicts. If a native capability is missing, finish independent technical work and state the exact missing step; never mark that review passed.
+
+Evidence procedure:
+
+1. Record host/app/plugin version and the actual registered skill invocation. From GAME resolve a sibling skill, shared reference and helper inside the installed package. Check package graph. An explicit manual SKILL.md read or root-directory helper execution alone does not satisfy registration.
+2. Run `doctor`, then `fixture --project <GAME> --config <HOST>`, `godot import`, and `godot smoke`. Confirm source `.blend`, runtime GLB, four meshes, three materials, two bones and idle/response clips. Review rest/stress PNGs and loop boundary images. Record the installed Blender version and actual render engine/device.
+3. Launch an owned Godot game process (increase the host config timeout for a deliberate longer review or use a separately owned native launch). Confirm actual visible app identity and normal 1280×720/70-degree camera. Walk using WASD/arrows, click and look with the mouse, view the 1.8 m marker and approach the bell. Press E within 3 m, observe one bend/cue and the return to idle. Repeat input during response and walk away. Escape releases mouse.
+4. Capture at least two idle loops, the transition/stress pose and runtime material close-up under normal lighting. Listen to the captured game mix with a declared audible device/tool: response timing/distance, ambience loop, overlap/clipping. A Dummy audio-driver run is insufficient. Record measured frame times under declared hardware/settings, not just the fixed physics step.
+5. Create candidate identity **after final content changes**, place raw captures and review notes under artifacts, hash them and attach matching content_digest/method/observer to each verdict. Run `validate-record`. Keep unperformed dimensions not_run and native/app/provider limits unverified. State the human decision explicitly.
+
+After this passes, use a separately authorized production work card and its real reference pack for the shoreline pilot. The harbor fixture is original test material and is not evidence of the desired production art, character voice or game quality.

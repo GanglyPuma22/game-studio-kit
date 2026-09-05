@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "game-studio-kit"
+version = "0.1.0"
+description = "Portable game production skills and explicit local helpers"
+requires-python = ">=3.11"
+license = "MIT"
+
+[project.scripts]
+studio = "studio_tools.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["studio_tools*"]
+
+[tool.setuptools.package-data]
+studio_tools = ["blender_scripts/*.py", "godot_template/*"]

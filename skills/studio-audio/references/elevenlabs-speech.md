@@ -1,0 +1,9 @@
+# ElevenLabs speech
+
+Adapted from ElevenLabs `text-to-speech/SKILL.md` and its `references/voice-settings.md` at `fd7b7f593b86861758bb1804234f758da3989f14`; MIT, Copyright (c) 2024 ElevenLabs. [License](../../../third_party/elevenlabs/LICENSE). The SDK/streaming examples, example voice ID and external installation links were removed; the [local audio adapter](../../../studio_tools/adapters/elevenlabs.py) and [provider setup](../../../docs/provider-setup.md) provide the complete route.
+
+Require approved dialogue, language, licensed voice ID, explicit model ID and source/voice rights. Keep the fictional character's identity in the project contract so the voice backend can change. Do not copy a private voice configuration into the public fixture. The bounded profile accepts 1–5000 characters and sends `POST /v1/text-to-speech/{voice_id}` with the explicit text/model and optional voice settings. [Primary API reference](https://elevenlabs.io/docs/api-reference/text-to-speech/convert).
+
+Tune stability/similarity/style against the actual voice/model and intended performance. Change one relevant parameter at a time and compare a short representative line in its game context. Timing, interruption and emotional suitability matter as much as intelligibility. Retain the exact request and provider voice ID, and record facial/lip-sync needs separately instead of promising them from audio alone.
+
+Run `audio speech` with the same project/request/budget/provenance/record/output flags as [effects](elevenlabs-effects.md). A transport failure leaves unknown outcome; reconcile provider history before deciding another paid request. Prepare a separate runtime file, map dialogue bus/priority and listen to the mixed scene. No cloning or voice-library modification is implemented by this adapter.

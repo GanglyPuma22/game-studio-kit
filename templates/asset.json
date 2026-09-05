@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "kind": "asset",
+  "asset_id": "new-asset",
+  "stage": "working",
+  "source": [],
+  "runtime": [],
+  "units": "metres",
+  "dimensions_m": [
+    1,
+    1,
+    1
+  ],
+  "pivot": "ground center",
+  "materials": [],
+  "collision": "undecided",
+  "animated": false,
+  "provenance": {
+    "rights": "unverified"
+  },
+  "review_links": []
+}

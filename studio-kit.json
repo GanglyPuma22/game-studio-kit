@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "name": "game-studio-kit",
+  "version": "0.1.0",
+  "skills": [
+    {
+      "name": "studio-director",
+      "path": "skills/studio-director/SKILL.md"
+    },
+    {
+      "name": "studio-game-design",
+      "path": "skills/studio-game-design/SKILL.md"
+    },
+    {
+      "name": "studio-art-direction",
+      "path": "skills/studio-art-direction/SKILL.md"
+    },
+    {
+      "name": "studio-blender",
+      "path": "skills/studio-blender/SKILL.md"
+    },
+    {
+      "name": "studio-meshy",
+      "path": "skills/studio-meshy/SKILL.md"
+    },
+    {
+      "name": "studio-terrain",
+      "path": "skills/studio-terrain/SKILL.md"
+    },
+    {
+      "name": "studio-animation",
+      "path": "skills/studio-animation/SKILL.md"
+    },
+    {
+      "name": "studio-audio",
+      "path": "skills/studio-audio/SKILL.md"
+    },
+    {
+      "name": "studio-godot",
+      "path": "skills/studio-godot/SKILL.md"
+    },
+    {
+      "name": "studio-review",
+      "path": "skills/studio-review/SKILL.md"
+    }
+  ],
+  "resources": [
+    "references/acceptance.md",
+    "references/portability.md",
+    "references/production-contracts.md",
+    "references/tool-routing.md",
+    "scripts/studio.py",
+    "studio_tools/__init__.py",
+    "studio_tools/__main__.py",
+    "studio_tools/adapters/__init__.py",
+    "studio_tools/adapters/audio.py",
+    "studio_tools/adapters/blender.py",
+    "studio_tools/adapters/elevenlabs.py",
+    "studio_tools/adapters/gaea.py",
+    "studio_tools/adapters/godot.py",
+    "studio_tools/adapters/http.py",
+    "studio_tools/adapters/meshy.py",
+    "studio_tools/adapters/terrain.py",
+    "studio_tools/blender_scripts/export.py",
+    "studio_tools/blender_scripts/fixture.py",
+    "studio_tools/blender_scripts/inspect.py",
+    "studio_tools/blender_scripts/render.py",
+    "studio_tools/cli.py",
+    "studio_tools/common.py",
+    "studio_tools/config.py",
+    "studio_tools/doctor.py",
+    "studio_tools/evidence.py",
+    "studio_tools/fixture.py",
+    "studio_tools/godot_template/main.gd",
+    "studio_tools/godot_template/project.godot",
+    "studio_tools/package.py",
+    "studio_tools/processes.py",
+    "studio_tools/records.py",
+    "templates/asset.json",
+    "templates/audio-cues.json",
+    "templates/candidate.json",
+    "templates/project.json",
+    "templates/work-card.md"
+  ],
+  "commands": [
+    "check-package",
+    "doctor",
+    "setup",
+    "validate-record",
+    "fixture",
+    "blender",
+    "terrain",
+    "audio",
+    "meshy",
+    "gaea",
+    "godot",
+    "candidate"
+  ]
+}

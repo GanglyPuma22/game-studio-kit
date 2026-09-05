@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "kind": "candidate",
+  "candidate_id": "new-candidate",
+  "content_files": [],
+  "content_digest": "",
+  "workflow_version": "0.1.0",
+  "engine": {
+    "name": "Godot",
+    "version": "4.5.1"
+  },
+  "settings": {
+    "renderer": "gl_compatibility",
+    "viewport": [
+      1280,
+      720
+    ]
+  },
+  "input_route": "Define ordinary player controls and route before capture",
+  "verdicts": {
+    "visual": {
+      "status": "not_run",
+      "evidence": []
+    },
+    "interaction": {
+      "status": "not_run",
+      "evidence": []
+    },
+    "motion": {
+      "status": "not_run",
+      "evidence": []
+    },
+    "audio": {
+      "status": "not_run",
+      "evidence": []
+    },
+    "performance": {
+      "status": "not_run",
+      "evidence": []
+    }
+  },
+  "defects": [],
+  "acceptance": {
+    "decision": "pending",
+    "reviewer": null
+  },
+  "workflow_files": [],
+  "workflow_digest": ""
+}

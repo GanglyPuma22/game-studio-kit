@@ -1,0 +1,7 @@
+# Preserve portable record/upstream checksums even with Windows core.autocrlf.
+* text=auto eol=lf
+*.blend -text
+*.glb -text
+*.png -text
+*.wav -text
+*.pgm -text
