@@ -87,8 +87,8 @@
           "upstream": "skills/disciplines/create-game-assets/SKILL.md",
           "upstream_sha256": "c178cde20316f7d326f2a853a76522b375b325346b5b8797ef52aa98740aff18",
           "local": "skills/studio-art-direction/references/asset-production.md",
-          "sha256": "acbe741502743307e434d90b77c35a41161da6480972275e84f23ed30d249107",
-          "change": "Studio-authored condensed adaptation; external skill/setup dependency links replaced with repository-local routes; no upstream runtime code copied"
+          "sha256": "b7b1b139bd8bd8d7577adc697c02c231c2220c5049b7a06a348930ea1ce38130",
+          "change": "Studio-authored condensed adaptation; external skill/setup dependency links replaced with repository-local routes; no upstream runtime code copied; added original specimen decision and complete-contact handoff guidance"
         }
       ],
       "inspected_sources": [

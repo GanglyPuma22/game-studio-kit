@@ -14,6 +14,7 @@ ACTIONS = {
     "ffmpeg": "Optional: install FFmpeg and set executables.ffmpeg for capture/transcode.",
     "ffprobe": "Optional: install FFprobe and set executables.ffprobe for encoded-media measurements.",
     "meshy": "Optional: set MESHY_API_KEY (or the configured variable), confirm a work-card budget and current account rates before submit.",
+    "fish": "Optional: set FISH_AUDIO_API_KEY (or configured variable); authorize voice rights, explicit model and nonzero budget before file speech.",
     "elevenlabs": "Optional: set ELEVENLABS_API_KEY (or the configured variable), confirm rights, entitlement and work-card budget.",
     "computer_use": "The active host must expose computer-use tools and inspect the native app; follow docs/windows-smoke.md.",
 }
@@ -66,7 +67,7 @@ def inspect(config):
                         reason="Executable could not report its version; check path and execution permission",
                     )
         capabilities[name] = entry
-    for provider in ("meshy", "elevenlabs"):
+    for provider in ("meshy", "elevenlabs", "fish"):
         present = bool(os.environ.get(config["credentials"][provider]))
         capabilities[provider] = {
             "status": "unverified" if present else "needs_setup",

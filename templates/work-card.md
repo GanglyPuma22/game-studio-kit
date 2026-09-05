@@ -18,3 +18,11 @@
 Use exact facts; leave unknown facts open. A bounded correction can fix an observed
 failure within this card. Stop a paid retry when budget is exhausted or submission
 outcome is unknown. Preserve the completed candidate and task identity.
+
+
+For the current uncertainty only:
+- Next visible outcome; retain/change/uncertain decision:
+- Authoritative artifact/hash, owner; generator vs edited-source export:
+- Smallest operation/capability; selected provider only if needed:
+- Specimen close/play comparison and deliberate choice before expansion:
+- Evidence needed to advance; provisional agent choice vs final acceptance:

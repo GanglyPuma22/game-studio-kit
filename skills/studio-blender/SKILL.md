@@ -29,3 +29,5 @@ Inspect the fresh import: actual mesh/material/skin/clip counts, evaluated bound
 If structured production cannot answer a perceptual/UI question, save a checkpoint and use host-provided computer use on an owned app instance. For optional interactive MCP read [the pinned connection recipe](references/mcp.md). It is not required to run the core fixture.
 
 Output `.blend`, GLB, metadata/hashes, roundtrip inspection and review images. Fill [asset record](../../templates/asset.json); a clean import advances exported/imported evidence, not the user's visual acceptance.
+
+Declare generator versus edited-source authority before authoring/export. Follow [source authority and contact](../../references/source-and-contact.md) for preserving edits, explicit export, authored placement overrides and full support footprints including separate shelves. Never rerun a builder over the authoritative edited file merely to obtain a GLB.

@@ -10,7 +10,7 @@
   "references": [],
   "artifact_root": "artifacts",
   "current_candidate": null,
-  "workflow_version": "0.1.0",
+  "workflow_version": "0.1.1",
   "settings": {
     "renderer": "gl_compatibility",
     "viewport": [

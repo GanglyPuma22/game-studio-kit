@@ -3,10 +3,9 @@
 from pathlib import Path
 import re
 import math
-from ..common import StudioError, digest, write_json, sha256
+from ..common import StudioError, digest
 from ..config import credential
-from .http import Transport, validate_download
-from .meshy import claim, budget_check
+from .requests import budget_check, archive_audio
 
 
 def profile(operation, body):
@@ -115,37 +114,9 @@ def generate(
         "status": "SUBMITTING",
         "live_quality": "unverified",
     }
-    claim(record_path, record)
     wire = {k: v for k, v in request.items() if k != "voice_id"}
     fmt = "mp3_44100_128" if operation != "music" else "mp3_48000_192"
-    partial = path.with_suffix(".mp3.part")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        data, metadata = (transport or Transport(timeout=180)).request(
-            "POST",
-            "https://api.elevenlabs.io" + endpoint + "?output_format=" + fmt,
-            {"xi-api-key": key, "Content-Type": "application/json"},
-            wire,
-            binary=True,
-        )
-        partial.write_bytes(data)
-        validate_download(partial, ".mp3")
-        partial.replace(path)
-    except Exception:
-        partial.unlink(missing_ok=True)
-        record["status"] = "SUBMISSION_UNKNOWN"
-        write_json(record_path, record)
-        raise StudioError(
-            "Hosted audio outcome unknown; preserve record and reconcile in provider history, do not automatically regenerate"
-        ) from None
-    record.update(
-        status="ARCHIVED",
-        response_metadata=metadata,
-        output={
-            "name": path.name,
-            "sha256": sha256(path),
-            "bytes": path.stat().st_size,
-        },
-    )
-    write_json(record_path, record)
-    return record
+    return archive_audio(record_path, output, record,
+                         "https://api.elevenlabs.io" + endpoint + "?output_format=" + fmt,
+                         {"xi-api-key": key, "Content-Type": "application/json"},
+                         wire, key, transport)

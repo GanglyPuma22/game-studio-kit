@@ -4,7 +4,7 @@
   "candidate_id": "new-candidate",
   "content_files": [],
   "content_digest": "",
-  "workflow_version": "0.1.0",
+  "workflow_version": "0.1.1",
   "engine": {
     "name": "Godot",
     "version": "4.5.1"

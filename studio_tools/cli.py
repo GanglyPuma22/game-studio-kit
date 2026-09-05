@@ -56,6 +56,7 @@ def parser():
     c.add_argument("--depth", type=float, default=12)
     c.add_argument("--elevation", type=float, default=0.7)
     c = command("audio", True)
+    c.add_argument("--provider", choices=["elevenlabs", "fish"], default="elevenlabs")
     c.add_argument(
         "operation",
         choices=["local", "prepare", "measure", "effects", "speech", "music"],
@@ -199,7 +200,7 @@ def dispatch(a):
                 a.fade,
                 a.loop,
             )
-        from .adapters.elevenlabs import generate
+        from .adapters.audio import generate
 
         if not all([a.request, a.budget, a.provenance]):
             raise StudioError(
@@ -207,6 +208,7 @@ def dispatch(a):
             )
         return generate(
             config,
+            a.provider,
             a.operation,
             read_json(path(a.request)),
             path(a.record),

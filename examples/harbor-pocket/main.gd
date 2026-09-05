@@ -169,7 +169,8 @@ func _build_audio() -> void:
 	var stream := load("res://assets/ambience.wav") as AudioStreamWAV
 	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
 	stream.loop_begin = 0
-	stream.loop_end = stream.data.size() / (2 * (2 if stream.stereo else 1))
+	# Imported data may be QOA; loop endpoints are decoded frames per channel.
+	stream.loop_end = roundi(stream.get_length() * stream.mix_rate)
 	ambience.stream = stream
 	ambience.bus = &"Ambience"
 	ambience.volume_db = -12
