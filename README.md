@@ -4,6 +4,8 @@ Ten self-contained skills and a small Python helper library for producing and re
 
 Start by reading [studio-director](skills/studio-director/SKILL.md) in your capable local agent. Keep the **whole repository** together. It has no dependency on private agent folders, other installed skills, a daemon, or a paid account. You provide Python 3.11+, application installations, project inputs and your host's actual tools.
 
+To have an agent set this up for you, ask it to clone this repository and follow [Agent startup: clone, integrate, verify, work](docs/agent-start.md). That guide covers registered-plugin setup, project-level pointers and direct-file execution when registration is deferred.
+
 ```powershell
 $Kit = "C:\Tools\game-studio-kit"
 $Game = "C:\Projects\Harbor Test"

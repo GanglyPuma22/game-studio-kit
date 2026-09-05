@@ -1,5 +1,7 @@
 # Native Windows setup
 
+For an agent performing setup and then a game task, begin with [the agent startup guide](agent-start.md). It explains cloning, clean integration and how to continue through the coordinator.
+
 Use native Windows Python 3.11+, Blender 5.0.x and Godot 4.5.1 standard for the initial profile. Obtain installers/portable executables from [Python](https://www.python.org/downloads/windows/), [Blender](https://www.blender.org/download/) and [Godot](https://godotengine.org/download/archive/4.5.1-stable/). No studio command installs them. Reuse existing compatible installations; do not replace another project's tools.
 
 Keep the complete package at a location such as `C:\Tools\game-studio-kit` and an empty game destination elsewhere. Create a host-local JSON file outside the package; replace example executable paths with actual ones:
