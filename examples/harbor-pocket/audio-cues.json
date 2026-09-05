@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "kind": "audio-cues",
+  "cues": [
+    {
+      "event_id": "harbor.response",
+      "purpose": "Functional pipeline test response",
+      "source": {
+        "path": "source/response.wav",
+        "sha256": "e537b1ecf0b7b1e3213e77348a9e0a8d5cd24928672d35850049843bea425f23"
+      },
+      "runtime": {
+        "path": "assets/response.wav",
+        "sha256": "2e322cd289200243cd1dab93b043028de51b68e9e9ecd48938506cd472bacffb"
+      },
+      "loop": false,
+      "loop_start_seconds": 0,
+      "loop_end_seconds": 0.8,
+      "bus": "SFX",
+      "priority": 10,
+      "provenance": {
+        "author": "Game Studio Kit contributors",
+        "rights": "Original procedural test cue; MIT",
+        "provider": null
+      },
+      "measured": {
+        "duration_seconds": 0.8,
+        "sample_rate": 48000,
+        "channels": 1,
+        "frames": 38400,
+        "sample_width": 2,
+        "peak_dbfs": -12.621022188060634,
+        "rms_dbfs": -21.79064110923362,
+        "loop": false,
+        "loop_start_seconds": 0,
+        "loop_end_seconds": 0.8
+      },
+      "listening": "not_run"
+    },
+    {
+      "event_id": "harbor.ambience",
+      "purpose": "Functional pipeline test ambience",
+      "source": {
+        "path": "source/ambience.wav",
+        "sha256": "ed417bd53be5777bbc2fd510801441e6b0dd1b5629be0e4e633c658f85a89b83"
+      },
+      "runtime": {
+        "path": "assets/ambience.wav",
+        "sha256": "ed417bd53be5777bbc2fd510801441e6b0dd1b5629be0e4e633c658f85a89b83"
+      },
+      "loop": true,
+      "loop_start_seconds": 0,
+      "loop_end_seconds": 4.0,
+      "bus": "Ambience",
+      "priority": 0,
+      "provenance": {
+        "author": "Game Studio Kit contributors",
+        "rights": "Original procedural test cue; MIT",
+        "provider": null
+      },
+      "measured": {
+        "duration_seconds": 4.0,
+        "sample_rate": 48000,
+        "channels": 1,
+        "frames": 192000,
+        "sample_width": 2,
+        "peak_dbfs": -27.599984712284083,
+        "rms_dbfs": -36.218591500121235,
+        "loop": true,
+        "loop_start_seconds": 0,
+        "loop_end_seconds": 4.0
+      },
+      "listening": "not_run"
+    }
+  ]
+}

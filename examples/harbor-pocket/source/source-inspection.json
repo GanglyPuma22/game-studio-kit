@@ -1,0 +1,40 @@
+{
+  "blender_version": "5.0.1",
+  "collection": "HarborBell",
+  "mesh_count": 4,
+  "bone_names": [
+    "Root",
+    "Frond"
+  ],
+  "clips": [
+    {
+      "name": "idle",
+      "duration_seconds": 2,
+      "sample_rate": 24,
+      "loop": true,
+      "root_motion": "in_place"
+    },
+    {
+      "name": "response",
+      "duration_seconds": 1,
+      "sample_rate": 24,
+      "loop": false,
+      "root_motion": "in_place"
+    }
+  ],
+  "renders": [
+    "idle-001.png",
+    "idle-013.png",
+    "idle-025.png",
+    "idle-037.png",
+    "idle-049.png",
+    "response-001.png",
+    "response-007.png",
+    "response-013.png",
+    "response-019.png",
+    "response-025.png"
+  ],
+  "stress_pose": "response-013.png",
+  "rest_pose": "response-001.png",
+  "render_engine": "BLENDER_EEVEE"
+}

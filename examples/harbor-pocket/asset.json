@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "kind": "asset",
+  "asset_id": "harbor-bell",
+  "stage": "exported",
+  "source": [
+    {
+      "path": "source/harbor-bell.blend",
+      "sha256": "79889afce4288c847642ac9f47d2393fe9b36fb040b0bcfb6f01534b8d19f8a0"
+    }
+  ],
+  "runtime": [
+    {
+      "path": "assets/harbor-bell.glb",
+      "sha256": "1b5357344bd7727ca6b8be41d120b070adda917ef00ebe9c70414ee60152c1dd"
+    }
+  ],
+  "units": "metres",
+  "dimensions_m": [
+    1.059999942779541,
+    0.9399999678134918,
+    1.5
+  ],
+  "pivot": "ground center; Blender Z up, exported glTF Y up",
+  "materials": [
+    "Ivory ribs",
+    "Ochre ceramic",
+    "Sea glass"
+  ],
+  "collision": "decorative; walkable terrain is separate",
+  "animated": true,
+  "rig": {
+    "bones": [
+      "Root",
+      "Frond"
+    ],
+    "body_type": "nonhumanoid"
+  },
+  "clips": [
+    {
+      "name": "idle",
+      "duration_seconds": 2,
+      "sample_rate": 24,
+      "loop": true,
+      "root_motion": "in_place"
+    },
+    {
+      "name": "response",
+      "duration_seconds": 1,
+      "sample_rate": 24,
+      "loop": false,
+      "root_motion": "in_place"
+    }
+  ],
+  "provenance": {
+    "author": "Game Studio Kit contributors",
+    "rights": "Original procedural fixture; MIT"
+  },
+  "review_links": []
+}

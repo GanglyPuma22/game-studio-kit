@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "kind": "terrain",
+  "resolution": [
+    33,
+    33
+  ],
+  "dimensions_m": [
+    4,
+    8
+  ],
+  "elevation_m": [
+    0,
+    0.7
+  ],
+  "bit_depth": 16,
+  "encoding": "PGM P5 unsigned big-endian",
+  "coordinates": "Y-up, X-east, Z-south; row zero is negative Z",
+  "origin_m": [
+    -2.0,
+    0,
+    -4.0
+  ],
+  "tile_layout": [
+    1,
+    1
+  ],
+  "edge_heights_m": {
+    "north": 0,
+    "south": 0,
+    "east": 0,
+    "west": 0
+  },
+  "files": [
+    {
+      "path": "height.pgm",
+      "sha256": "160af0215a46cf543d41bcbf84113e18d0ddaa2fe42860c523b90ef25805e90d"
+    },
+    {
+      "path": "shore-mask.pgm",
+      "sha256": "b9c80f45e3d7f4cbc1bc6261f5c989769219030923b7fbac3fa06fef281053f3"
+    },
+    {
+      "path": "terrain.obj",
+      "sha256": "2f3e912847ec84d57049c7e8c33bb5f2f1e77d69052d77c80423c09088f30854"
+    }
+  ],
+  "provenance": "Original procedural fixture, MIT",
+  "godot_review": "not_run"
+}

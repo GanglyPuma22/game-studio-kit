@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "kind": "project",
+  "project_id": "harbor-pocket",
+  "engine": {
+    "name": "Godot",
+    "version": "4.5.1"
+  },
+  "target_platform": "desktop",
+  "references": [],
+  "artifact_root": "artifacts",
+  "current_candidate": null,
+  "workflow_version": "0.1.0",
+  "settings": {
+    "renderer": "gl_compatibility",
+    "viewport": [
+      1280,
+      720
+    ],
+    "camera_fov_degrees": 70
+  },
+  "input_route": "WASD/arrows; click and mouse look; E within 3 metres; Escape releases mouse"
+}
