@@ -1,0 +1,61 @@
+{
+  "blender_version": "5.0.1",
+  "mesh_count": 4,
+  "material_count": 3,
+  "material_names": [
+    "Ivory ribs",
+    "Ochre ceramic",
+    "Sea glass"
+  ],
+  "armature_count": 1,
+  "bone_names": [
+    "Frond",
+    "Root"
+  ],
+  "actions": [
+    "idle",
+    "response"
+  ],
+  "bounds_min": [
+    -0.5299999713897705,
+    -0.5199999809265137,
+    0.0
+  ],
+  "bounds_max": [
+    0.5299999713897705,
+    0.41999998688697815,
+    1.5
+  ],
+  "dimensions_m": [
+    1.059999942779541,
+    0.9399999678134918,
+    1.5
+  ],
+  "hierarchy": [
+    {
+      "name": "HarborBellRig",
+      "parent": null,
+      "type": "ARMATURE"
+    },
+    {
+      "name": "BellBody",
+      "parent": "HarborBellRig",
+      "type": "MESH"
+    },
+    {
+      "name": "FlexibleFrond",
+      "parent": "HarborBellRig",
+      "type": "MESH"
+    },
+    {
+      "name": "Foot",
+      "parent": "HarborBellRig",
+      "type": "MESH"
+    },
+    {
+      "name": "Foot.001",
+      "parent": "HarborBellRig",
+      "type": "MESH"
+    }
+  ]
+}

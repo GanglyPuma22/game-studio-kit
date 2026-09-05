@@ -1,0 +1,20 @@
+{
+	"audio_driver": "Dummy",
+	"audio_player_started": true,
+	"bone_count": 2,
+	"engine_version": "4.5.1-stable (official)",
+	"imported_clips": [
+		"idle",
+		"response"
+	],
+	"kind": "technical_runtime_smoke",
+	"listening": "not_run",
+	"motion_pose_changed": true,
+	"moved_distance_m": 2.45833551883698,
+	"ok": true,
+	"ordinary_input_review": "not_run",
+	"physics_step_peak_ms": 16.6666666666667,
+	"response_count": 1,
+	"returned_to_idle": true,
+	"visual_review": "not_run"
+}

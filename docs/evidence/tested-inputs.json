@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "purpose": "Hashes of the scene/runtime inputs exercised by real Godot smoke; relative to examples/harbor-pocket",
+  "files": {
+    "main.gd": "6b6914f34ab832840fc6ad0e572e67fcd1f7a83b76a90669cfb42ec6b4ce6a73",
+    "main.tscn": "a7974000689f00d6afb42409aa31753c49595b0c53cec05007d8bbab771c7757",
+    "project.godot": "f7cdea582c9db961e80e350c0d02c2d7fb7097e6964a493f6e38ebf91a715a85",
+    "assets/harbor-bell.glb": "1b5357344bd7727ca6b8be41d120b070adda917ef00ebe9c70414ee60152c1dd",
+    "assets/response.wav": "2e322cd289200243cd1dab93b043028de51b68e9e9ecd48938506cd472bacffb",
+    "assets/ambience.wav": "ed417bd53be5777bbc2fd510801441e6b0dd1b5629be0e4e633c658f85a89b83",
+    "assets/terrain.obj": "2f3e912847ec84d57049c7e8c33bb5f2f1e77d69052d77c80423c09088f30854"
+  },
+  "blender_version": "5.0.1",
+  "godot_version": "4.5.1.stable.official.f62fdbde1",
+  "runtime_scope": "headless technical assertions only",
+  "native_or_perceptual_verdict": "not_run"
+}

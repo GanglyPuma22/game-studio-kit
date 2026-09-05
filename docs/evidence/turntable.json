@@ -1,0 +1,27 @@
+{
+  "blender_version": "5.0.1",
+  "camera": "ReviewCamera",
+  "engine": "BLENDER_EEVEE",
+  "resolution": [
+    640,
+    640
+  ],
+  "resolution_percentage": 100,
+  "source_space_target": [
+    0.0,
+    0.0,
+    0.75
+  ],
+  "samples": [
+    {
+      "file": "view-0000.00-frame-0001.png",
+      "frame": 1,
+      "angle_degrees": 0.0
+    },
+    {
+      "file": "view-0090.00-frame-0001.png",
+      "frame": 1,
+      "angle_degrees": 90.0
+    }
+  ]
+}
