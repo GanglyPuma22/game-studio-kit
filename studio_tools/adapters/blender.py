@@ -77,6 +77,7 @@ def fixture(config, root):
         command(config, "fixture.py", [app_path(config, root, "blender")]),
         timeout=max(config["timeout"], 300),
         log=root / "blender-create.log",
+        hide_window=True,
     )
     info = inspect(config, root / "harbor-bell.glb", root / "roundtrip.json")
     glb = glb_info(root / "harbor-bell.glb")
@@ -112,6 +113,7 @@ def inspect(config, source, output):
         ),
         timeout=config["timeout"],
         log=output.with_suffix(".log"),
+        hide_window=True,
     )
     return read_json(output)
 
@@ -136,6 +138,7 @@ def export(config, source, collection, output):
         ),
         timeout=config["timeout"],
         log=Path(output).with_suffix(".export.log"),
+        hide_window=True,
     )
     if sha256(source) != source_hash:
         raise StudioError("Editable source changed during export; inspect source before continuing")
@@ -180,6 +183,7 @@ def render(config, source, output, camera, frames="1", angles="0", target="0,0,0
         ),
         timeout=config["timeout"],
         log=output / "blender-render.log",
+        hide_window=True,
     )
     result = read_json(output / "renders.json")
     from ..common import file_record

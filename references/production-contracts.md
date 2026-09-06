@@ -20,3 +20,16 @@ The candidate stores a sorted content-file inventory and digest, the workflow fi
 `pass`/`fail` needs actual hashed evidence with matching `content_digest`, a method and observer. `not_applicable` needs a reason. `not_run`/`unverified` are honest incomplete states. Candidate validation checks evidence consistency, not the truth of a human judgment; the reviewer must inspect the capture. [Acceptance](acceptance.md) defines appropriate methods.
 
 Commands expose `--help`: `check-package`, `doctor`, `setup`, `validate-record`, `fixture`, `blender`, `terrain`, `audio`, `meshy`, `gaea`, `godot`, `candidate`. `setup` emits exact actions and makes no installations. Paid operations require a budget record naming the work card, authorization, current rate-check date, units, estimated request cost and maximum. This records existing session authorization; it is not a demand to ask twice.
+
+Keep one compact session routing receipt in the work card or linked evidence:
+actual KIT root/version and manifest/selected-skill hashes; actual read time or
+tool-call reference; registered/direct_file/pending status; chosen capability and
+the current four-fact decision. Reuse unchanged reads; refresh only changed
+scope, hashes or capability assumptions. A retrospective receipt points to the
+earlier calls rather than inventing times. Distinguish following skill guidance,
+running a kit helper and running project-owned tests. A menu listing or file read
+does not prove registered invocation. This receipt needs neither a new schema
+nor mandatory reads of every sibling.
+
+Use [process and evidence lifecycle](execution-evidence.md) for bounded hidden
+jobs, unique run evidence, completed-log status and active/idle budget accounting.

@@ -15,6 +15,11 @@ Resolve this file's location to the package root (`../../`), then read [portabil
 4. Produce editable source and explicit runtime outputs with hashes. Review import and behavior before multiplying asset variants. When an observed defect is inside the work card, make a bounded correction and rerun the affected check. Stop ambiguous paid submissions, exhausted budgets or missing required user decisions; continue unrelated local work.
 5. Build a candidate with source/content/workflow identity. Route to review. Report separate visual, interaction, motion, audio and performance results, the concrete artifact location and remaining decision. Never promote provider completion or a technical fixture into artistic acceptance.
 
+Reuse the compact routing receipt in [production contracts](../../references/production-contracts.md)
+when those reads/capabilities are unchanged. For repeated or background commands,
+follow [process and evidence lifecycle](../../references/execution-evidence.md):
+preserve unique run logs and classify completed output before reporting status.
+
 | Task | Read next |
 |---|---|
 | Gameplay action, story/companion state | [studio-game-design](../studio-game-design/SKILL.md) |

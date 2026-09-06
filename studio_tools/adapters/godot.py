@@ -2,12 +2,27 @@
 
 from pathlib import Path
 import os
+import re
 import shutil
 import tempfile
+import uuid
 from contextlib import nullcontext
 from ..config import require_executable, app_path
-from ..common import StudioError, read_json
+from ..common import StudioError, read_json, write_json
 from ..processes import run
+
+
+def classify_log(output):
+    """Classify a completed log without echoing potentially private diagnostics."""
+    # Preserve the adapter's conservative substring detection, including
+    # diagnostics prefixed by terminal color escapes or a host wrapper.
+    errors = len(re.findall(r"(?:SCRIPT )?ERROR:", output))
+    warnings = len(re.findall(r"WARNING:|Orphan StringName:", output))
+    return {
+        "status": "errors" if errors else "warnings" if warnings else "clean",
+        "error_count": errors,
+        "warning_count": warnings,
+    }
 
 
 def command(config, project, mode="import", output=None, preset=None):
@@ -118,20 +133,30 @@ def execute(config, project, mode="import", output=None, preset=None):
             "LOCALAPPDATA",
         ):
             environment[key] = app_path(config, profile, "godot")
+        job = logs / "jobs" / f"godot-{mode}-{uuid.uuid4().hex}"
         result = run(
             args,
             timeout=config["timeout"],
-            log=logs / f"godot-{mode}.log",
+            job_dir=job,
+            hide_window=mode != "run",
             env=environment,
         )
     # Godot can log script/import failures while returning exit 0.
-    if "SCRIPT ERROR:" in result["stdout"] or "ERROR:" in result["stdout"]:
+    diagnostics = classify_log(result["stdout"])
+    write_json(job / "diagnostics.json", diagnostics)
+    if diagnostics["error_count"]:
         raise StudioError("Godot reported an error; inspect its local artifact log")
+    process_evidence = {
+        "process_record": result.get("process_record"),
+        "log": result.get("log"),
+        "diagnostics": diagnostics,
+        "diagnostics_record": str(job / "diagnostics.json"),
+    }
     if mode == "smoke":
         report = read_json(output)
         if report.get("ok") is not True:
             raise StudioError("Godot runtime assertions failed")
-        return report
+        return {**report, "process_evidence": process_evidence}
     if mode == "export" and (
         not Path(output).is_file() or Path(output).stat().st_size == 0
     ):
@@ -140,4 +165,5 @@ def execute(config, project, mode="import", output=None, preset=None):
         "status": mode + "_completed",
         "elapsed_seconds": result["elapsed_seconds"],
         "native_review": "not_run",
+        "process_evidence": process_evidence,
     }
