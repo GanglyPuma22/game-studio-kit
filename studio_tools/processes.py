@@ -180,3 +180,81 @@ def run(
         "log": str(log) if log is not None else None,
         "process_record": str(record_path) if record_path is not None else None,
     }
+
+
+def record(args, *, job_dir, duration, grace=5, cancelled=None, cwd=None):
+    """Own one recorder, send FFmpeg's q on stop, then bound finalization.
+
+    Cancellation/interrupt is retained as incomplete even if the muxer closes.
+    No PID from disk is ever signalled. The caller validates the media separately.
+    """
+    import math
+    if not isinstance(args, (list, tuple)) or not args:
+        raise StudioError("Recorder requires an argument array")
+    if any(type(n) not in (int, float) or not math.isfinite(n) or n <= 0 for n in (duration, grace)) or duration > 1200 or grace > 30:
+        raise StudioError("Recorder needs duration <=1200 and grace <=30 seconds")
+    folder = Path(job_dir)
+    try:
+        folder.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        raise StudioError("Job directory exists; choose a new run identity") from None
+    receipt = {"schema_version": 1, "status": "starting", "pid": None,
+               "started_utc": datetime.now(timezone.utc).isoformat(),
+               "stop_reason": None, "graceful": False, "cleanup": "not_needed"}
+    started = time.monotonic()
+    process = None
+    with (folder / "stdout.log").open("wb") as log:
+        try:
+            write_json(folder / "process.json", receipt)
+            try:
+                process = subprocess.Popen([str(a) for a in args], stdin=subprocess.PIPE,
+                    stdout=log, stderr=subprocess.STDOUT, cwd=cwd, **_creation_options(True))
+            except (OSError, ValueError, TypeError):
+                receipt["status"] = "start_failed"
+                return receipt
+            receipt.update(status="running", pid=process.pid)
+            write_json(folder / "process.json", receipt)
+            try:
+                while process.poll() is None:
+                    if cancelled and cancelled():
+                        receipt["stop_reason"] = "cancelled"
+                        break
+                    if time.monotonic() - started >= duration:
+                        receipt["stop_reason"] = "duration"
+                        break
+                    time.sleep(.025)
+            except KeyboardInterrupt:
+                receipt["stop_reason"] = "cancelled"
+            if process.poll() is None:
+                try:
+                    process.stdin.write(b"q\n")
+                    process.stdin.flush()
+                except (BrokenPipeError, OSError):
+                    pass
+                try:
+                    process.wait(timeout=grace)
+                except subprocess.TimeoutExpired:
+                    receipt["status"] = "timed_out"
+                    receipt["cleanup"] = "unverified"
+                    if _stop_owned(process, True):
+                        receipt["cleanup"] = "owned_tree_stopped"
+            if receipt["status"] != "timed_out":
+                receipt["graceful"] = process.returncode == 0
+                receipt["status"] = ("cancelled" if receipt["stop_reason"] == "cancelled" else
+                                     "completed" if process.returncode == 0 else "failed")
+            return receipt
+        finally:
+            if process is not None:
+                if process.poll() is None:
+                    receipt.update(status="interrupted", cleanup="unverified")
+                    try:
+                        if _stop_owned(process, True):
+                            receipt["cleanup"] = "owned_tree_stopped"
+                    except (OSError, subprocess.TimeoutExpired):
+                        pass
+                if process.stdin:
+                    process.stdin.close()
+                receipt["returncode"] = process.poll()
+            receipt.update(finished_utc=datetime.now(timezone.utc).isoformat(),
+                           elapsed_seconds=round(time.monotonic() - started, 6))
+            write_json(folder / "process.json", receipt)

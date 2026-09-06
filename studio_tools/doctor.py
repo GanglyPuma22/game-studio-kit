@@ -80,6 +80,13 @@ def inspect(config):
         "next_step": ACTIONS["computer_use"],
         "reason": "A Python helper cannot detect the active agent's tools or visual access",
     }
+    for name, step in {
+        "review_recording": "Configure an explicit file or currently permitted Windows ddagrab profile; record and finalize an original bounded run.",
+        "review_video_analysis": "Set credentials.gemini environment variable, approve exact media/model and a bounded budget; evaluate original failures and clean controls.",
+        "review_ordinary_input": "Demonstrate held movement and relative mouse through the active permitted host interface or a named human driver.",
+        "review_listening": "Record actual output source and named listener with reviewed intervals; PCM presence alone is insufficient.",
+    }.items():
+        capabilities[name] = {"status": "unverified", "operations": "unverified", "network_probed": False, "next_step": step}
     return {
         "schema_version": 1,
         "host": platform.system(),

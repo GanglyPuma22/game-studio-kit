@@ -10,6 +10,7 @@
 | Heightfield | studio-terrain local generator | Gaea UI graph plus installation-verified build recipe |
 | Timed functional cue | studio-audio local PCM | ElevenLabs effects/speech/music with rights and budget |
 | Import and gameplay response | studio-godot | Ordinary player-input native review |
+| Continuous recording and video analysis | studio-review [operational loop](../skills/studio-review/references/validation-loop.md), explicit FFmpeg and Gemini adapters | Native host permission and original-fixture detection remain separate gates |
 | Visual/motion/audio verdict | studio-review and actual host tools | Precise native/manual handoff if computer use/capture/listening unavailable |
 
 `doctor` is offline-first. An executable's `ready` means it answered a version query; operations remain unverified until executed. Credential presence is not authentication, entitlement, balance or provider readiness. The helper always reports host computer use as unverified: the active agent must inspect its actual tool list and perform a bounded native app operation to establish it.

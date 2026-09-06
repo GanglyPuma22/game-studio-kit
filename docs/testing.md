@@ -38,3 +38,14 @@ late exit-zero errors, warning classification, and separate Gaea native/unattend
 declarations. Native Windows also checks that a hidden Python child has no console
 window; this does not prove any Gaea/Blender/Godot unattended capability. No provider,
 desktop control, application fixture or native QOA run is required.
+
+## Operational review file tests
+
+`test_validation_loop.py` covers original encoder/decoder roundtrips, owned recorder
+stop/cancel/timeout/failure, stale identities, hidden mute intent, request reservation
+and ambiguity, dense timestamps and refusal of self-declared perception passes.
+Run `examples/review-loop/create.py --output /explicit/new/root` for a persistent
+original file example and affected synthetic timing recheck. FFmpeg-dependent
+tests skip when the tools are absent. These are not native/model acceptance.
+See the [operational procedure](../skills/studio-review/references/validation-loop.md)
+for the independently required host, known-failure/clean-control and listening proof.

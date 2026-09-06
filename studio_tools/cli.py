@@ -97,6 +97,22 @@ def parser():
     c.add_argument("operation", choices=["import", "smoke", "run", "export"])
     c.add_argument("--output")
     c.add_argument("--preset")
+    c = command("review", True)
+    c.add_argument("operation", choices=["validate-card", "prepare", "capture", "dense", "analyze", "assess", "compare", "validate-run", "fixtures"])
+    c.add_argument("--card")
+    c.add_argument("--candidate", default="artifacts/candidate.json")
+    c.add_argument("--run")
+    c.add_argument("--before")
+    c.add_argument("--after")
+    c.add_argument("--previous")
+    c.add_argument("--affected", nargs="+")
+    c.add_argument("--role", choices=["standalone", "before", "after"], default="standalone")
+    c.add_argument("--profile", help="Explicit local recorder profile JSON")
+    c.add_argument("--budget", help="Explicit clip-specific video authorization JSON")
+    c.add_argument("--dense", help="Saved dense frames.json relative to project")
+    c.add_argument("--evidence", help="Bound timing/action evidence JSON")
+    c.add_argument("--interval", nargs=2, type=float)
+    c.add_argument("--output", default="artifacts/review-fixtures")
     c = command("candidate", True)
     c.add_argument("--id", required=True)
     c.add_argument("--engine-version", default="4.5.1")
@@ -154,6 +170,34 @@ def dispatch(a):
         from .records import validate
 
         return validate(read_json(path(a.record)), root)
+    if a.command == "review":
+        from . import validation, review_media, review_video
+        def needed(field):
+            value = getattr(a, field)
+            if value is None:
+                raise StudioError("review " + a.operation + " requires --" + field)
+            return value
+        if a.operation == "fixtures":
+            return review_media.fixtures(config, path(a.output))
+        if a.operation in {"validate-card", "prepare"}:
+            card = read_json(path(needed("card")))
+            candidate = read_json(path(a.candidate))
+            if a.operation == "validate-card":
+                return validation.validate_card(card, candidate, root)
+            return {"run": validation.prepare_run(root, card, candidate, role=a.role, previous=a.previous, affected=a.affected)}
+        if a.operation == "compare":
+            return validation.compare_runs(root, needed("before"), needed("after"))
+        name = needed("run")
+        if a.operation == "validate-run":
+            validation.validate_run(root, name)
+            return {"ok": True, "run": name}
+        if a.operation == "capture":
+            return review_media.capture(config, root, name, read_json(path(needed("profile"))))
+        if a.operation == "dense":
+            return review_media.dense_frames(config, root, name, needed("interval"))
+        if a.operation == "analyze":
+            return review_video.analyze(config, root, name, read_json(path(needed("budget"))), dense=a.dense)
+        return validation.assess(root, name, a.evidence)
     if a.command == "fixture":
         from .fixture import create
 
