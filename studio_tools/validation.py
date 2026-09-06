@@ -185,6 +185,9 @@ def validate_run(root, name, *, current=True, check_assessment=True, config=None
                 raise StudioError("Stale " + stage + " run identity")
             for item in stage_data.get("files", []):
                 verify_file(root, item)
+    if (folder / "analysis.json").exists():
+        from .review_video import validate_analysis
+        validate_analysis(root, name, data, read_json(folder / "analysis.json"))
     if check_assessment and (folder / "assessment.json").exists():
         saved = read_json(folder / "assessment.json")
         recomputed = assess(root, name, _recompute=True, config=config)
@@ -217,9 +220,12 @@ def temporal_gate(criterion, timestamps, analysis, *, qualification=None, review
         or coverage.get("dense_max_gap_seconds", 1200) > criterion["max_gap_seconds"]
         or reviewed.get("interval") != selected or reviewed.get("max_gap_seconds", 1200) > criterion["max_gap_seconds"]):
         return result
+    if analysis.get("execution_scope") not in {"test", "provider"}:
+        result["reason"] = "Target analyzer execution scope is not established"
+        return result
     result.update(status="pass", reason="Qualified fault/control envelope and named review cover the declared interval",
                   submitted_max_gap_seconds=reviewed["max_gap_seconds"], detection_envelope=qualification["minimum_event_seconds"],
-                  evidence_scope="test" if "test" in {qualification["scope"], review["evidence_scope"]} else "operational",
+                  evidence_scope="test" if "test" in {analysis["execution_scope"], qualification["scope"], review["evidence_scope"]} else "operational",
                   observer=review["observer"], review_receipt=review["review_receipt"])
     return result
 
@@ -457,6 +463,8 @@ def assess(root, name, evidence=None, *, _recompute=False, config=None):
                 for source in (context["host_evidence"], context["clock_evidence"]):
                     verify_file(root, source)
                     files.append(source)
+                if context["provenance"] not in {"synthetic", "operator_reported"}:
+                    raise StudioError("Timing provenance must be synthetic or operator_reported")
                 item.update(observer=context["observer"], evidence_scope="test" if context["provenance"] == "synthetic" else "operator_reported")
             if uncertainty > .0334 or context.get("host_interference") != "none_observed":
                 item.update(status="unverified", reason="Clock alignment or host/recorder interference requires recheck")
@@ -468,7 +476,7 @@ def assess(root, name, evidence=None, *, _recompute=False, config=None):
                     raise StudioError("Recorder-off reference is not a matched candidate/settings/route")
                 off_context = read_json(verify_file(root, reference["context"]))
                 files.append(reference["context"])
-                required(off_context, ["measurement_id", "recording_active", "observer", "clock", "clock_evidence", "host_evidence", "timing_sha256", "settings", "route_id", "candidate_digest"])
+                required(off_context, ["measurement_id", "recording_active", "observer", "clock", "clock_evidence", "host_evidence", "timing_sha256", "settings", "route_id", "candidate_digest", "provenance", "host_interference"])
                 if (context.get("recording_active") is not True or not context.get("measurement_id")
                     or off_context["recording_active"] is not False or off_context["measurement_id"] == context["measurement_id"]
                     or reference["file"]["sha256"] == timing["file"]["sha256"]
@@ -486,7 +494,17 @@ def assess(root, name, evidence=None, *, _recompute=False, config=None):
                 off_rows = wall_rows(read_json(verify_file(root, reference["file"])), criterion["interval"], off_offset, off_precision)
                 files.append(reference["file"])
                 off = frame_times(off_rows, criterion["interval"], criterion["p95_ms"])
-                item["recorder_off"] = {"measurement": off, "p95_delta_ms": item["p95_ms"] - off["p95_ms"]}
+                if off_context["provenance"] not in {"synthetic", "operator_reported"}:
+                    raise StudioError("Recorder-off provenance must be synthetic or operator_reported")
+                if off_context["provenance"] == "synthetic":
+                    item["evidence_scope"] = "test"
+                comparison_valid = uncertainty <= .0334 and all(c.get("host_interference") == "none_observed" for c in (context, off_context))
+                item["recorder_on"] = {"context": context_ref, "observer": context["observer"], "provenance": context["provenance"], "measurement_id": context["measurement_id"]}
+                item["recorder_off"] = {"measurement": off, "context": reference["context"], "observer": off_context["observer"],
+                    "provenance": off_context["provenance"], "measurement_id": off_context["measurement_id"], "host_interference": off_context["host_interference"],
+                    "comparison_valid": comparison_valid, "p95_delta_ms": item["p95_ms"] - off["p95_ms"] if comparison_valid else None}
+                if not comparison_valid and criterion.get("requires_recorder_off"):
+                    item.update(status="unverified", reason="Host interference invalidates the required recorder-on/off comparison")
             elif criterion.get("requires_recorder_off"):
                 item.update(status="unverified", reason="Matched recorder-off reference required")
         elif criterion["kind"] in {"audio", "visual", "performance"} and named:

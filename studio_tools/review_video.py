@@ -4,6 +4,7 @@ Official API/schema references and current limits are recorded in validation-loo
 No installation, implicit upload, retry, remote URL input, or perception self-attestation.
 """
 import base64
+import hashlib
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -191,6 +192,103 @@ def _submit(body, secret, timeout):
         return raw
 
 
+def validate_analysis(root, name, run, analysis):
+    """Replay retained inputs; analysis.json is derived, never its own authority.
+
+    Invalid/ambiguous outcomes remain inspectable but cannot be edited into
+    observations. Successful legacy receipts without the replay inputs require
+    review under their original source; this helper does not upgrade evidence.
+    """
+    try:
+        _replay_analysis(root, relative(root, name), run, analysis)
+    except (KeyError, TypeError, ValueError, OSError) as exc:
+        raise StudioError("Analysis replay needs intact request/response/outcome evidence") from exc
+
+
+def _replay_analysis(root, folder, run, analysis):
+    dest = folder / "analysis-request"
+    request = read_json(dest / "request.json")
+    outcome = read_json(dest / "outcome.json")
+    recorded_status = outcome.get("status")
+    expected_status = {"completed": "observations_received", "over_budget": "observations_received",
+        "usage_unverified": "received_invalid", "received_invalid": "received_invalid", "rejected": "rejected",
+        "ambiguous": "ambiguous", "submitting": "ambiguous"}.get(recorded_status)
+    if expected_status is None or analysis.get("status") != expected_status or analysis.get("ok") is not (recorded_status == "completed"):
+        raise StudioError("Analysis status/acceptance contradicts retained outcome")
+    # No pass consumes fields from invalid or ambiguous observations. Keep those
+    # original receipts inspectable, including their bounded error response.
+    if expected_status != "observations_received":
+        return
+    required(request, ["replay_version", "execution_scope", "analysis_tool", "budget", "ledger_path"])
+    if request["replay_version"] != 1 or request["execution_scope"] not in {"provider", "test"}:
+        raise StudioError("Analysis request has no known execution scope/replay contract")
+    if any(outcome.get(k) != value for k, value in request.items() if k != "status"):
+        raise StudioError("Analysis outcome changed original request identity")
+    if read_json(relative(root, request["ledger_path"])) != outcome:
+        raise StudioError("Analysis outcome differs from retained budget ledger")
+    payload_path = dest / "request.original.json"
+    if sha256(payload_path) != request["request_sha256"] or payload_path.stat().st_size != request["request_bytes"]:
+        raise StudioError("Analysis request bytes differ from recorded submission")
+    retained = analysis.get("files", [])
+    for path in (dest / "request.json", dest / "outcome.json", payload_path, dest / "response.original.json"):
+        if file_record(root, path) not in retained:
+            raise StudioError("Analysis must retain the original request/response/outcome references")
+    budget = read_json(verify_file(root, request["budget"]))
+    if digest(budget) != request["budget_digest"] or request["endpoint"] != ENDPOINT:
+        raise StudioError("Analysis budget/endpoint identity differs from submission")
+    payload = read_json(payload_path)
+    expected = {"run_id": run["run_id"], "candidate_id": run["candidate"]["candidate_id"], "clip_sha256": sha256(folder / "capture.mp4")}
+    if request["run_id"] != expected["run_id"] or request["clip_sha256"] != expected["clip_sha256"] or payload["model"] != budget["model"]:
+        raise StudioError("Analysis request belongs to another run/media/model")
+    profile = analysis_profile(budget)
+    if payload.get("store") is not False or payload.get("generation_config") != {"max_output_tokens": profile["max_output_tokens"], "thinking_level": "low"}:
+        raise StudioError("Analysis request configuration differs from its profile")
+    videos = [part for part in payload["input"] if part["type"] == "video"]
+    images = [part for part in payload["input"] if part["type"] == "image"]
+    if (len(videos) != 1 or videos[0].get("processing") != {"type": "static", "fps": 1}
+        or hashlib.sha256(base64.b64decode(videos[0]["data"], validate=True)).hexdigest() != expected["clip_sha256"]):
+        raise StudioError("Analysis full-video input differs from the captured clip")
+    dense = read_json(verify_file(root, request["dense"])) if request.get("dense") else None
+    frames = dense["frames"] if dense else []
+    if len(images) != len(frames):
+        raise StudioError("Analysis dense inputs differ from retained coverage")
+    gap = None
+    if dense:
+        capture = read_json(folder / "capture.json")
+        start, end = interval(dense["interval"], run["card"]["duration_seconds"])
+        times = capture["media"]["timestamps_seconds"]
+        indexes = [i for i, timestamp in enumerate(times) if start <= timestamp <= end]
+        if (dense["run_sha256"] != sha256(folder / "run.json") or dense["capture_sha256"] != expected["clip_sha256"]
+            or [frame["frame_index"] for frame in frames] != indexes):
+            raise StudioError("Analysis dense selection differs from original run/PTS")
+        for image, frame in zip(images, frames):
+            verify_file(root, frame)
+            if image.get("resolution") != "high" or hashlib.sha256(base64.b64decode(image["data"], validate=True)).hexdigest() != frame["sha256"] or frame["time_seconds"] != times[frame["frame_index"]]:
+                raise StudioError("Analysis dense image/timestamp differs from original submission")
+        selected = [times[i] for i in indexes]
+        gap = max(b-a for a, b in zip([start]+selected, selected+[end]))
+    coverage = {"requested_video_fps": 1, "full_video_submitted": True, "dense_frame_count": len(frames),
+        "effective_model_gap_seconds": None, "fixture_detection": "not_run", "dense_interval": dense["interval"] if dense else None,
+        "dense_max_gap_seconds": gap}
+    response = read_json(dest / "response.original.json")
+    if response.get("status") != "completed" or not response.get("id") or response.get("model", "").removeprefix("models/") != budget["model"] or outcome.get("response_truncated"):
+        raise StudioError("Analysis original response was not a completed matching result")
+    text = "".join(part["text"] for step in response.get("steps", []) if step.get("type") == "model_output" for part in step.get("content", []) if part.get("type") == "text")
+    parsed = validate_findings(json.loads(text), expected, [c["id"] for c in run["card"]["criteria"]], run["card"]["duration_seconds"])
+    usage = response.get("usage") or {}
+    if type(usage.get("total_tokens")) is not int or usage["total_tokens"] < 0:
+        raise StudioError("Analysis original response has invalid usage")
+    cost = usage["total_tokens"] * max(number(rate, "recorded token rate", .000001, 1000) for rate in budget["rates_usd_per_million"].values()) / 1000000
+    if (outcome.get("usage") != usage or outcome.get("provider_id") != response["id"] or outcome.get("conservative_cost_usd") != cost
+        or recorded_status != ("completed" if cost <= request["reserved_usd"] else "over_budget")):
+        raise StudioError("Analysis returned usage/cost differs from retained outcome")
+    derived = {"identity": expected, "model": budget["model"], "backend": "gemini_interactions", "profile": profile,
+        "analysis_tool": request["analysis_tool"], "execution_scope": request["execution_scope"], "coverage": coverage,
+        "usage": usage, "provider_id": response["id"], "reported_model": response["model"], "findings": parsed["findings"]}
+    if any(analysis.get(k) != value for k, value in derived.items()):
+        raise StudioError("Analysis fields differ from replayed request/response evidence")
+
+
 def analyze(config, root, name, budget, *, dense=None, transport=None):
     folder = relative(root, name)
     if (folder / "analysis.json").exists() or (folder / "analysis-request").exists():
@@ -205,14 +303,17 @@ def analyze(config, root, name, budget, *, dense=None, transport=None):
     dest = folder / "analysis-request"
     dest.mkdir(exist_ok=False)
     state = read_json(slot)
-    state.update(status="submitting", model=budget["model"], endpoint=ENDPOINT, request_sha256=__import__("hashlib").sha256(body).hexdigest(),
+    execution_scope = "test" if transport is not None else "provider"
+    analysis_tool = tool_identity()
+    state.update(replay_version=1, execution_scope=execution_scope, analysis_tool=analysis_tool, budget=file_record(root, slot.parent / "budget.json"),
+                 ledger_path=slot.relative_to(Path(root)).as_posix(), dense=file_record(root, relative(root, dense)) if dense else None, status="submitting", model=budget["model"], endpoint=ENDPOINT, request_sha256=__import__("hashlib").sha256(body).hexdigest(),
                  request_bytes=len(body), created_utc=datetime.now(timezone.utc).isoformat())
     write_json(slot, state)
     write_json(dest / "request.json", state)
     (dest / "request.original.json").write_bytes(body)
     files.append(file_record(root, dest / "request.original.json"))
     result = {"schema_version": 1, "run_sha256": sha256(folder / "run.json"), "status": "ambiguous",
-              "execution_scope": "test" if transport is not None else "provider", "backend": "gemini_interactions", "model": budget["model"], "identity": expected, "analysis_tool": tool_identity(), "profile": analysis_profile(budget),
+              "execution_scope": execution_scope, "backend": "gemini_interactions", "model": budget["model"], "identity": expected, "analysis_tool": analysis_tool, "profile": analysis_profile(budget),
               "coverage": {"requested_video_fps": 1, "full_video_submitted": True,
                            "dense_frame_count": len(dense_record["frames"]) if dense_record else 0,
                            "effective_model_gap_seconds": None, "fixture_detection": "not_run", "dense_interval": dense_record["interval"] if dense_record else None, "dense_max_gap_seconds": dense_record["max_gap_seconds"] if dense_record else None},
@@ -224,6 +325,7 @@ def analyze(config, root, name, budget, *, dense=None, transport=None):
         oversized = len(raw) > 4000000
         raw = raw[:4000000]
         result["response_truncated"] = oversized
+        state["response_truncated"] = oversized
         (dest / "response.original.json").write_bytes(raw)
         result["files"].append(file_record(root, dest / "response.original.json"))
         if oversized:

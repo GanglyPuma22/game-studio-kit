@@ -50,7 +50,13 @@ must be independently evaluated; requested FPS is not observed model sampling.
 Run directories are immutable. `validate-run` checks current candidate files;
 historical comparisons use preserved identities. Assessment validation recomputes
 decisions from retained inputs, including adopted reviews and raw telemetry.
-Editing status, completion, intervals or an adjacent hash cannot confer a pass.
+Successful target and corpus analyses share a replay check against original request
+bytes, full-video/dense inputs, response identity/findings/usage, outcome and budget
+ledger. Derived status, coverage, model/profile/tool and execution scope must match
+those retained inputs. Invalid/ambiguous outcomes remain inspectable; editing their
+status or an adjacent hash cannot confer a pass. Legacy successful analyses without
+the replay receipt remain held under the newer helper; preserve them and review
+under their original source, without automatic reanalysis or recapture.
 A recheck must reference the exact selected before record, retain original
 criteria/actions, and name affected IDs. Sibling and concurrent attempts consume
 a single lineage budget; failed/incomplete attempts still consume it. A busy or
@@ -112,7 +118,11 @@ operator evidence is labeled operator_reported.
 and context, with settings/route/candidate digest, different `measurement_id`,
 `recording_active: false`, its own timing/clock/host evidence. The recorder-on
 context must declare its ID and `recording_active: true`. Relabeling the same
-rows as off is rejected. Only this pair supports a measured p95 delta; without
+rows as off is rejected. Both contexts require explicit synthetic/operator_reported
+provenance and host interference. Both observers/context identities are retained,
+and a synthetic contributor keeps the combined result in test scope. Interference
+invalidates the comparison (no accepted p95 delta) and holds an overhead-dependent
+criterion. Only a valid pair supports a measured p95 delta; without
 it no capture overhead claim is made. `requires_recorder_off` keeps a criterion
 pending until the reference exists. Model proposals cannot override measured
 performance. Raw interaction evidence similarly needs exact run/media/input
@@ -180,7 +190,9 @@ Host configuration and the executing code must remain controlled by the adopting
 operator. Consumers recheck host approval and recompute records; changing arbitrary
 project files/self-hashes is insufficient. A privileged operator who alters both
 host trust and evidence can lie. Test transport and test observer records never
-qualify operational capability. Even a qualified empirical detection envelope
+qualify operational capability. A target analyzed through test transport stays test
+scope even with operational qualification/review inputs; unknown target execution
+scope cannot close a temporal criterion. Even a qualified empirical detection envelope
 leaves internal model sampling unknown and human production acceptance separate.
 
 ## Provider profile, limits and accounting

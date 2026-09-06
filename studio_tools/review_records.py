@@ -156,7 +156,6 @@ def named_result(root, references, run, clip_hash, criterion, *, config=None, ru
 def qualification_data(root, value):
     """Recompute ten role scores; never trust a precomputed qualified boolean."""
     from .validation import interval, validate_run
-    from .review_video import validate_findings, analysis_profile
     from .review_media import CORPUS_ROLES
     corpus_path = verify_file(root, value["corpus"])
     corpus = read_json(corpus_path)
@@ -209,27 +208,8 @@ def qualification_data(root, value):
             raise StudioError("Qualification needs a completed retained analyzer response/usage")
         if value["scope"] == "operational" and analysis.get("execution_scope") != "provider":
             raise StudioError("Test transport cannot qualify operational model capability")
-        original = read_json(folder / "analysis-request/response.original.json")
-        text = "".join(p["text"] for step in original.get("steps", []) if step.get("type") == "model_output" for p in step.get("content", []) if p.get("type") == "text")
-        identity = {"run_id": run["run_id"], "candidate_id": run["candidate"]["candidate_id"], "clip_sha256": sha256(folder / "capture.mp4")}
-        if analysis["identity"] != identity:
-            raise StudioError("Corpus analyzer identity differs from the case run/media")
-        request_path = folder / "analysis-request/request.original.json"
-        request = read_json(request_path)
-        request_record = read_json(folder / "analysis-request/request.json")
-        if sha256(request_path) != request_record["request_sha256"] or request.get("model") != analysis["model"] or request.get("store") is not False:
-            raise StudioError("Qualification request differs from retained configuration")
-        profile = analysis_profile({"model": request["model"], "max_output_tokens": request.get("generation_config", {}).get("max_output_tokens")})
-        videos = [part for part in request["input"] if part["type"] == "video"]
-        if (analysis["profile"] != profile or request["generation_config"] != {"max_output_tokens": profile["max_output_tokens"], "thinking_level": "low"}
-            or len(videos) != 1 or videos[0].get("processing") != {"type": "static", "fps": 1}
-            or any(part.get("resolution") != "high" for part in request["input"] if part["type"] == "image")):
-            raise StudioError("Qualification declared profile differs from actual submitted configuration")
-        if original.get("model", "").removeprefix("models/") != analysis["model"] or original.get("status") != "completed" or original.get("usage") != analysis["usage"]:
-            raise StudioError("Qualification response model/status/usage mismatch")
-        raw_findings = validate_findings(json.loads(text), identity, [c["id"] for c in run["card"]["criteria"]], run["card"]["duration_seconds"])
-        if raw_findings["findings"] != analysis["findings"]:
-            raise StudioError("Qualification findings differ from retained provider bytes")
+        # validate_run replays target and corpus analysis through the same check.
+        identity = analysis["identity"]
         binding = {"model": analysis["model"], "profile": analysis["profile"], "tool_source_digest": analysis["analysis_tool"]["source_digest"]}
         if common is not None and binding != common:
             raise StudioError("Qualification cases use different model/config/tool identities")

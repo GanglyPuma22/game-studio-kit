@@ -18,6 +18,19 @@ from studio_tools.evidence import new_candidate
 
 
 class CardCorrections(ReviewFixture):
+    def test_F01_target_scope_participates_in_temporal_result(self):
+        criterion={'interval':[0,2],'dense_interval':[.7,1.3],'max_gap_seconds':.0334}
+        coverage={'full_video_submitted':True,'dense_interval':[.7,1.3],'dense_max_gap_seconds':1/30}
+        qualification={'qualified':True,'scope':'operational','max_gap_seconds':.0334,'minimum_event_seconds':.1}
+        review={'status':'pass','evidence_scope':'operational','observer':'test observer','review_receipt':{},'temporal_coverage':{'interval':[.7,1.3],'max_gap_seconds':1/30}}
+        for scope,expected in [('test','test'),('provider','operational'),(None,None),('unknown',None)]:
+            analysis={'status':'observations_received','ok':True,'execution_scope':scope,'coverage':coverage}
+            result=v.temporal_gate(criterion,[n/30 for n in range(60)],analysis,qualification=qualification,review=review)
+            if expected:self.assertEqual(result['status'],'pass');self.assertEqual(result['evidence_scope'],expected)
+            else:self.assertEqual(result['status'],'unverified')
+        qualification['scope']='test'
+        self.assertEqual(v.temporal_gate(criterion,[n/30 for n in range(60)],analysis|{'execution_scope':'provider'},qualification=qualification,review=review)['evidence_scope'],'test')
+
     def test_C05_import_and_quiet_branches_do_not_mute_audible_game(self):
         (self.root/'scene.txt').write_text('godot --headless --editor --import --audio-driver Dummy\n# quiet: godot -Muted\ngodot --audio-driver WASAPI\n')
         self.candidate=new_candidate(self.root,'sample','fixture','test')
@@ -178,7 +191,9 @@ class MediaCorrections(ReviewFixture):
         facts={'run_id':read_json(folder/'run.json')['run_id'],'candidate_id':'sample','clip_sha256':sha256(folder/'capture.mp4'),'input_route':'synthetic',
             'timing':{'file':file_record(self.root,folder/'on.json'),'method':'wall_frame_time','interval':[0,2],'clock_offset_seconds':0,'clock_uncertainty_seconds':0,'context':file_record(self.root,folder/'on-context.json'),'recorder_off':reference}}
         # Analyzer disagreement cannot overrule measured performance.
-        write_json(folder/'analysis.json',{'run_sha256':sha256(folder/'run.json'),'status':'observations_received','findings':[{'criterion_id':'PERF','status':'fail','interval':[0,2],'observation':'model proposal'}],'files':[]})
+        budget=funded_budget(sha256(folder/'capture.mp4'))
+        raw={'id':'test-performance','model':budget['model'],'status':'completed','usage':{'total_tokens':100},'steps':[{'type':'model_output','content':[{'type':'text','text':json.dumps({'run_id':facts['run_id'],'candidate_id':'sample','clip_sha256':facts['clip_sha256'],'findings':[{'criterion_id':'PERF','status':'fail','interval':[0,2],'observation':'model proposal','severity':'test','next_check':'raw timing'}]})}]}]}
+        video.analyze(self.config,self.root,name,budget,transport=lambda *args:json.dumps(raw).encode())
         write_json(folder/'facts.json',facts)
         result=v.assess(self.root,name,(folder/'facts.json').relative_to(self.root).as_posix())
         self.assertEqual(result['results'][0]['status'],'pass');self.assertEqual(result['results'][0]['recorder_off']['p95_delta_ms'],-5)
@@ -189,6 +204,29 @@ class MediaCorrections(ReviewFixture):
         # Recompute deliberately bypasses stale assessment references only in this unit control.
         with patch('studio_tools.validation.validate_run',return_value=read_json(folder/'run.json')):
             with self.assertRaisesRegex(StudioError,'distinct'):v.assess(self.root,name,_recompute=True)
+
+    def test_F03_recorder_off_scope_interference_and_contexts(self):
+        self.card['input_route']='human'
+        self.card['criteria']=[{'id':'PERF','dimension':'performance','kind':'performance','action_ids':['walk'],'expected':'floor','mandatory':True,'interval':[0,2],'p95_ms':40,'requires_recorder_off':True}]
+        for provenance,interference in [('synthetic','observed'),('synthetic','none_observed'),('operator_reported','observed'),('operator_reported','none_observed')]:
+            name=self.captured();folder=self.root/name
+            write_json(folder/'on.json',[{'time_seconds':i*.02,'frame_ms':20} for i in range(100)]);write_json(folder/'off.json',[{'time_seconds':i*.025,'frame_ms':25} for i in range(80)])
+            (folder/'source.txt').write_text('TEST FIXTURE: all operator/host observations are simulated, never actual production evidence')
+            evidence=file_record(self.root,folder/'source.txt');clock={'offset_seconds':0,'uncertainty_seconds':0,'precision_seconds':1e-6}
+            on={'observer':'simulated operator','provenance':'operator_reported','clock':clock,'clock_evidence':evidence,'host_evidence':evidence,'run_sha256':sha256(folder/'run.json'),'timing_sha256':sha256(folder/'on.json'),'settings':self.card['settings'],'host_interference':'none_observed','measurement_id':'on','recording_active':True}
+            off=on|{'observer':'simulated off observer','provenance':provenance,'host_interference':interference,'measurement_id':'off','recording_active':False,'timing_sha256':sha256(folder/'off.json'),'route_id':self.card['route_id'],'candidate_digest':self.candidate['content_digest']}
+            write_json(folder/'on-context.json',on);write_json(folder/'off-context.json',off)
+            timing={'file':file_record(self.root,folder/'on.json'),'method':'wall_frame_time','interval':[0,2],'clock_offset_seconds':0,'clock_uncertainty_seconds':0,'context':file_record(self.root,folder/'on-context.json'),
+                'recorder_off':{'settings':self.card['settings'],'route_id':self.card['route_id'],'candidate_digest':self.candidate['content_digest'],'file':file_record(self.root,folder/'off.json'),'context':file_record(self.root,folder/'off-context.json')}}
+            facts={'run_id':read_json(folder/'run.json')['run_id'],'candidate_id':'sample','clip_sha256':sha256(folder/'capture.mp4'),'input_route':'human','timing':timing};write_json(folder/'facts.json',facts)
+            result=v.assess(self.root,name,(folder/'facts.json').relative_to(self.root).as_posix());item=result['results'][0]
+            self.assertEqual(item['evidence_scope'],'test' if provenance=='synthetic' else 'operator_reported')
+            self.assertEqual(item['status'],'unverified' if interference=='observed' else 'pass')
+            self.assertEqual(result['technical_criteria_complete'],provenance=='operator_reported' and interference=='none_observed')
+            self.assertEqual(item['recorder_off']['observer'],'simulated off observer')
+            self.assertEqual(item['recorder_off']['context'],timing['recorder_off']['context'])
+            self.assertEqual(item['recorder_on']['context'],timing['context'])
+            self.assertEqual(item['recorder_off']['comparison_valid'],interference=='none_observed')
 
     def test_C03_audio_criterion_needs_audio_stream_coverage(self):
         self.card['criteria'].append({'id':'SOUND','dimension':'audio','kind':'audio','action_ids':['walk'],'expected':'cue','mandatory':True,'interval':[0,2]})
@@ -289,6 +327,37 @@ class QualificationCorrections(unittest.TestCase):
         self.assertFalse(assessment['technical_criteria_complete'])
         self.assertEqual(assessment['production_acceptance'],'pending_independent_review')
         self.assertEqual(checked['card']['input_route'],'synthetic')
+
+    def test_F02_target_response_is_replayed_before_acceptance(self):
+        from studio_tools import review_records as r
+        prior=read_json(self.root/self.target/'run.json');card=copy.deepcopy(prior['card']);card['criteria']=[c for c in card['criteria'] if c['id']=='TEMP']
+        for wrong_identity in (True,False):
+            name=v.prepare_run(self.root,card,prior['candidate']);folder=self.root/name
+            m.capture(self.config,self.root,name,{'route':'file','source':str(self.root/'artifacts/originals/clean.mp4')})
+            m.dense_frames(self.config,self.root,name,[.7,1.3]);budget=funded_budget(sha256(folder/'capture.mp4'));budget['authorization_id']='invalid-target' if wrong_identity else 'valid-target'
+            expected={'run_id':read_json(folder/'run.json')['run_id'],'candidate_id':prior['candidate']['candidate_id'],'clip_sha256':'wrong-original-identity' if wrong_identity else sha256(folder/'capture.mp4')}
+            finding={'criterion_id':'TEMP','status':'pass','category':'temporal','interval':[0,2],'observation':'TEST simulated clean target','severity':'none','next_check':'actual independent run'}
+            raw={'id':'test-target','model':budget['model'],'status':'completed','usage':{'total_tokens':100},'steps':[{'type':'model_output','content':[{'type':'text','text':json.dumps(expected|{'findings':[finding]})}]}]}
+            analysis=video.analyze(self.config,self.root,name,budget,dense=name+'/dense-0/frames.json',transport=lambda *args:json.dumps(raw).encode())
+            self.assertTrue(v.validate_run(self.root,name,current=False))  # unchanged invalid outcomes remain inspectable
+            source=read_json(self.root/'artifacts/test-observations.json');source.update(run_sha256=sha256(folder/'run.json'),clip_sha256=sha256(folder/'capture.mp4'));source['observations']=[o for o in source['observations'] if o['criterion_id']=='TEMP']
+            adopted=r.ingest(self.config,self.root,name,self.approved(source))
+            facts={'run_id':expected['run_id'],'candidate_id':expected['candidate_id'],'clip_sha256':sha256(folder/'capture.mp4'),'input_route':'synthetic','reviews':[adopted],'qualification':self.result['qualification']}
+            fp=self.root/'artifacts/target-facts.json';write_json(fp,facts)
+            retained={p.name:sha256(p) for p in (folder/'analysis-request').iterdir() if p.is_file()}
+            if wrong_identity:
+                self.assertEqual(analysis['status'],'received_invalid');changed=analysis|{'status':'observations_received','ok':True};write_json(folder/'analysis.json',changed)
+                with self.assertRaises(StudioError):v.validate_run(self.root,name,current=False)
+                with self.assertRaises(StudioError):v.assess(self.root,name,fp.relative_to(self.root).as_posix(),config=self.config)
+            else:
+                changes={'execution_scope':'provider','usage':{'total_tokens':0},'identity':expected|{'clip_sha256':'wrong'},'profile':{},'coverage':{},'findings':[],'model':'other','analysis_tool':{}}
+                for key,value in changes.items():
+                    write_json(folder/'analysis.json',analysis|{key:value})
+                    with self.subTest(key=key),self.assertRaises(StudioError):v.validate_run(self.root,name,current=False)
+                write_json(folder/'analysis.json',analysis)
+                result=v.assess(self.root,name,fp.relative_to(self.root).as_posix(),config=self.config)
+                self.assertEqual(result['results'][0]['status'],'pass');self.assertEqual(result['results'][0]['evidence_scope'],'test')
+            self.assertEqual(retained,{p.name:sha256(p) for p in (folder/'analysis-request').iterdir() if p.is_file()})
 
     def test_C04_named_failures_and_timing_review_are_executable(self):
         from studio_tools import review_records as r
