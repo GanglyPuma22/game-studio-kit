@@ -127,6 +127,45 @@ class ProductionReliabilityTests(unittest.TestCase):
             launch.assert_not_called()
         self.assertEqual((folder / "process.json").read_bytes(), record)
 
+    def test_start_failure_preserves_existing_legacy_log_bytes(self):
+        log = self.root / "legacy.log"
+        original = b"previous run\r\nraw bytes: \xff\x00\n"
+        log.write_bytes(original)
+        with self.assertRaisesRegex(StudioError, "Could not start"):
+            processes.run([self.root / "missing-program"], log=log, hide_window=True)
+        self.assertEqual(log.read_bytes(), original)
+
+    def test_interruption_during_timeout_cleanup_retries_owned_cleanup(self):
+        with (
+            patch("studio_tools.processes.subprocess.Popen") as launch,
+            patch("studio_tools.processes._stop_owned", side_effect=[KeyboardInterrupt, True]) as stop,
+        ):
+            child = launch.return_value
+            child.pid = 123
+            child.poll.return_value = -1
+            child.wait.side_effect = subprocess.TimeoutExpired(["fixture"], 1)
+            with self.assertRaises(KeyboardInterrupt):
+                self.run_python("unused")
+            self.assertEqual(stop.call_count, 2)
+            stop.assert_called_with(child, True)
+        record = read_json(self.root / "job/process.json")
+        self.assertEqual(record["status"], "timed_out")
+        self.assertEqual(record["cleanup"], "owned_tree_stopped")
+
+    def test_repeated_cleanup_interruptions_remain_explicitly_unverified(self):
+        with (
+            patch("studio_tools.processes.subprocess.Popen") as launch,
+            patch("studio_tools.processes._stop_owned", side_effect=KeyboardInterrupt),
+        ):
+            child = launch.return_value
+            child.pid = 123
+            child.poll.return_value = None
+            child.wait.side_effect = subprocess.TimeoutExpired(["fixture"], 1)
+            with self.assertRaises(KeyboardInterrupt):
+                self.run_python("unused")
+        record = read_json(self.root / "job/process.json")
+        self.assertEqual(record["cleanup"], "unverified")
+
     def test_cleanup_failure_is_not_reported_as_stopped(self):
         # No live process is deliberately left behind by this failure fixture.
         with patch("studio_tools.processes.subprocess.Popen") as launch:
@@ -202,8 +241,10 @@ class ProductionReliabilityTests(unittest.TestCase):
             first_bytes = runs[0].read_bytes()
             self.assertEqual(first["process_evidence"]["diagnostics"]["status"], "warnings")
             self.assertEqual(first["native_review"], "not_run")
-            with self.assertRaisesRegex(StudioError, "reported an error"):
+            with self.assertRaisesRegex(StudioError, "reported an error") as failure:
                 godot.execute(config, self.root)
+            self.assertIn("artifacts/jobs/" + runs[1].parent.name + "/stdout.log", str(failure.exception))
+            self.assertNotIn("SCRIPT ERROR: late error", str(failure.exception))
         self.assertNotEqual(runs[0], runs[1])
         self.assertEqual(runs[0].read_bytes(), first_bytes)
         self.assertEqual(read_json(runs[1].parent / "diagnostics.json")["error_count"], 1)

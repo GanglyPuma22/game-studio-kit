@@ -1,10 +1,12 @@
 """Bounded argument-array execution; cleanup touches only this job's process."""
 
 from __future__ import annotations
+from contextlib import ExitStack
 from datetime import datetime, timezone
 import os
 from pathlib import Path
 import signal
+import shutil
 import subprocess
 import tempfile
 import time
@@ -86,7 +88,16 @@ def run(
     process = None
     # Redirect to a file, not a pipe: partial output survives timeout and does
     # not depend on draining a descendant's inherited pipe during cleanup.
-    with (log.open("w+b") if log is not None else tempfile.TemporaryFile()) as capture:
+    with ExitStack() as files:
+        previous_log = None
+        if folder is None and log is not None and log.is_file():
+            previous_log = files.enter_context(tempfile.TemporaryFile())
+            with log.open("rb") as original:
+                shutil.copyfileobj(original, previous_log)
+            previous_log.seek(0)
+        capture = files.enter_context(
+            log.open("w+b") if log is not None else tempfile.TemporaryFile()
+        )
         try:
             try:
                 process = subprocess.Popen(
@@ -99,6 +110,10 @@ def run(
                 )
             except OSError as exc:
                 record["status"] = "start_failed"
+                if previous_log is not None:
+                    capture.seek(0)
+                    shutil.copyfileobj(previous_log, capture)
+                    capture.truncate()
                 raise StudioError(
                     f"Could not start {Path(str(args[0])).name}; check executable configuration"
                 ) from exc
@@ -126,8 +141,14 @@ def run(
         except BaseException:
             # A receipt-write failure or caller interruption after launch must
             # not leave a running job behind or give it a completed status.
-            if process is not None and record["status"] == "running":
-                record["status"] = "interrupted"
+            if process is not None and (
+                record["status"] == "running"
+                or (record["status"] == "timed_out" and "cleanup" not in record)
+            ):
+                if record["status"] == "running":
+                    record["status"] = "interrupted"
+                # A second interruption must still leave an honest receipt.
+                record["cleanup"] = "unverified"
                 try:
                     stopped = _stop_owned(process, hide_window)
                 except (OSError, subprocess.TimeoutExpired):

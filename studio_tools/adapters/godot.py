@@ -145,7 +145,10 @@ def execute(config, project, mode="import", output=None, preset=None):
     diagnostics = classify_log(result["stdout"])
     write_json(job / "diagnostics.json", diagnostics)
     if diagnostics["error_count"]:
-        raise StudioError("Godot reported an error; inspect its local artifact log")
+        raise StudioError(
+            f"Godot reported an error; inspect artifacts/jobs/{job.name}/stdout.log "
+            "and its adjacent process.json and diagnostics.json"
+        )
     process_evidence = {
         "process_record": result.get("process_record"),
         "log": result.get("log"),
