@@ -59,38 +59,66 @@ def redact(value, secret):
 
 def archive_audio(record_path, output, record, url, headers, wire, secret, transport=None):
     path = Path(output)
+    record_path = Path(record_path)
     if path.suffix != ".mp3" or path.exists() or path.is_symlink():
         raise StudioError("Choose a new .mp3 output; preserve existing originals")
     if path.resolve() == Path(record_path).resolve():
         raise StudioError("Intent and original need separate paths")
     path.parent.mkdir(parents=True, exist_ok=True)
+    record_path.parent.mkdir(parents=True, exist_ok=True)
+    # Reserve recovery storage before any paid submission. Keep it beside the
+    # intent so even an unchanged SUBMISSION_UNKNOWN record locates the bytes.
+    try:
+        fd, name = tempfile.mkstemp(prefix="received-", suffix=".mp3.part", dir=record_path.parent)
+    except OSError:
+        raise StudioError("Cannot reserve audio recovery storage; no request submitted") from None
+    recovery = Path(name)
     # Persist uncertainty before POST, so a crash or failed final metadata write
     # cannot leave a falsely successful/retryable intent.
     record["status"] = "SUBMISSION_UNKNOWN"
+    record["recovery"] = {"path": recovery.name, "state": "reserved"}
     record = redact(record, secret)
-    claim(record_path, record)
-    partial = None
     try:
-        data, metadata = (transport or Transport(timeout=180)).request(
-            "POST", url, headers, wire, binary=True)
-        fd, name = tempfile.mkstemp(prefix=path.name+".", suffix=".part", dir=path.parent)
-        partial = Path(name)
+        claim(record_path, record)
+    except Exception:
+        os.close(fd)
+        recovery.unlink(missing_ok=True)
+        raise
+    received = False
+    saved = False
+    try:
         with os.fdopen(fd, "wb") as f:
+            data, metadata = (transport or Transport(timeout=180)).request(
+                "POST", url, headers, wire, binary=True)
+            received = True
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
-        validate_download(partial, ".mp3")
-        # Exclusive final creation also protects an output created during POST.
-        os.link(partial, path)  # atomic, exclusive publication on the same filesystem
+        record["recovery"].update(state="received", sha256=sha256(recovery),
+                                  bytes=recovery.stat().st_size, validated=False)
+        saved = True
         safe_metadata = {k: v for k, v in metadata.items()
                          if k.lower() in {"content-type", "content-length", "request-id", "x-request-id", "character-cost"}}
-        record.update(status="ARCHIVED", response_metadata=redact(safe_metadata, secret),
+        record["response_metadata"] = redact(safe_metadata, secret)
+        validate_download(recovery, ".mp3")
+        record["recovery"]["validated"] = True
+        # Exclusive publication protects an output created during POST. If hard
+        # links are unsupported (including cross-device paths), keep recovery.
+        os.link(recovery, path)
+        record.update(status="ARCHIVED",
                       output={"name": path.name, "sha256": sha256(path), "bytes": path.stat().st_size})
         write_json(record_path, record)
     except Exception:
-        # The durable record already says unknown, even if storage itself failed.
+        if saved:
+            record["status"] = "RECEIVED_UNARCHIVED"
+            try:
+                write_json(record_path, record)
+            except Exception:
+                # The pre-POST intent still identifies recovery, but storage
+                # failure can prevent recording its completed hash/state.
+                raise StudioError("Hosted audio archive outcome unknown; preserve the intent and its recovery path, metadata durability unconfirmed; do not automatically regenerate") from None
+            raise StudioError("Hosted audio received; preserve the intent and recorded recovery bytes for manual reconciliation; do not automatically regenerate") from None
+        if received:
+            raise StudioError("Hosted audio received but recovery durability unconfirmed; preserve the intent and any recovery bytes, reconcile in provider history; do not automatically regenerate") from None
         raise StudioError("Hosted audio outcome unknown; preserve record and reconcile in provider history, do not automatically regenerate") from None
-    finally:
-        if partial is not None:
-            partial.unlink(missing_ok=True)
     return record

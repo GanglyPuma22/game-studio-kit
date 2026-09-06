@@ -10,7 +10,7 @@ from .records import required, verify_file, DIMENSIONS, VERDICTS
 EXCLUDED = {".git", ".godot", "artifacts", "__pycache__", ".studio"}
 
 
-def inventory(project):
+def inventory(project, *, portable=True):
     root = Path(project).resolve()
     files = [
         file_record(root, p)
@@ -21,11 +21,11 @@ def inventory(project):
         and p.name not in {".studio-local.json"}
     ]
 
-    return canonical_inventory(files)
+    return canonical_inventory(files, portable=portable)
 
 
-def canonical_inventory(files):
-    """Portable exact spelling/order; reject aliases before a Windows transfer."""
+def canonical_inventory(files, *, portable=True):
+    """Reject aliases; apply Windows portability only to version 2 inventories."""
     seen = set()
     spellings = {}
     for item in files:
@@ -33,15 +33,17 @@ def canonical_inventory(files):
         parts = PurePosixPath(path).parts
         if not parts or PurePosixPath(path).is_absolute() or ":" in path or "/".join(parts) != path or "\\" in path or ".." in parts:
             raise StudioError("Inventory needs canonical POSIX relative paths")
+        if path in seen:
+            raise StudioError("Duplicate inventory path")
+        seen.add(path)
+        if not portable:
+            continue
         reserved = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
         reserved.update(prefix + n for prefix in ("COM", "LPT") for n in "123456789¹²³")
         for part in parts:
             if (part.endswith((".", " ")) or part.split(".")[0].upper() in reserved
                 or any(ord(c) < 32 or c in '<>:"|?*' for c in part)):
                 raise StudioError("Inventory path is not portable to Windows: " + path)
-        if path in seen:
-            raise StudioError("Duplicate inventory path")
-        seen.add(path)
         for i in range(1, len(parts) + 1):
             prefix = "/".join(parts[:i])
             folded = prefix.casefold()
@@ -155,13 +157,13 @@ def validate_candidate(record, root):
     version = record.get("inventory_version", 1)
     if version not in {1, 2}:
         raise StudioError("Unsupported inventory version")
-    ordered = canonical_inventory(files)
-    workflow_ordered = canonical_inventory(record["workflow_files"])
+    ordered = canonical_inventory(files, portable=version == 2)
+    workflow_ordered = canonical_inventory(record["workflow_files"], portable=version == 2)
     if version == 2 and (files != ordered or record["workflow_files"] != workflow_ordered):
         raise StudioError("Version 2 inventories must use canonical path order")
     for item in files:
         verify_file(root, item)
-    current = inventory(root)
+    current = inventory(root, portable=version == 2)
     if {item["path"]: item["sha256"] for item in current} != {item["path"]: item["sha256"] for item in ordered}:
         raise StudioError(
             "Candidate content changed: added, removed or modified project file"

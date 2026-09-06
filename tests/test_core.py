@@ -380,16 +380,19 @@ class RecordTests(TempCase):
         with self.assertRaisesRegex(StudioError, "clip metadata"):
             validate(a, self.root)
 
-    def test_portable_paths_and_symlink_escape(self):
+    def test_portable_paths(self):
         for name in ["../outside", "C:/secret", "/tmp/secret", "a\\b", "a:file"]:
             with self.assertRaises(StudioError):
                 relative(self.root, name)
-        if hasattr(os, "symlink"):
+    def test_symlink_escape(self):
+        try:
             (self.root / "escape").symlink_to(
                 self.root.parent, target_is_directory=True
             )
-            with self.assertRaises(StudioError):
-                relative(self.root, "escape/file")
+        except OSError as exc:
+            self.skipTest(f"Host cannot create directory symlinks: {exc}")
+        with self.assertRaises(StudioError):
+            relative(self.root, "escape/file")
 
     def test_example_records_actual_artifacts(self):
         example = ROOT / "examples/harbor-pocket"

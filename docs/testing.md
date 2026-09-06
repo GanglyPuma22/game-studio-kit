@@ -9,6 +9,15 @@ python -m studio_tools check-package --root .
 
 The standard-library tests use temporary directories and mocked provider boundaries. They cover package relocation and reference closure, invalid config/missing tools, process timeout ownership, candidate content/capture mismatches, missing exports/clip metadata, nonhumanoid rig rejection, interrupted/ambiguous Meshy lifecycle, partial downloads, local PCM/trim/loop behavior, hosted audio error redaction, terrain dimensions/seams, Gaea capability/recipe checks and app command construction. They do not call a provider or control the visible desktop.
 
+For optional isolated native QOA success/failure regressions, set `STUDIO_TEST_GODOT`
+to an existing native Godot executable before running the suite. The test creates
+its own original audio/project/profile in temporary storage and checks both the
+shipped assignment and a deliberately broken compressed-byte assignment. No app
+GUI or listening is involved. Without that variable, the native test is explicitly
+skipped. Native Windows also skips the POSIX-only historical-filename fixture;
+literal inventory validation still runs on every host. Directory-symlink tests
+skip only when creation is unavailable; non-symlink path assertions always run.
+
 The repository includes a real original GLB/Blender source and cues; tests inspect their structure/hashes rather than pretending a mocked GLB demonstrates a real export. Optional real application checks are explicit commands, not surprise prerequisites of unit tests. See [compatibility](compatibility.md) for executed versions and honest limits.
 
 For a fresh reproduction, extract the whole package into a path with spaces and set a temporary empty agent profile. From a different game working directory, run its absolute `scripts/studio.py` entrypoint, check-package, local audio/terrain, and the fixture/import/smoke route using explicit host executables. No original workspace or generic skills are required. This verifies resource resolution and local execution; actual registered-plugin invocation requires a new native host conversation.

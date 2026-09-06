@@ -12,7 +12,7 @@ import tempfile
 import wave
 
 
-def check(executable):
+def check(executable, timeout=90):
     with tempfile.TemporaryDirectory(prefix="studio-audio-import-") as folder:
         root = Path(folder)
         project = root / "project"
@@ -44,18 +44,24 @@ edit/loop_mode=0
         # to a PCM-width division of compressed bytes.
         assignment = next(line.strip() for line in template.read_text().splitlines() if "stream.loop_end =" in line)
         (project / "check.gd").write_text('''extends SceneTree
+func fail_check(message: String):
+    push_error("STUDIO_QOA_FAILURE: " + message)
+    quit(1)
+
 func _initialize():
     var stream = load("res://original.wav") as AudioStreamWAV
-    assert(stream != null)
-    assert(stream.format == AudioStreamWAV.FORMAT_QOA)
-    assert(stream.stereo)
-    assert(stream.mix_rate == 24000)
-    assert(abs(stream.get_length() - 24.0) < 0.0001)
+    if stream == null:
+        fail_check("AudioStreamWAV failed to load")
+        return
+    if stream.format != AudioStreamWAV.FORMAT_QOA or not stream.stereo or stream.mix_rate != 24000 or abs(stream.get_length() - 24.0) >= 0.0001:
+        fail_check("Expected stereo QOA at 24000 Hz for 24 seconds")
+        return
     stream.loop_begin = 0
     ''' + assignment + '''
     stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
-    assert(stream.loop_end == 576000)
-    assert(stream.data.size() / 4 != stream.loop_end)
+    if stream.loop_end != 576000 or stream.data.size() / 4 == stream.loop_end:
+        fail_check("Expected 576000 decoded loop frames; got " + str(stream.loop_end))
+        return
     print("STUDIO_QOA_RESULT=" + JSON.stringify({"format":stream.format, "sample_rate":stream.mix_rate, "duration_seconds":stream.get_length(), "data_bytes":stream.data.size(), "loop_end_frame":stream.loop_end, "listening":"not_run"}))
     quit()
 ''')
@@ -66,7 +72,12 @@ func _initialize():
             env[key] = str(isolated)
         diagnostics = []
         def run(args):
-            p = subprocess.run([str(Path(executable).resolve()), "--headless", "--path", str(project), *args], env=env, capture_output=True, text=True, timeout=90)
+            try:
+                p = subprocess.run([str(Path(executable).resolve()), "--headless", "--path", str(project), *args], env=env, capture_output=True, text=True, timeout=timeout)
+            except subprocess.TimeoutExpired as exc:
+                captured = [value.decode(errors="replace") if isinstance(value, bytes) else value or ""
+                            for value in (exc.stdout, exc.stderr)]
+                raise RuntimeError(f"Godot QOA check timed out after {timeout} seconds (" + " ".join(args) + "):\n" + "".join(captured)) from None
             diagnostics.extend(line for line in (p.stdout + p.stderr).splitlines() if "ERROR:" in line)
             if p.returncode or "SCRIPT ERROR" in p.stdout + p.stderr:
                 raise RuntimeError(p.stdout + p.stderr)
@@ -86,4 +97,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--godot", required=True)
     args = parser.parse_args()
-    print(json.dumps(check(args.godot), indent=2))
+    try:
+        print(json.dumps(check(args.godot), indent=2))
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)

@@ -6,6 +6,8 @@ Call `python "<KIT>/scripts/studio.py" <command> --project "<GAME>" ...`. Use `p
 
 Generated work belongs in GAME or another declared output root outside KIT. `source/` holds editable originals and `.gdignore` keeps them out of Godot's import scan; `assets/` holds runtime inputs; `artifacts/` holds logs/captures/candidates. Toolkit caches and vendored files are read-only during production. Portable record paths use forward slashes and cannot traverse outside GAME. External sources are deliberately copied into project-owned source storage after rights review.
 
+For a distinct local plugin version, use a separate [staging copy and receipt](../docs/plugin-staging.md). Keep plugin and studio-kit versions equal. Record actual installed package hashes; staging changes workflow identity even when source revision is unchanged.
+
 Host configuration is an explicitly passed JSON file (`--config`) or `STUDIO_CONFIG`; command overrides in the Python API take precedence, followed by that config and executable discovery. There is no home-folder search. Keep host files ignored and never put keys in them. Default credential variables are `MESHY_API_KEY` and `ELEVENLABS_API_KEY`; config can rename variables, not carry their secret values.
 
 Native Windows uses Windows Python and native executable paths. WSL is a distinct host. If consciously using WSL to launch Windows apps, provide `path_mappings` from exact Linux prefixes to their verified Windows/UNC equivalent. Longest prefix wins. Do not guess drive mappings. Native GUI access, audio routing and GPU rendering still need independent verification.
