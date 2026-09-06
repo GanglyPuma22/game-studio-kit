@@ -37,6 +37,9 @@ For **registered plugin** use the host's local plugin development/install flow w
 
 A local marketplace can be staged in a separate host-owned directory with this layout:
 
+If a distinct cache version is needed, follow [version staging](plugin-staging.md)
+to update both declarations and retain the packaging receipt before registration.
+
 ```text
 StudioLocal/
   .agents/plugins/marketplace.json

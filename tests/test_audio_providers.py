@@ -90,7 +90,7 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(t.calls,[])
         self.assertEqual(p.read_bytes(),b'original')
 
-    def test_invalid_binary_or_archive_failure_is_uncertain(self):
+    def test_invalid_binary_is_retained_for_manual_reconciliation(self):
         class Invalid(Transport):
             def request(self,*args,**kwargs):
                 self.calls.append((args,kwargs))
@@ -98,7 +98,13 @@ class ProviderTests(unittest.TestCase):
         t=Invalid()
         with self.assertRaises(StudioError):
             self.generate(transport=t)
-        self.assertEqual(read_json(self.root/'intent.json')['status'],'SUBMISSION_UNKNOWN')
+        record = read_json(self.root/'intent.json')
+        self.assertEqual(record['status'], 'RECEIVED_UNARCHIVED')
+        recovery = self.root / record['recovery']['path']
+        self.assertEqual(recovery.read_bytes(), b'{"error":"bad"}')
+        self.assertEqual(record['recovery']['sha256'], sha256(recovery))
+        self.assertFalse(record['recovery']['validated'])
+        self.assertEqual(len(t.calls), 1)
         self.assertFalse((self.root/'original.mp3').exists())
 
     def test_existing_elevenlabs_alias_default_and_explicit_dispatch(self):
@@ -119,6 +125,8 @@ class ProviderTests(unittest.TestCase):
                 self.generate(transport=t)
         self.assertEqual(read_json(self.root/'intent.json')['status'], 'SUBMISSION_UNKNOWN')
         self.assertTrue((self.root/'original.mp3').is_file())
+        recovery = self.root / read_json(self.root/'intent.json')['recovery']['path']
+        self.assertEqual(recovery.read_bytes(), (self.root/'original.mp3').read_bytes())
         with self.assertRaises(StudioError):
             self.generate(transport=t)
         self.assertEqual(len(t.calls), 1)
@@ -130,10 +138,59 @@ class ProviderTests(unittest.TestCase):
                 target.write_bytes(b'another writer')
                 return super().request(*args, **kwargs)
         t = Concurrent()
-        with self.assertRaisesRegex(StudioError, 'unknown'):
+        with self.assertRaisesRegex(StudioError, 'recovery'):
             self.generate(transport=t)
         self.assertEqual(target.read_bytes(), b'another writer')
-        self.assertEqual(read_json(self.root/'intent.json')['status'], 'SUBMISSION_UNKNOWN')
+        record = read_json(self.root/'intent.json')
+        self.assertEqual(record['status'], 'RECEIVED_UNARCHIVED')
+        recovery = self.root / record['recovery']['path']
+        self.assertEqual(recovery.read_bytes(), b'ID3original mock audio')
+        self.assertEqual(record['recovery']['sha256'], sha256(recovery))
+        self.assertEqual(record['recovery']['bytes'], len(recovery.read_bytes()))
+        with self.assertRaises(StudioError):
+            self.generate(transport=t)
+        self.assertEqual(len(t.calls), 1)
+
+    def test_unsupported_hardlinks_retain_received_original_and_redacted_identity(self):
+        t = Transport()
+        with patch('studio_tools.adapters.requests.os.link', side_effect=OSError('secret-test-key unsupported')):
+            with self.assertRaisesRegex(StudioError, 'recovery') as error:
+                self.generate(transport=t)
+        record = read_json(self.root/'intent.json')
+        self.assertEqual(record['status'], 'RECEIVED_UNARCHIVED')
+        recovery = self.root / record['recovery']['path']
+        self.assertEqual(recovery.read_bytes(), b'ID3original mock audio')
+        self.assertEqual(record['recovery']['sha256'], sha256(recovery))
+        self.assertTrue(record['recovery']['validated'])
+        self.assertFalse((self.root/'original.mp3').exists())
+        self.assertNotIn('secret-test-key', str(error.exception) + (self.root/'intent.json').read_text())
+        with self.assertRaises(StudioError):
+            self.generate(transport=t)
+        self.assertEqual(len(t.calls), 1)
+
+    def test_recovery_storage_is_reserved_before_submission(self):
+        t = Transport()
+        with patch('studio_tools.adapters.requests.tempfile.mkstemp', side_effect=OSError('storage unavailable')):
+            with self.assertRaises(StudioError):
+                self.generate(transport=t)
+        self.assertEqual(t.calls, [])
+
+    def test_received_fsync_failure_keeps_bytes_without_claiming_durability(self):
+        from studio_tools.adapters import requests
+        real_fsync = requests.os.fsync
+        t = Transport()
+        def fail_received(fd):
+            if t.calls:
+                raise OSError('secret-test-key disk failure')
+            return real_fsync(fd)
+        with patch('studio_tools.adapters.requests.os.fsync', side_effect=fail_received):
+            with self.assertRaisesRegex(StudioError, 'durability') as error:
+                self.generate(transport=t)
+        record = read_json(self.root/'intent.json')
+        self.assertEqual(record['status'], 'SUBMISSION_UNKNOWN')
+        self.assertEqual((self.root / record['recovery']['path']).read_bytes(), b'ID3original mock audio')
+        self.assertNotIn('secret-test-key', str(error.exception))
+        self.assertEqual(len(t.calls), 1)
 
     def test_usage_metadata_retained_and_redacted(self):
         class Usage(Transport):

@@ -11,6 +11,8 @@ First validate the actual candidate record with `validate-record`. Check that ca
 
 Determine the active host's real tools. Python doctor cannot discover computer use. If the host offers a desktop tool, identify the owned app/window and perform a bounded inspection before claiming native access. Save existing work and respect one visible-desktop operator. Do not close user-open apps or substitute a remote/private desktop assumption.
 
+Before reserving desktop time, establish the available held-key/captured-relative-mouse input route, continuous-video inspection route and actual audio listening route. A player window plus intermittent screenshots cannot establish continuous motion or listening. If a required capability is unavailable, request the exact human check (controls/action, video intervals, or playback device and audio intervals/seams) needed to close that gap; keep those verdicts pending and finish independent background checks.
+
 Walk the documented route with ordinary controls. In the original example use WASD/arrows, click for mouse look, approach within 3 m and press E; Escape releases the mouse. Capture the normal 70-degree camera, 1.8 m scale marker, close object, at least two idle loops, stress/response transition and return. Repeat input and walk away to inspect reset/feedback.
 
 Capture the audible runtime route and listen through actual available playback. Check attenuation, cue timing, clipping, overlap and loop seams. Record who listened and how. If you cannot hear or inspect audio, mark listening not_run; do not infer it from a waveform or `playing` flag.

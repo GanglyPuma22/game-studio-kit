@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from studio_tools.common import StudioError, digest, file_record, read_json
 from studio_tools.config import load
-from studio_tools.evidence import new_candidate, inventory
+from studio_tools.evidence import new_candidate, inventory, canonical_inventory
 from studio_tools.records import validate
 from studio_tools.adapters import audio, blender
 
@@ -52,9 +52,42 @@ class AuditTests(unittest.TestCase):
             validate(c, self.root)
 
     def test_case_collisions_rejected_in_portable_inventory(self):
-        (self.root / 'A.txt').write_text('collision')
-        with self.assertRaisesRegex(StudioError, '[Cc]ase'):
-            inventory(self.root)
+        for names in [('A.txt', 'a.txt'), ('Dir/one.txt', 'dir/two.txt')]:
+            with self.subTest(names=names), self.assertRaisesRegex(StudioError, '[Cc]ase'):
+                canonical_inventory([{'path': name, 'sha256': '0'*64} for name in names])
+
+    @unittest.skipIf(os.name == 'nt', 'Legacy reserved/case-distinct files require their original POSIX host')
+    def test_legacy_safe_host_paths_keep_original_bytes_and_digest(self):
+        c = self.candidate()
+        c.pop('inventory_version')
+        for name in ('NUL.txt', 'A.txt'):
+            (self.root / name).write_text('legacy ' + name)
+        c['content_files'] = [file_record(self.root, p) for p in sorted(self.root.iterdir()) if p.is_file()]
+        c['content_digest'] = digest(c['content_files'])
+        c['workflow_files'] = [{'path': 'NUL.txt', 'sha256': '0'*64}, {'path': 'a.txt', 'sha256': '1'*64}, {'path': 'A.txt', 'sha256': '2'*64}]
+        c['workflow_digest'] = digest(c['workflow_files'])
+        original = copy.deepcopy(c)
+        self.assertTrue(validate(c, self.root)['ok'])
+        self.assertEqual(c, original)
+
+    def test_legacy_workflow_host_names_and_safety_rules(self):
+        c = self.candidate()
+        c.pop('inventory_version')
+        c['workflow_files'] = [{'path': p, 'sha256': '0'*64} for p in ('NUL.txt', 'A.txt', 'a.txt')]
+        c['workflow_digest'] = digest(c['workflow_files'])
+        self.assertTrue(validate(c, self.root)['ok'])
+        for field in ('content_files', 'workflow_files'):
+            for path in ('../escape', '/absolute', 'C:/file', 'a\\b', 'folder//file', 'folder/./file'):
+                bad = copy.deepcopy(c)
+                bad[field] = [{'path': path, 'sha256': '0'*64}]
+                bad[field.replace('_files', '_digest')] = digest(bad[field])
+                with self.subTest(field=field, path=path), self.assertRaises(StudioError):
+                    validate(bad, self.root)
+            bad = copy.deepcopy(c)
+            bad[field].append(bad[field][0])
+            bad[field.replace('_files', '_digest')] = digest(bad[field])
+            with self.subTest(field=field, duplicate=True), self.assertRaisesRegex(StudioError, 'Duplicate'):
+                validate(bad, self.root)
 
     def test_all_evidence_statuses_and_nested_attachments_verify(self):
         for status in ['not_run', 'unverified', 'not_applicable', 'fail', 'pass']:
@@ -140,7 +173,7 @@ class AuditTests(unittest.TestCase):
         output = self.root / 'assets/edited.glb'
         cfg = load(overrides={'executables': {'blender': sys.executable}})
         def fake_run(cmd, **kwargs):
-            self.assertIn(str(source), cmd)
+            self.assertIn(str(source.resolve()), cmd)
             self.assertTrue(any(str(x).endswith('export.py') for x in cmd))
             self.assertFalse(any(str(x).endswith('fixture.py') for x in cmd))
             output.parent.mkdir(exist_ok=True)

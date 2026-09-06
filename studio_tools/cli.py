@@ -48,7 +48,7 @@ def parser():
     c.add_argument("--frames", default="1")
     c.add_argument("--angles", default="0")
     c.add_argument("--target", default="0,0,0")
-    c.add_argument("--output", default="artifacts/blender")
+    c.add_argument("--output", help="Required .glb destination for export; otherwise defaults to artifacts/blender")
     c = command("terrain", True)
     c.add_argument("--output", default="source/terrain")
     c.add_argument("--resolution", type=int, default=33)
@@ -161,7 +161,9 @@ def dispatch(a):
     if a.command == "blender":
         from .adapters import blender
 
-        out = path(a.output)
+        if a.operation == "export" and not a.output:
+            raise StudioError("Blender export requires --output assets/name.glb relative to the project")
+        out = path(a.output or "artifacts/blender")
         if a.operation == "fixture":
             return blender.fixture(config, out)
         if not a.source:
