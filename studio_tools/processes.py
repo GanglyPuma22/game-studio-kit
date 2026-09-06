@@ -142,18 +142,22 @@ def run(
             # A receipt-write failure or caller interruption after launch must
             # not leave a running job behind or give it a completed status.
             if process is not None and (
-                record["status"] == "running"
+                record["status"] in ("starting", "running")
                 or (record["status"] == "timed_out" and "cleanup" not in record)
             ):
-                if record["status"] == "running":
+                if record["status"] != "timed_out":
                     record["status"] = "interrupted"
+                record["pid"] = process.pid
                 # A second interruption must still leave an honest receipt.
                 record["cleanup"] = "unverified"
-                try:
-                    stopped = _stop_owned(process, hide_window)
-                except (OSError, subprocess.TimeoutExpired):
-                    stopped = False
-                record["cleanup"] = "owned_tree_stopped" if stopped else "unverified"
+                # Avoid signaling a PID already reaped by a successful wait.
+                # Pending timeout cleanup must still account for descendants.
+                if record["status"] == "timed_out" or process.poll() is None:
+                    try:
+                        stopped = _stop_owned(process, hide_window)
+                    except (OSError, subprocess.TimeoutExpired):
+                        stopped = False
+                    record["cleanup"] = "owned_tree_stopped" if stopped else "unverified"
             raise
         finally:
             capture.flush()

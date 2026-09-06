@@ -36,5 +36,5 @@ These use small Python child processes and mocked application boundaries. They
 check partial timeout logs, startup/nonzero receipts, unique repeated Godot logs,
 late exit-zero errors, warning classification, and separate Gaea native/unattended
 declarations. Native Windows also checks that a hidden Python child has no console
-window; this proves no Gaea/Blender/Godot unattended capability. No provider,
+window; this does not prove any Gaea/Blender/Godot unattended capability. No provider,
 desktop control, application fixture or native QOA run is required.

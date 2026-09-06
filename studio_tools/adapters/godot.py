@@ -19,7 +19,7 @@ def classify_log(output):
     errors = len(re.findall(r"(?:SCRIPT )?ERROR:", output))
     warnings = len(re.findall(r"WARNING:|Orphan StringName:", output))
     return {
-        "status": "errors" if errors else "warnings" if warnings else "clean",
+        "status": "errors" if errors else "warnings" if warnings else "clean" if output.strip() else "unverified",
         "error_count": errors,
         "warning_count": warnings,
     }
@@ -133,17 +133,25 @@ def execute(config, project, mode="import", output=None, preset=None):
             "LOCALAPPDATA",
         ):
             environment[key] = app_path(config, profile, "godot")
-        job = logs / "jobs" / f"godot-{mode}-{uuid.uuid4().hex}"
-        result = run(
-            args,
-            timeout=config["timeout"],
-            job_dir=job,
-            hide_window=mode != "run",
-            env=environment,
-        )
+        job = (logs / "jobs" / f"godot-{mode}-{uuid.uuid4().hex}").resolve()
+        try:
+            result = run(
+                args,
+                timeout=config["timeout"],
+                job_dir=job,
+                hide_window=mode != "run",
+                env=environment,
+            )
+        except StudioError as exc:
+            raise StudioError(f"{exc}; evidence in artifacts/jobs/{job.name}") from exc
     # Godot can log script/import failures while returning exit 0.
     diagnostics = classify_log(result["stdout"])
     write_json(job / "diagnostics.json", diagnostics)
+    if mode != "run" and diagnostics["status"] == "unverified":
+        raise StudioError(
+            f"Godot produced no captured output; diagnostics unverified; "
+            f"inspect artifacts/jobs/{job.name}/stdout.log"
+        )
     if diagnostics["error_count"]:
         raise StudioError(
             f"Godot reported an error; inspect artifacts/jobs/{job.name}/stdout.log "
