@@ -45,6 +45,7 @@
     }
   ],
   "resources": [
+    "examples/review-loop/create.py",
     "references/acceptance.md",
     "references/actionable-discovery.md",
     "references/companion-delivery.md",
@@ -53,8 +54,9 @@
     "references/production-contracts.md",
     "references/source-and-contact.md",
     "references/tool-routing.md",
-    "scripts/studio.py",
     "scripts/check_audio_import.py",
+    "scripts/studio.py",
+    "skills/studio-review/references/validation-loop.md",
     "studio_tools/__init__.py",
     "studio_tools/__main__.py",
     "studio_tools/adapters/__init__.py",
@@ -84,6 +86,9 @@
     "studio_tools/package.py",
     "studio_tools/processes.py",
     "studio_tools/records.py",
+    "studio_tools/review_media.py",
+    "studio_tools/review_video.py",
+    "studio_tools/validation.py",
     "templates/asset.json",
     "templates/audio-cues.json",
     "templates/candidate.json",
@@ -102,6 +107,7 @@
     "meshy",
     "gaea",
     "godot",
-    "candidate"
+    "candidate",
+    "review"
   ]
 }

@@ -11,6 +11,9 @@
 - Animation clips, root-motion, loop and stress-pose requirements:
 - Audio events/buses/loop/voice rights and mix intent:
 - Ordinary input/camera route and visual/listening capture method:
+- First integrated route checkpoint, mandatory timing floor and next decision before expansion:
+- Linked validation JSON: criterion/action IDs, expected outcomes, intervals, candidate/settings and bounded rechecks:
+- Human versus quiet launch intent, delivered wrapper/args, effective game audio and independent import/live services:
 - Relevant acceptance dimensions and required evidence:
 - Current candidate/content/workflow identity:
 - Completed work / known limits / next decision:

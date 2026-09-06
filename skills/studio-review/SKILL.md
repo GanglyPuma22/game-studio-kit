@@ -7,6 +7,8 @@ description: Review a concrete game candidate using ordinary player input and na
 
 Inputs: declared game root, candidate/content/workflow identity, work card, reference files and expected ordinary route. Read [acceptance](../../references/acceptance.md). Output an evidence pack, defects with reproduction steps and separate verdicts plus the human decision needed.
 
+Use the [operational validation loop](references/validation-loop.md) for card-bound recording, full-video plus dense-interval analysis, evidence-based decisions and affected rechecks. Its original offline example and CLI are executable; native/model/listening capability must still be demonstrated under current authorization. Establish the first integrated experience checkpoint before broader expansion.
+
 First validate the actual candidate record with `validate-record`. Check that captures belong to the same content digest and engine/settings, not another branch, render or stale build. Technical logs can establish import and assertion results; only the appropriate inspected evidence supports a perceptual claim.
 
 Determine the active host's real tools. Python doctor cannot discover computer use. If the host offers a desktop tool, identify the owned app/window and perform a bounded inspection before claiming native access. Save existing work and respect one visible-desktop operator. Do not close user-open apps or substitute a remote/private desktop assumption.

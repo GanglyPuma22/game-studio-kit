@@ -15,6 +15,8 @@ Resolve this file's location to the package root (`../../`), then read [portabil
 4. Produce editable source and explicit runtime outputs with hashes. Review import and behavior before multiplying asset variants. When an observed defect is inside the work card, make a bounded correction and rerun the affected check. Stop ambiguous paid submissions, exhausted budgets or missing required user decisions; continue unrelated local work.
 5. Build a candidate with source/content/workflow identity. Route to review. Report separate visual, interaction, motion, audio and performance results, the concrete artifact location and remaining decision. Never promote provider completion or a technical fixture into artistic acceptance.
 
+At the first safely inspectable integration, use the [review loop](../studio-review/references/validation-loop.md) for a connected ordinary route with declared fluidity, action and sound criteria. Record the bounded capture/analysis checkpoint before further integrated expansion. A failed mandatory experience criterion sets the next repair/recheck; preserve useful independent source work and specimen strengths.
+
 Reuse the compact routing receipt in [production contracts](../../references/production-contracts.md)
 when those reads/capabilities are unchanged. For repeated or background commands,
 follow [process and evidence lifecycle](../../references/execution-evidence.md):
