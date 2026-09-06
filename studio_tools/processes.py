@@ -108,7 +108,7 @@ def run(
                     stderr=subprocess.STDOUT,
                     **_creation_options(hide_window),
                 )
-            except OSError as exc:
+            except (OSError, ValueError, TypeError) as exc:
                 record["status"] = "start_failed"
                 if previous_log is not None:
                     capture.seek(0)
@@ -152,7 +152,11 @@ def run(
                 record["cleanup"] = "unverified"
                 # Avoid signaling a PID already reaped by a successful wait.
                 # Pending timeout cleanup must still account for descendants.
-                if record["status"] == "timed_out" or process.poll() is None:
+                needs_cleanup = (
+                    process.returncode is None if record["status"] == "timed_out"
+                    else process.poll() is None
+                )
+                if needs_cleanup:
                     try:
                         stopped = _stop_owned(process, hide_window)
                     except (OSError, subprocess.TimeoutExpired):

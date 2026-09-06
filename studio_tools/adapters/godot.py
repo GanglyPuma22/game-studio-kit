@@ -142,39 +142,36 @@ def execute(config, project, mode="import", output=None, preset=None):
                 hide_window=mode != "run",
                 env=environment,
             )
-        except StudioError as exc:
-            raise StudioError(f"{exc}; evidence in artifacts/jobs/{job.name}") from exc
-    # Godot can log script/import failures while returning exit 0.
-    diagnostics = classify_log(result["stdout"])
-    write_json(job / "diagnostics.json", diagnostics)
-    if mode != "run" and diagnostics["status"] == "unverified":
-        raise StudioError(
-            f"Godot produced no captured output; diagnostics unverified; "
-            f"inspect artifacts/jobs/{job.name}/stdout.log"
-        )
-    if diagnostics["error_count"]:
-        raise StudioError(
-            f"Godot reported an error; inspect artifacts/jobs/{job.name}/stdout.log "
-            "and its adjacent process.json and diagnostics.json"
-        )
-    process_evidence = {
-        "process_record": result.get("process_record"),
-        "log": result.get("log"),
-        "diagnostics": diagnostics,
-        "diagnostics_record": str(job / "diagnostics.json"),
-    }
-    if mode == "smoke":
-        report = read_json(output)
-        if report.get("ok") is not True:
-            raise StudioError("Godot runtime assertions failed")
-        return {**report, "process_evidence": process_evidence}
-    if mode == "export" and (
-        not Path(output).is_file() or Path(output).stat().st_size == 0
-    ):
-        raise StudioError("Godot export output missing")
-    return {
-        "status": mode + "_completed",
-        "elapsed_seconds": result["elapsed_seconds"],
-        "native_review": "not_run",
-        "process_evidence": process_evidence,
-    }
+            # Godot can log script/import failures while returning exit 0.
+            diagnostics = classify_log(result["stdout"])
+            write_json(job / "diagnostics.json", diagnostics)
+            if mode != "run" and diagnostics["status"] == "unverified":
+                raise StudioError("Godot produced no captured output; diagnostics unverified")
+            if diagnostics["error_count"]:
+                raise StudioError("Godot reported an error")
+            process_evidence = {
+                "process_record": result.get("process_record"),
+                "log": result.get("log"),
+                "diagnostics": diagnostics,
+                "diagnostics_record": str(job / "diagnostics.json"),
+            }
+            if mode == "smoke":
+                report = read_json(output)
+                if not isinstance(report, dict) or report.get("ok") is not True:
+                    raise StudioError("Godot runtime assertions failed")
+                return {**report, "process_evidence": process_evidence}
+            if mode == "export" and (
+                not Path(output).is_file() or Path(output).stat().st_size == 0
+            ):
+                raise StudioError("Godot export output missing")
+            return {
+                "status": mode + "_completed",
+                "elapsed_seconds": result["elapsed_seconds"],
+                "native_review": "not_run",
+                "process_evidence": process_evidence,
+            }
+        except (StudioError, OSError) as exc:
+            raise StudioError(
+                f"{exc}; inspect artifacts/jobs/{job.name}/stdout.log "
+                "and its adjacent process/diagnostic records"
+            ) from exc
