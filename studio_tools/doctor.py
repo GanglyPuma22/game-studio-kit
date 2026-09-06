@@ -87,6 +87,8 @@ def inspect(config):
         "review_listening": "Record actual output source and named listener with reviewed intervals; PCM presence alone is insufficient.",
     }.items():
         capabilities[name] = {"status": "unverified", "operations": "unverified", "network_probed": False, "next_step": step}
+    present = bool(os.environ.get(config["credentials"].get("gemini", "")))
+    capabilities["review_video_analysis"].update(status="unverified" if present else "needs_setup", credential_present=present)
     return {
         "schema_version": 1,
         "host": platform.system(),

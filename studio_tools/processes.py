@@ -182,7 +182,7 @@ def run(
     }
 
 
-def record(args, *, job_dir, duration, grace=5, cancelled=None, cwd=None):
+def record(args, *, job_dir, duration, grace=5, startup=0, cancelled=None, cwd=None):
     """Own one recorder, send FFmpeg's q on stop, then bound finalization.
 
     Cancellation/interrupt is retained as incomplete even if the muxer closes.
@@ -193,6 +193,8 @@ def record(args, *, job_dir, duration, grace=5, cancelled=None, cwd=None):
         raise StudioError("Recorder requires an argument array")
     if any(type(n) not in (int, float) or not math.isfinite(n) or n <= 0 for n in (duration, grace)) or duration > 1200 or grace > 30:
         raise StudioError("Recorder needs duration <=1200 and grace <=30 seconds")
+    if type(startup) not in (int, float) or not math.isfinite(startup) or not 0 <= startup <= 30:
+        raise StudioError("Recorder startup allowance must be 0–30 seconds")
     folder = Path(job_dir)
     try:
         folder.mkdir(parents=True, exist_ok=False)
@@ -200,12 +202,15 @@ def record(args, *, job_dir, duration, grace=5, cancelled=None, cwd=None):
         raise StudioError("Job directory exists; choose a new run identity") from None
     receipt = {"schema_version": 1, "status": "starting", "pid": None,
                "started_utc": datetime.now(timezone.utc).isoformat(),
-               "stop_reason": None, "graceful": False, "cleanup": "not_needed"}
+               "stop_reason": None, "graceful": False, "cleanup": "not_needed", "watchdog_seconds": duration + startup, "finalization_seconds": grace}
     started = time.monotonic()
     process = None
     with (folder / "stdout.log").open("wb") as log:
         try:
             write_json(folder / "process.json", receipt)
+            if cancelled and cancelled():
+                receipt.update(status="cancelled", stop_reason="cancelled_before_start")
+                return receipt
             try:
                 process = subprocess.Popen([str(a) for a in args], stdin=subprocess.PIPE,
                     stdout=log, stderr=subprocess.STDOUT, cwd=cwd, **_creation_options(True))
@@ -219,7 +224,7 @@ def record(args, *, job_dir, duration, grace=5, cancelled=None, cwd=None):
                     if cancelled and cancelled():
                         receipt["stop_reason"] = "cancelled"
                         break
-                    if time.monotonic() - started >= duration:
+                    if time.monotonic() - started >= duration + startup:
                         receipt["stop_reason"] = "duration"
                         break
                     time.sleep(.025)
@@ -236,8 +241,11 @@ def record(args, *, job_dir, duration, grace=5, cancelled=None, cwd=None):
                 except subprocess.TimeoutExpired:
                     receipt["status"] = "timed_out"
                     receipt["cleanup"] = "unverified"
-                    if _stop_owned(process, True):
-                        receipt["cleanup"] = "owned_tree_stopped"
+                    try:
+                        if _stop_owned(process, True):
+                            receipt["cleanup"] = "owned_tree_stopped"
+                    except (OSError, subprocess.TimeoutExpired):
+                        pass
             if receipt["status"] != "timed_out":
                 receipt["graceful"] = process.returncode == 0
                 receipt["status"] = ("cancelled" if receipt["stop_reason"] == "cancelled" else
@@ -246,14 +254,17 @@ def record(args, *, job_dir, duration, grace=5, cancelled=None, cwd=None):
         finally:
             if process is not None:
                 if process.poll() is None:
-                    receipt.update(status="interrupted", cleanup="unverified")
+                    receipt.update(status=receipt["status"] if receipt["status"] == "timed_out" else "interrupted", cleanup="unverified")
                     try:
                         if _stop_owned(process, True):
                             receipt["cleanup"] = "owned_tree_stopped"
                     except (OSError, subprocess.TimeoutExpired):
                         pass
                 if process.stdin:
-                    process.stdin.close()
+                    try:
+                        process.stdin.close()
+                    except OSError:
+                        pass
                 receipt["returncode"] = process.poll()
             receipt.update(finished_utc=datetime.now(timezone.utc).isoformat(),
                            elapsed_seconds=round(time.monotonic() - started, 6))

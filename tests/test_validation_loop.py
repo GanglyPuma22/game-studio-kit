@@ -1,5 +1,6 @@
 """Original file/process tests; fake provider responses never prove perception."""
 import copy
+from datetime import datetime, timezone
 import importlib.util
 import json
 import shutil
@@ -12,6 +13,15 @@ from unittest.mock import patch
 from studio_tools.common import StudioError, read_json, write_json, sha256
 from studio_tools.config import load
 from studio_tools.evidence import new_candidate
+
+
+def funded_budget(clip="clip"):
+    return {"authorization_id": "test-only", "upload_authorized": True, "approved_media_sha256": [clip],
+            "model": "gemini-3.7-flash", "max_requests": 3, "max_total_usd": 6, "reserve_per_request_usd": 2,
+            "max_request_bytes": 1000000, "max_output_tokens": 4096,
+            "rate_verified_utc": datetime.now(timezone.utc).isoformat(),
+            "rates_model": "gemini-3.7-flash", "rates_profile": "standard-all-context",
+            "rates_usd_per_million": {"input": .75, "output": 3.75, "thought": 3.75}}
 
 
 class ReviewFixture(unittest.TestCase):
@@ -111,7 +121,8 @@ class RecorderLifecycle(unittest.TestCase):
             self.run_owned("pass")
 
     def test_cancel_retains_graceful_but_incomplete_status(self):
-        r = self.run_owned("import sys; sys.stdin.readline()", cancelled=lambda: True)
+        calls = iter([False, True])
+        r = self.run_owned("import sys; sys.stdin.readline()", cancelled=lambda: next(calls, True))
         self.assertEqual(r["status"], "cancelled")
         self.assertTrue(r["graceful"])
 
@@ -184,16 +195,14 @@ class VideoBackend(unittest.TestCase):
 
     def test_zero_budget_denies_before_network(self):
         api = self.api()
-        with tempfile.TemporaryDirectory() as root, patch("urllib.request.urlopen") as request:
+        with tempfile.TemporaryDirectory() as root, patch("studio_tools.review_video._submit") as request:
             with self.assertRaises(StudioError):
                 api.reserve(Path(root), {"upload_authorized": False}, "run", "clip")
             request.assert_not_called()
 
     def test_reservation_ambiguous_outcome_blocks_other_submissions(self):
         api = self.api()
-        budget = {"authorization_id": "original", "upload_authorized": True, "approved_media_sha256": ["clip"],
-                  "model": "gemini-3.7-flash", "max_requests": 8, "max_total_usd": 2, "reserve_per_request_usd": .25,
-                  "max_request_bytes": 1000000, "max_output_tokens": 4096, "rate_verified_utc": "2026-09-06"}
+        budget = funded_budget()
         with tempfile.TemporaryDirectory() as root:
             slot = api.reserve(Path(root), budget, "run", "clip")
             self.assertEqual(read_json(slot)["status"], "reserved")
@@ -252,11 +261,7 @@ class EndToEndFiles(ReviewFixture):
         run = validation.prepare_run(self.root, self.card, self.candidate, role="before")
         review_media.capture(self.config, self.root, run, {"route": "file", "source": str(original)})
         review_media.dense_frames(self.config, self.root, run, [.7, 1.3])
-        budget = {"authorization_id": "unit-test-only", "upload_authorized": True,
-                  "approved_media_sha256": [sha256(self.root / run / "capture.mp4")],
-                  "model": "gemini-3.7-flash", "max_requests": 1, "max_total_usd": .25,
-                  "reserve_per_request_usd": .25, "max_request_bytes": 1000000,
-                  "max_output_tokens": 4096, "rate_verified_utc": "2026-09-06", "rates_usd_per_million": {"input": .75, "output": 3.75}}
+        budget = funded_budget(sha256(self.root / run / "capture.mp4"))
         preserved = []
         def transport(body, secret, timeout):
             payload = json.loads(body)
@@ -332,6 +337,13 @@ class AdversarialEvidence(ReviewFixture):
         timing = file_record(self.root, fixture / "clean-timing.json")
         facts = {"run_id": read_json(self.root / run / "run.json")["run_id"], "candidate_id": "sample", "clip_sha256": sha256(self.root / run / "capture.mp4"), "input_route": "synthetic", "host_interference": False,
                  "timing": {"file": timing, "method": "wall_frame_time", "interval": [0, 2], "clock_offset_seconds": 0, "clock_uncertainty_seconds": 0}}
+        write_json(self.root / "artifacts/host.json", {"scope": "synthetic", "observation": "Original generator has no competing work", "clock_source": "generator step accumulator"})
+        context = {"observer": "test generator", "provenance": "synthetic", "clock": {"offset_seconds": 0, "uncertainty_seconds": 0, "precision_seconds": .000001},
+                   "host_evidence": file_record(self.root, self.root / "artifacts/host.json"), "run_sha256": sha256(self.root / run / "run.json"),
+                   "timing_sha256": timing["sha256"], "settings": card["settings"], "host_interference": "none_observed"}
+        context["clock_evidence"] = context["host_evidence"]
+        write_json(self.root / "artifacts/timing-context.json", context)
+        facts["timing"]["context"] = file_record(self.root, self.root / "artifacts/timing-context.json")
         write_json(self.root / "artifacts/facts.json", facts)
         assessment = validation.assess(self.root, run, "artifacts/facts.json")
         self.assertEqual(assessment["results"][0]["status"], "pass")
@@ -347,7 +359,8 @@ class AdversarialEvidence(ReviewFixture):
         review_media.fixtures(self.config, fixture)
         run = validation.prepare_run(self.root, self.card, self.candidate)
         review_media.capture(self.config, self.root, run, {"route": "file", "source": str(fixture / "clean.mp4")})
-        budget = {"authorization_id": "test-timeout", "upload_authorized": True, "approved_media_sha256": [sha256(self.root / run / "capture.mp4")], "model": "gemini-3.7-flash", "max_requests": 1, "max_total_usd": .25, "reserve_per_request_usd": .25, "max_request_bytes": 1000000, "max_output_tokens": 4096, "rate_verified_utc": "2026-09-06"}
+        budget = funded_budget(sha256(self.root / run / "capture.mp4"))
+        budget["authorization_id"] = "test-timeout"
         with patch.dict("os.environ", {"GEMINI_API_KEY": "unit-test-no-network"}), patch("studio_tools.review_video._submit", side_effect=TimeoutError) as submit:
             result = review_video.analyze(self.config, self.root, run, budget)
             self.assertEqual(result["status"], "ambiguous")

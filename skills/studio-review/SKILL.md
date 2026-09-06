@@ -7,7 +7,7 @@ description: Review a concrete game candidate using ordinary player input and na
 
 Inputs: declared game root, candidate/content/workflow identity, work card, reference files and expected ordinary route. Read [acceptance](../../references/acceptance.md). Output an evidence pack, defects with reproduction steps and separate verdicts plus the human decision needed.
 
-Use the [operational validation loop](references/validation-loop.md) for card-bound recording, full-video plus dense-interval analysis, evidence-based decisions and affected rechecks. Its original offline example and CLI are executable; native/model/listening capability must still be demonstrated under current authorization. Establish the first integrated experience checkpoint before broader expansion.
+Use the [operational validation loop](references/validation-loop.md) for card-bound recording, full-video plus dense-interval analysis, evidence-based decisions and affected rechecks. Use its `ingest` and `qualify` operations to adopt named bounded reviews and independently scored retained corpus evidence at the host trust checkpoint. Its original offline examples and CLI are executable; native/model/listening capability must still be demonstrated under current authorization. Establish the first integrated experience checkpoint before broader expansion.
 
 First validate the actual candidate record with `validate-record`. Check that captures belong to the same content digest and engine/settings, not another branch, render or stale build. Technical logs can establish import and assertion results; only the appropriate inspected evidence supports a perceptual claim.
 

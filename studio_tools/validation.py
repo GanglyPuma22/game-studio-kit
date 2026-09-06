@@ -59,7 +59,13 @@ def validate_card(card, candidate, root, *, current=True):
         wrapper = ""
     delivered = " ".join(str(a) for a in launch["delivered_args"])
     # Conservative warning gate; dynamic wrapper resolution still needs a launch receipt.
-    muted = re.search(r"(?i)(?:--audio-driver[=\s\"']+Dummy\b|-Muted\b)", delivered + " " + wrapper)
+    # Effective game args take precedence; do not execute or flatten wrapper branches.
+    game_lines = [line for line in wrapper.splitlines() if line.strip() and
+                  not line.lstrip().startswith(("#", "REM ", "rem ", "::")) and
+                  "--import" not in line and "--headless" not in line and
+                  not re.search(r"(?i)\b(if|else|elif|case)\b", line)]
+    scanned = delivered if delivered else " ".join(game_lines)
+    muted = re.search(r"(?i)(?:--audio-driver[=\s\"']+Dummy\b|-Muted\b)", scanned)
     if launch["intent"] == "human" and (muted or launch["effective_audio_backend"].lower() == "dummy"):
         raise StudioError("Human launch contradicts local audio intent; inspect delivered wrapper")
     for key in ("actions", "criteria"):
@@ -73,13 +79,20 @@ def validate_card(card, candidate, root, *, current=True):
         required(action, ["expected"])
     for criterion in card["criteria"]:
         required(criterion, ["dimension", "action_ids", "expected", "mandatory", "kind", "interval"])
-        if criterion["dimension"] not in DIMENSIONS or criterion["kind"] not in {"temporal", "performance", "interaction", "audio", "visual"}:
+        if criterion["dimension"] not in DIMENSIONS or {"temporal": "motion", "performance": "performance", "interaction": "interaction", "audio": "audio", "visual": "visual"}.get(criterion["kind"]) != criterion["dimension"]:
             raise StudioError("Unknown criterion dimension/kind")
         if type(criterion["mandatory"]) is not bool or not criterion["action_ids"] or not set(criterion["action_ids"]) <= set(action_ids):
             raise StudioError("Criterion needs mandatory boolean and existing actions")
         interval(criterion["interval"], duration)
+        if criterion["kind"] == "interaction":
+            required(criterion, ["expected_state"])
         if criterion["kind"] == "temporal":
             number(criterion.get("max_gap_seconds"), "temporal sample gap", .00001, 1)
+            if "dense_interval" in criterion:
+                ds, de = interval(criterion["dense_interval"], duration)
+                if ds < criterion["interval"][0] or de > criterion["interval"][1]:
+                    raise StudioError("Dense interval must be inside its criterion")
+            number(criterion.get("minimum_event_seconds", .1), "minimum detectable event duration", .00001, duration)
         if criterion["kind"] == "performance":
             number(criterion.get("p95_ms"), "p95 threshold", .01, 1000)
     return {"ok": True, "card_digest": digest(card)}
@@ -101,17 +114,21 @@ def tool_identity():
             "invocation": "direct_file; registered adoption not inferred"}
 
 
-def prepare_run(root, card, candidate, *, role="standalone", previous=None, affected=None):
+def prepare_run(root, card, candidate, *, role="standalone", previous=None, affected=None, config=None):
     root = output_root(root)
     validate_card(card, candidate, root)
     if role not in {"before", "after", "standalone"}:
         raise StudioError("Unknown comparison role")
+    if affected and not previous:
+        raise StudioError("Affected criteria require a previous run")
     recheck = 0
     previous_ref = None
+    lineage = None
     if previous:
-        prior = validate_run(root, previous, current=False)
+        prior = validate_run(root, previous, current=False, config=config)
         if card["criteria"] != prior["card"]["criteria"] or card["actions"] != prior["card"]["actions"]:
             raise StudioError("Affected recheck cannot change original criteria/actions")
+        lineage = prior.get("lineage") or prior["run_id"]
         recheck = prior["recheck"] + 1
         if recheck > prior["card"]["max_rechecks"] or card["max_rechecks"] != prior["card"]["max_rechecks"]:
             raise StudioError("Affected recheck budget exhausted or changed")
@@ -119,6 +136,22 @@ def prepare_run(root, card, candidate, *, role="standalone", previous=None, affe
             raise StudioError("Affected recheck requires prior criterion IDs")
         previous_ref = file_record(root, relative(root, previous) / "run.json")
     run_id = uuid.uuid4().hex
+    if lineage:
+        ledger = relative(root, "artifacts/review-lineages/" + lineage)
+        ledger.mkdir(parents=True, exist_ok=True)
+        try:
+            lock = (ledger / "reserve.lock").open("x")
+        except FileExistsError:
+            raise StudioError("Recheck budget reservation is busy or interrupted; preserve its attempts") from None
+        try:
+            with lock:
+                attempts = list(ledger.glob("attempt-*.json"))
+                if len(attempts) >= card["max_rechecks"]:
+                    raise StudioError("Recheck budget exhausted across lineage attempts")
+                recheck = len(attempts) + 1
+                write_json(ledger / ("attempt-" + run_id + ".json"), {"run_id": run_id, "previous": previous_ref, "attempt": recheck})
+        finally:
+            (ledger / "reserve.lock").unlink(missing_ok=True)
     folder = relative(root, "artifacts/reviews/" + run_id)
     folder.mkdir(parents=True, exist_ok=False)
     entrypoint = relative(root, card["launch"]["entrypoint"])
@@ -126,14 +159,14 @@ def prepare_run(root, card, candidate, *, role="standalone", previous=None, affe
     record = {"schema_version": 1, "kind": "review-run", "run_id": run_id,
               "created_utc": datetime.now(timezone.utc).isoformat(), "role": role, "analysis_tool": tool_identity(),
               "card": card, "card_digest": digest(card), "candidate": candidate,
-              "candidate_digest": digest(candidate), "recheck": recheck,
+              "candidate_digest": digest(candidate), "recheck": recheck, "lineage": lineage or run_id,
               "previous": previous_ref, "affected": affected or [],
               "entrypoint": file_record(root, folder / "entrypoint.original")}
     write_json(folder / "run.json", record)
     return folder.relative_to(root).as_posix()
 
 
-def validate_run(root, name, *, current=True):
+def validate_run(root, name, *, current=True, check_assessment=True, config=None):
     folder = relative(root, name)
     data = read_json(folder / "run.json")
     if data.get("schema_version") != 1 or data.get("kind") != "review-run":
@@ -152,21 +185,43 @@ def validate_run(root, name, *, current=True):
                 raise StudioError("Stale " + stage + " run identity")
             for item in stage_data.get("files", []):
                 verify_file(root, item)
+    if check_assessment and (folder / "assessment.json").exists():
+        saved = read_json(folder / "assessment.json")
+        recomputed = assess(root, name, _recompute=True, config=config)
+        if saved != recomputed:
+            raise StudioError("Assessment decisions differ from retained bound inputs")
     return data
 
 
-def temporal_gate(criterion, timestamps, analysis):
-    start, end = interval(criterion["interval"])
+def temporal_gate(criterion, timestamps, analysis, *, qualification=None, review=None):
+    selected = criterion.get("dense_interval", criterion["interval"])
+    start, end = interval(selected)
     pts = sorted(t for t in timestamps if start <= t <= end)
-    gaps = [b-a for a, b in zip([start] + pts, pts + [end])]
-    gap = max(gaps, default=end-start)
-    reason = "Requested sampling and decoded frames do not establish model perception"
+    gap = max((b-a for a, b in zip([start] + pts, pts + [end])), default=end-start)
+    result = {"status": "unverified", "reason": "Independent qualification and bounded reviewed coverage required",
+              "decoded_max_gap_seconds": gap, "effective_model_gap_seconds": None, "detection_envelope": "not_established"}
+    if review and review["status"] == "fail":
+        return {**result, **review}
     if gap > criterion["max_gap_seconds"]:
-        reason = "Decoded temporal coverage exceeds the required gap"
-    # This backend has not yet passed independent original-fixture detection.
-    # User/model-supplied fixture_detection strings must never unlock a pass.
-    return {"status": "unverified", "reason": reason, "decoded_max_gap_seconds": gap,
-            "effective_model_gap_seconds": None, "detection_envelope": "not_established"}
+        result["reason"] = "Decoded temporal coverage exceeds the required gap"
+        return result
+    if not qualification or not qualification["qualified"] or not review or review["status"] != "pass":
+        return result
+    coverage = analysis.get("coverage", {})
+    reviewed = review.get("temporal_coverage", {})
+    dense = coverage.get("dense_interval")
+    if (analysis.get("status") != "observations_received" or not analysis.get("ok") or not dense
+        or dense[0] > start or dense[1] < end or not coverage.get("full_video_submitted")
+        or qualification["max_gap_seconds"] > criterion["max_gap_seconds"]
+        or qualification["minimum_event_seconds"] > criterion.get("minimum_event_seconds", .1)
+        or coverage.get("dense_max_gap_seconds", 1200) > criterion["max_gap_seconds"]
+        or reviewed.get("interval") != selected or reviewed.get("max_gap_seconds", 1200) > criterion["max_gap_seconds"]):
+        return result
+    result.update(status="pass", reason="Qualified fault/control envelope and named review cover the declared interval",
+                  submitted_max_gap_seconds=reviewed["max_gap_seconds"], detection_envelope=qualification["minimum_event_seconds"],
+                  evidence_scope="test" if "test" in {qualification["scope"], review["evidence_scope"]} else "operational",
+                  observer=review["observer"], review_receipt=review["review_receipt"])
+    return result
 
 
 def frame_times(rows, selected, p95_ms):
@@ -195,9 +250,22 @@ def frame_times(rows, selected, p95_ms):
     return result
 
 
-def compare_runs(root, before, after):
-    a, b = [validate_run(root, name, current=False) for name in (before, after)]
-    mismatches = [key for key in ("settings", "route_id", "input_route", "criteria", "actions", "duration_seconds") if a["card"][key] != b["card"][key]]
+def compare_runs(root, before, after, *, config=None):
+    a, b = [validate_run(root, name, current=False, config=config) for name in (before, after)]
+    mismatches = []
+    if b.get("previous") != file_record(root, relative(root, before) / "run.json"):
+        mismatches.append("after run does not reference selected before")
+    for card in (a["card"], b["card"]):
+        needed = set(["renderer", "resolution", "audio"] + card.get("comparison_fields", []))
+        def known(value):
+            if value is None or isinstance(value, str) and value.strip().lower() in {"", "unknown", "unverified", "not_defined"}:
+                return False
+            if isinstance(value, (list, dict)):
+                return bool(value) and all(known(v) for v in (value.values() if isinstance(value, dict) else value))
+            return True
+        if not needed or not all(k in card["settings"] and known(card["settings"][k]) for k in needed):
+            mismatches.append("effective comparison settings unknown")
+    mismatches += [key for key in ("settings", "route_id", "input_route", "criteria", "actions", "duration_seconds") if a["card"][key] != b["card"][key]]
     for key in ("intent", "effective_audio_backend", "live_services"):
         if a["card"]["launch"][key] != b["card"]["launch"][key]:
             mismatches.append("launch." + key)
@@ -220,14 +288,29 @@ def compare_runs(root, before, after):
     if len(captures) == 2:
         if captures[0]["source"]["route"] != captures[1]["source"]["route"]:
             mismatches.append("recorder route")
-        for key in ("requested_fps", "audio_capture_source", "exclusions"):
+        for key in ("requested_fps", "audio_capture_source", "exclusions", "encoder", "fps_mode"):
             if captures[0].get(key) != captures[1].get(key):
                 mismatches.append("capture." + key)
-        profiles = [[{k: stream.get(k) for k in ("codec_type", "width", "height", "sample_rate", "channels")} for stream in (cap.get("media") or {}).get("streams", [])] for cap in captures]
+        profiles = [[{k: stream.get(k) for k in ("codec_type", "codec_name", "profile", "width", "height", "sample_rate", "channels", "r_frame_rate", "time_base")} for stream in (cap.get("media") or {}).get("streams", [])] for cap in captures]
+        for cap, streams in zip(captures, profiles):
+            video = [stream for stream in streams if stream.get("codec_type") == "video"]
+            if len(video) != 1 or not all(video[0].get(k) for k in ("codec_name", "profile", "r_frame_rate", "time_base", "width", "height")):
+                mismatches.append("capture acquisition profile unknown")
+            elif cap.get("requested_fps") is not None:
+                from fractions import Fraction
+                try:
+                    if Fraction(video[0]["r_frame_rate"]) != cap["requested_fps"]:
+                        mismatches.append("requested and recorded cadence differ")
+                except (ValueError, ZeroDivisionError):
+                    mismatches.append("recorded cadence invalid")
+            if cap.get("encoder") in {None, "unknown"} or cap.get("fps_mode") in {None, "unknown"}:
+                mismatches.append("capture encoder/cadence mode unknown")
         if profiles[0] != profiles[1]:
             mismatches.append("capture stream settings")
     return {"comparable": not mismatches, "mismatches": sorted(set(mismatches)),
             "results": assessments if not mismatches else [],
+            "criterion_changes": [{"criterion_id": old["criterion_id"], "before": old["status"], "after": new["status"], "affected": old["criterion_id"] in b["affected"]}
+                for old, new in zip(assessments[0]["results"], assessments[1]["results"])] if len(assessments) == 2 else [],
             "decision": "affected_recheck" if mismatches else "compare criterion evidence; human acceptance remains separate"}
 
 
@@ -249,11 +332,45 @@ def interaction_result(criterion, actions):
     return {"status": "pass", "reason": "Recorded input followed by the expected state transition", "actions": matching}
 
 
-def assess(root, name, evidence=None):
+def wall_rows(rows, selected, offset, precision):
+    """Validate complete wall coverage before deriving any percentile."""
+    start, end = interval(selected)
+    if not isinstance(rows, list) or not rows:
+        raise StudioError("Need complete raw wall timing rows")
+    aligned = [{"time_seconds": number(row["time_seconds"], "frame timestamp", -86400, 86400) + offset,
+                "frame_ms": number(row["frame_ms"], "frame duration", .000001, 1200000)} for row in rows]
+    if abs(sum(row["frame_ms"] for row in aligned)/1000 - (end-start)) > precision * 2:
+        raise StudioError("Total raw frame durations leave missing wall time")
+    if abs(aligned[0]["time_seconds"] - start) > precision or abs(aligned[-1]["time_seconds"] + aligned[-1]["frame_ms"]/1000 - end) > precision:
+        raise StudioError("Raw timing rows do not cover the complete declared interval")
+    if any(abs(b["time_seconds"] - a["time_seconds"] - a["frame_ms"]/1000) > precision * 2 for a, b in zip(aligned, aligned[1:])):
+        raise StudioError("Raw wall timing has missing/inconsistent frame intervals")
+    return aligned
+
+
+def action_trace(root, reference, run, clip_hash, criterion):
+    path = verify_file(root, reference)
+    trace = read_json(path)
+    required(trace, ["run_sha256", "clip_sha256", "observer", "provenance", "input_route", "clock", "source_evidence", "actions"])
+    if trace["run_sha256"] != run["sha256"] or trace["clip_sha256"] != clip_hash or trace["input_route"] != run["input_route"]:
+        raise StudioError("Raw action source needs matching run/media/input route")
+    clock = trace["clock"]
+    offset = number(clock.get("offset_seconds"), "action clock offset", -86400, 86400)
+    uncertainty = number(clock.get("uncertainty_seconds"), "action clock uncertainty", 0, 1200)
+    number(clock.get("precision_seconds"), "action clock precision", .000000001, .001)
+    verify_file(root, trace["source_evidence"])
+    actions = [{**a, "input_seconds": a["input_seconds"] + offset, "outcome_seconds": a["outcome_seconds"] + offset} for a in trace["actions"]]
+    result = interaction_result(criterion, actions)
+    if any(a["outcome_seconds"] - a["input_seconds"] <= 2 * uncertainty for a in actions):
+        result.update(status="unverified", reason="Clock uncertainty cannot establish input before outcome")
+    result.update(observer=trace["observer"], evidence_scope="test" if trace["provenance"] == "synthetic" else "operator_reported")
+    return result, trace["source_evidence"]
+
+def assess(root, name, evidence=None, *, _recompute=False, config=None):
     """Compute only supported assertions; model proposals never certify perception."""
-    data = validate_run(root, name, current=False)
+    data = validate_run(root, name, current=False, check_assessment=False)
     folder = relative(root, name)
-    if (folder / "assessment.json").exists():
+    if (folder / "assessment.json").exists() and not _recompute:
         raise StudioError("Assessment is immutable; create an affected recheck")
     capture = read_json(folder / "capture.json") if (folder / "capture.json").exists() else None
     analysis = read_json(folder / "analysis.json") if (folder / "analysis.json").exists() else None
@@ -261,6 +378,8 @@ def assess(root, name, evidence=None):
     facts = {}
     if analysis:
         files.append(file_record(root, folder / "analysis.json"))
+    if _recompute and (folder / "observations.original.json").exists():
+        evidence = (folder / "observations.original.json").relative_to(Path(root)).as_posix()
     if evidence:
         source = relative(root, evidence)
         facts = read_json(source)
@@ -273,19 +392,44 @@ def assess(root, name, evidence=None):
         for item in facts.get("files", []):
             verify_file(root, item)
             files.append(item)
-        shutil.copyfile(source, folder / "observations.original.json")
+        if not _recompute:
+            shutil.copyfile(source, folder / "observations.original.json")
         files.append(file_record(root, folder / "observations.original.json"))
+    reviews = facts.get("reviews", [])
+    for reference in reviews:
+        verify_file(root, reference)
+        files.append(reference)
+    qualification = None
+    if facts.get("qualification"):
+        if not analysis:
+            raise StudioError("Qualification needs retained analysis for this run")
+        from .review_records import qualified
+        qualification = qualified(root, facts["qualification"], analysis, config=config)
+        files.append(facts["qualification"])
     results = []
     for criterion in data["card"]["criteria"]:
         item = {"criterion_id": criterion["id"], "dimension": criterion["dimension"], "interval": criterion["interval"],
                 "status": "not_run", "reason": "Required observation has not been performed", "coverage": data["card"]["input_route"]}
+        from .review_records import named_result
+        named = named_result(root, reviews, sha256(folder / "run.json"), sha256(folder / "capture.mp4") if capture else None, criterion, config=config, run_name=name)
         proposals = [f for f in (analysis or {}).get("findings", []) if f["criterion_id"] == criterion["id"]]
+        if data["previous"] and criterion["id"] not in data["affected"]:
+            item.update(status="not_run", reason="Unaffected prior evidence is not rebound to this candidate")
+            results.append(item)
+            continue
         if not capture or capture["status"] != "completed":
             item.update(status="unverified", reason="Complete finalized capture required")
         elif criterion["kind"] == "temporal":
-            item.update(temporal_gate(criterion, capture["media"]["timestamps_seconds"], analysis or {}))
+            item.update(temporal_gate(criterion, capture["media"]["timestamps_seconds"], analysis or {}, qualification=qualification, review=named))
         elif criterion["kind"] == "interaction" and facts:
-            item.update(interaction_result(criterion, facts.get("actions", [])))
+            if named:
+                item.update(named)
+            elif facts.get("action_source"):
+                action, source = action_trace(root, facts["action_source"], {"sha256": sha256(folder / "run.json"), "input_route": data["card"]["input_route"]}, sha256(folder / "capture.mp4"), criterion)
+                files += [facts["action_source"], source]
+                item.update(action)
+            else:
+                item.update(status="unverified", reason="State strings need linked raw action provenance or a named adopted review")
         elif criterion["kind"] == "performance" and facts.get("timing"):
             timing = facts["timing"]
             required(timing, ["file", "method", "interval", "clock_offset_seconds", "clock_uncertainty_seconds"])
@@ -296,20 +440,59 @@ def assess(root, name, evidence=None):
             uncertainty = number(timing["clock_uncertainty_seconds"], "clock uncertainty", 0, 1200)
             offset = number(timing["clock_offset_seconds"], "clock offset", -86400, 86400)
             rows = read_json(raw_path)
-            aligned = [{"time_seconds": row["time_seconds"] + offset, "frame_ms": row["frame_ms"]} for row in rows]
+            precision = number(timing.get("clock_precision_seconds", .000001), "clock precision", .000000001, .001)
             start, end = criterion["interval"]
-            if not aligned or abs(aligned[0]["time_seconds"] - start) > .002 or abs(aligned[-1]["time_seconds"] + aligned[-1]["frame_ms"]/1000 - end) > .002:
-                raise StudioError("Raw timing rows do not cover the complete declared interval")
-            if any(abs(b["time_seconds"] - a["time_seconds"] - a["frame_ms"]/1000) > .002 for a, b in zip(aligned, aligned[1:])):
-                raise StudioError("Raw wall timing has missing/inconsistent frame intervals")
+            aligned = wall_rows(rows, criterion["interval"], offset, precision)
             item.update(frame_times(aligned, criterion["interval"], criterion["p95_ms"]))
             item["clock_uncertainty_seconds"] = uncertainty
-            if uncertainty > .0334 or facts.get("host_interference") is not False:
+            context_ref = timing.get("context")
+            context = read_json(verify_file(root, context_ref)) if context_ref else {}
+            if context_ref:
+                files.append(context_ref)
+                required(context, ["observer", "provenance", "clock", "host_evidence", "run_sha256", "timing_sha256", "settings", "host_interference", "clock_evidence"])
+                if context["run_sha256"] != sha256(folder / "run.json") or context["timing_sha256"] != timing["file"]["sha256"] or context["settings"] != data["card"]["settings"]:
+                    raise StudioError("Timing provenance/context mismatch")
+                if context["clock"] != {"offset_seconds": offset, "uncertainty_seconds": uncertainty, "precision_seconds": precision}:
+                    raise StudioError("Timing clock differs from retained provenance")
+                for source in (context["host_evidence"], context["clock_evidence"]):
+                    verify_file(root, source)
+                    files.append(source)
+                item.update(observer=context["observer"], evidence_scope="test" if context["provenance"] == "synthetic" else "operator_reported")
+            if uncertainty > .0334 or context.get("host_interference") != "none_observed":
                 item.update(status="unverified", reason="Clock alignment or host/recorder interference requires recheck")
             else:
-                item["reason"] = "Computed from complete raw wall-frame intervals"
+                item["reason"] = "Computed from complete raw wall-frame intervals with retained observer/clock/host context"
+            if timing.get("recorder_off"):
+                reference = timing["recorder_off"]
+                if reference.get("settings") != data["card"]["settings"] or reference.get("route_id") != data["card"]["route_id"] or reference.get("candidate_digest") != data["candidate"]["content_digest"]:
+                    raise StudioError("Recorder-off reference is not a matched candidate/settings/route")
+                off_context = read_json(verify_file(root, reference["context"]))
+                files.append(reference["context"])
+                required(off_context, ["measurement_id", "recording_active", "observer", "clock", "clock_evidence", "host_evidence", "timing_sha256", "settings", "route_id", "candidate_digest"])
+                if (context.get("recording_active") is not True or not context.get("measurement_id")
+                    or off_context["recording_active"] is not False or off_context["measurement_id"] == context["measurement_id"]
+                    or reference["file"]["sha256"] == timing["file"]["sha256"]
+                    or off_context["timing_sha256"] != reference["file"]["sha256"]
+                    or any(off_context[k] != reference[k] for k in ("settings", "route_id", "candidate_digest"))):
+                    raise StudioError("Recorder-off measurement must be distinct, matched and recorded as off at source")
+                for source in (off_context["host_evidence"], off_context["clock_evidence"]):
+                    verify_file(root, source)
+                    files.append(source)
+                off_clock = off_context["clock"]
+                off_offset = number(off_clock.get("offset_seconds"), "off clock offset", -86400, 86400)
+                off_precision = number(off_clock.get("precision_seconds"), "off clock precision", .000000001, .001)
+                if number(off_clock.get("uncertainty_seconds"), "off clock uncertainty", 0, 1200) > .0334:
+                    raise StudioError("Recorder-off clock mapping is insufficient")
+                off_rows = wall_rows(read_json(verify_file(root, reference["file"])), criterion["interval"], off_offset, off_precision)
+                files.append(reference["file"])
+                off = frame_times(off_rows, criterion["interval"], criterion["p95_ms"])
+                item["recorder_off"] = {"measurement": off, "p95_delta_ms": item["p95_ms"] - off["p95_ms"]}
+            elif criterion.get("requires_recorder_off"):
+                item.update(status="unverified", reason="Matched recorder-off reference required")
+        elif criterion["kind"] in {"audio", "visual", "performance"} and named:
+            item.update(named)
         elif criterion["kind"] == "audio":
-            item.update(status="unverified", reason="Audio stream/PCM and model text do not demonstrate output listening; record actual named listening review")
+            item.update(status="unverified", reason="Adopt a named listening review with capture/output relationship")
         elif proposals:
             item.update(status="unverified", reason="Perceptual proposal requires independent review of the cited video interval")
         for finding in proposals:
@@ -318,11 +501,11 @@ def assess(root, name, evidence=None):
                 raise StudioError("Analyzer finding lies outside the criterion interval")
         if proposals:
             item["observations"] = proposals
-            if any(f["status"] == "fail" for f in proposals) and analysis["status"] == "observations_received":
+            if criterion["kind"] in {"temporal", "visual", "audio"} and any(f["status"] == "fail" for f in proposals) and analysis["status"] == "observations_received":
                 item.update(status="fail", reason="Analyzer reports a defect in cited video; provisional pending independent confirmation")
         results.append(item)
     mandatory = [r for r, c in zip(results, data["card"]["criteria"]) if c["mandatory"]]
-    complete = all(r["status"] == "pass" for r in mandatory) and data["card"]["input_route"] in {"ordinary", "human"}
+    complete = all(r["status"] == "pass" and r.get("evidence_scope") != "test" for r in mandatory) and data["card"]["input_route"] in {"ordinary", "human"}
     failed = [r["criterion_id"] for r in mandatory if r["status"] == "fail"]
     pending = [r["criterion_id"] for r in mandatory if r["status"] not in {"pass", "fail"}]
     result = {"schema_version": 1, "run_sha256": sha256(folder / "run.json"), "results": results,
@@ -330,5 +513,6 @@ def assess(root, name, evidence=None):
               "production_acceptance": "pending_independent_review", "native_capability": "unverified",
               "next_decision": "repair_and_affected_recheck_before_integrated_expansion" if failed else "complete_missing_evidence" if pending else "independent_review",
               "files": files}
-    write_json(folder / "assessment.json", result)
+    if not _recompute:
+        write_json(folder / "assessment.json", result)
     return result

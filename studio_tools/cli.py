@@ -98,7 +98,8 @@ def parser():
     c.add_argument("--output")
     c.add_argument("--preset")
     c = command("review", True)
-    c.add_argument("operation", choices=["validate-card", "prepare", "capture", "dense", "analyze", "assess", "compare", "validate-run", "fixtures"])
+    c.add_argument("operation", choices=["validate-card", "prepare", "capture", "dense", "analyze", "assess", "compare", "validate-run", "fixtures", "ingest", "qualify"])
+    c.add_argument("--review", help="Named observer/evaluator JSON approved by host review_trust")
     c.add_argument("--card")
     c.add_argument("--candidate", default="artifacts/candidate.json")
     c.add_argument("--run")
@@ -177,6 +178,12 @@ def dispatch(a):
             if value is None:
                 raise StudioError("review " + a.operation + " requires --" + field)
             return value
+        if a.operation == "qualify":
+            from .review_records import qualify
+            return {"qualification": qualify(config, root, needed("review"))}
+        if a.operation == "ingest":
+            from .review_records import ingest
+            return {"review": ingest(config, root, needed("run"), needed("review"))}
         if a.operation == "fixtures":
             return review_media.fixtures(config, path(a.output))
         if a.operation in {"validate-card", "prepare"}:
@@ -184,12 +191,12 @@ def dispatch(a):
             candidate = read_json(path(a.candidate))
             if a.operation == "validate-card":
                 return validation.validate_card(card, candidate, root)
-            return {"run": validation.prepare_run(root, card, candidate, role=a.role, previous=a.previous, affected=a.affected)}
+            return {"run": validation.prepare_run(root, card, candidate, role=a.role, previous=a.previous, affected=a.affected, config=config)}
         if a.operation == "compare":
-            return validation.compare_runs(root, needed("before"), needed("after"))
+            return validation.compare_runs(root, needed("before"), needed("after"), config=config)
         name = needed("run")
         if a.operation == "validate-run":
-            validation.validate_run(root, name)
+            validation.validate_run(root, name, config=config)
             return {"ok": True, "run": name}
         if a.operation == "capture":
             return review_media.capture(config, root, name, read_json(path(needed("profile"))))
@@ -197,7 +204,7 @@ def dispatch(a):
             return review_media.dense_frames(config, root, name, needed("interval"))
         if a.operation == "analyze":
             return review_video.analyze(config, root, name, read_json(path(needed("budget"))), dense=a.dense)
-        return validation.assess(root, name, a.evidence)
+        return validation.assess(root, name, a.evidence, config=config)
     if a.command == "fixture":
         from .fixture import create
 

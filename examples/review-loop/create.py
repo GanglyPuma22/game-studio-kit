@@ -48,6 +48,12 @@ def create(destination):
                  "actions": [], "timing": {"file": file_record(root, fixtures / (case + "-timing.json")), "method": "wall_frame_time",
                  "interval": [0, 2], "clock_offset_seconds": 0, "clock_uncertainty_seconds": 0},
                  "origin": "synthetic injected timing; not native game measurements"}
+        write_json(root / run / "synthetic-host.json", {"observation": "No host measurement: original generator only", "clock_source": "generator step accumulator"})
+        write_json(root / run / "timing-context.json", {"observer": "original generator", "provenance": "synthetic",
+            "clock": {"offset_seconds": 0, "uncertainty_seconds": 0, "precision_seconds": .000001},
+            "host_evidence": file_record(root, root / run / "synthetic-host.json"), "clock_evidence": file_record(root, root / run / "synthetic-host.json"), "run_sha256": sha256(root / run / "run.json"),
+            "timing_sha256": facts["timing"]["file"]["sha256"], "settings": card["settings"], "host_interference": "none_observed"})
+        facts["timing"]["context"] = file_record(root, root / run / "timing-context.json")
         evidence = "artifacts/" + role + "-observations.json"
         write_json(root / evidence, facts)
         assessment = validation.assess(root, run, evidence)

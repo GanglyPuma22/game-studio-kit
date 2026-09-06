@@ -46,6 +46,7 @@
   ],
   "resources": [
     "examples/review-loop/create.py",
+    "examples/review-loop/qualification.py",
     "references/acceptance.md",
     "references/actionable-discovery.md",
     "references/companion-delivery.md",
@@ -87,6 +88,7 @@
     "studio_tools/processes.py",
     "studio_tools/records.py",
     "studio_tools/review_media.py",
+    "studio_tools/review_records.py",
     "studio_tools/review_video.py",
     "studio_tools/validation.py",
     "templates/asset.json",

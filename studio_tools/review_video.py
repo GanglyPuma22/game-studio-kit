@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
+import tempfile
+import urllib.error
 import urllib.request
 from .common import StudioError, digest, file_record, read_json, relative, safe_id, sha256, write_json
 from .config import credential
@@ -17,10 +19,42 @@ from .validation import interval, number, tool_identity, validate_run
 ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions"
 
 
+def analysis_profile(budget):
+    return {"version": 2, "model": budget["model"], "video_fps": 1, "image_resolution": "high",
+            "thinking_level": "low", "max_output_tokens": budget["max_output_tokens"], "store": False}
+
+
+def cost_bound(budget):
+    # Deliberately use the whole documented supported-model ceilings: compressed
+    # bytes and approximate media tokenization are not a defensible dollar cap.
+    if budget.get("model") != "gemini-3.7-flash" or budget.get("rates_model") != budget["model"] or budget.get("rates_profile") != "standard-all-context":
+        raise StudioError("Current cost profile requires verified gemini-3.7-flash standard all-context rates")
+    try:
+        checked = datetime.fromisoformat(budget["rate_verified_utc"].replace("Z", "+00:00"))
+        age = (datetime.now(timezone.utc) - checked).total_seconds()
+        if not -300 <= age <= 7 * 86400:
+            raise ValueError()
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise StudioError("Rate verification must be timezone-aware and within seven days") from None
+    rates = budget.get("rates_usd_per_million", {})
+    if not isinstance(rates, dict):
+        raise StudioError("Verified rates must be an input/output/thought object")
+    reservation = number(budget.get("reserve_per_request_usd"), "request reservation", .000001, 100)
+    multiplier = 2 if datetime.now(timezone.utc).year >= 2027 else 1
+    for key, floor in (("input", .75 * multiplier), ("output", 3.75 * multiplier), ("thought", 3.75 * multiplier)):
+        number(rates.get(key), "verified " + key + " rate", floor, 1000)
+    upper = (1048576 * rates["input"] + 65536 * rates["output"] + 65536 * rates["thought"]) / 1000000
+    if upper > reservation:
+        raise StudioError("Request reservation is below conservative input/output/thought cost bound")
+    return {"input_tokens_upper": 1048576, "output_tokens_upper": 65536, "additional_thought_tokens_upper": 65536,
+            "estimated_upper_bound_usd": upper, "method": "documented model ceilings; separate conservative thought allowance"}
+
+
 def reserve(root, budget, run_id, clip_hash):
     if budget.get("upload_authorized") is not True or clip_hash not in budget.get("approved_media_sha256", []):
         raise StudioError("Video upload needs explicit approval for this exact media hash")
     required(budget, ["authorization_id", "model", "rate_verified_utc", "max_request_bytes", "max_output_tokens"])
+    bound = cost_bound(budget)
     safe_id(budget["authorization_id"])
     if not re.fullmatch(r"gemini-[A-Za-z0-9.-]+", budget["model"]):
         raise StudioError("Select an explicit Gemini model")
@@ -56,7 +90,7 @@ def reserve(root, budget, run_id, clip_hash):
                 raise StudioError("This run already has a request; do not resubmit")
             slot = ledger / ("request-" + str(len(prior)+1) + ".json")
             write_json(slot, {"schema_version": 1, "status": "reserved", "run_id": run_id,
-                              "clip_sha256": clip_hash, "reserved_usd": cost, "budget_digest": digest(budget)})
+                              "clip_sha256": clip_hash, "reserved_usd": cost, "budget_digest": digest(budget), "cost_bound": bound})
             return slot
     finally:
         lock.unlink(missing_ok=True)
@@ -78,8 +112,8 @@ def validate_findings(result, expected, criterion_ids, duration):
     return result
 
 
-def build_request(root, name, budget, dense=None):
-    data = validate_run(root, name, current=False)
+def build_request(root, name, budget, dense=None, *, config=None):
+    data = validate_run(root, name, current=False, config=config)
     folder = relative(root, name)
     capture = read_json(folder / "capture.json")
     if capture["status"] != "completed":
@@ -100,22 +134,39 @@ def build_request(root, name, budget, dense=None):
         if not frames or len(frames) > 180:
             raise StudioError("Dense supplemental frame count outside supported bound")
         files.append(file_record(root, relative(root, dense)))
+        # Regenerate the complete declared dense selection from approved video.
+        # A matching sidecar's own hashes cannot authorize unrelated images.
+        from .config import load, require_executable
+        from .processes import run
+        start, end = interval(dense_record["interval"], capture["media"]["duration_seconds"])
+        expected_indexes = [i for i, t in enumerate(capture["media"]["timestamps_seconds"]) if start <= t <= end]
+        if [f.get("frame_index") for f in frames] != expected_indexes:
+            raise StudioError("Dense selection does not match the approved clip interval")
+        with tempfile.TemporaryDirectory(prefix="studio-verify-dense-") as temporary:
+            run([require_executable(config or load(), "ffmpeg"), "-v", "error", "-n", "-i", str(clip), "-vf",
+                 f"select=between(n\\,{expected_indexes[0]}\\,{expected_indexes[-1]})", "-vsync", "0", str(Path(temporary) / "%05d.png")], timeout=120)
+            regenerated = sorted(Path(temporary).glob("*.png"))
+            if len(regenerated) != len(frames) or any(sha256(p) != f["sha256"] for p, f in zip(regenerated, frames)):
+                raise StudioError("Supplemental image is not derived from the approved clip")
         for frame in frames:
             image = verify_file(root, frame)
             index = frame["frame_index"]
             if type(index) is not int or not 0 <= index < len(capture["media"]["timestamps_seconds"]) or frame["time_seconds"] != capture["media"]["timestamps_seconds"][index]:
                 raise StudioError("Dense timestamp does not match original video PTS")
             inputs += [{"type": "text", "text": f"Supplemental original video frame at {frame['time_seconds']:.9f} seconds (original PTS {frame['original_pts_seconds']:.9f})."},
-                       {"type": "image", "mime_type": "image/png", "data": base64.b64encode(image.read_bytes()).decode()}]
+                       {"type": "image", "mime_type": "image/png", "resolution": "high", "data": base64.b64encode(image.read_bytes()).decode()}]
             files.append(file_record(root, image))
     schema = {"type": "object", "properties": {**{k: {"type": "string"} for k in expected},
         "findings": {"type": "array", "items": {"type": "object", "properties": {
-            **{k: {"type": "string"} for k in ("criterion_id", "status", "observation", "severity", "hypothesis", "next_check")},
-            "interval": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}},
-            "required": ["criterion_id", "status", "interval", "observation", "severity", "hypothesis", "next_check"]}}},
+            **{k: {"type": "string"} for k in ("criterion_id", "status", "category", "observation", "severity", "hypothesis", "next_check")},
+            "interval": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+            "action": {"type": "object", "properties": {"input_seconds": {"type": "number"}, "outcome_seconds": {"type": ["number", "null"]},
+                "before_state": {"type": "string"}, "after_state": {"type": "string"}, "outcome_window": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}},
+                "required": ["input_seconds", "outcome_seconds", "before_state", "after_state", "outcome_window"]}},
+            "required": ["criterion_id", "status", "category", "interval", "observation", "severity", "hypothesis", "next_check"]}}},
         "required": list(expected) + ["findings"]}
     prompt = ("Review the full continuous video and supplemental original frames. Report observed symptoms with exact second intervals, severity, uncertainty and next checks. "
-              "Separate hypotheses from observations. Do not infer real game frame time from encoded FPS, sound output from stream presence, or an interaction from input alone. "
+              "For interaction findings include the observed input, outcome window, timestamp/state transition (null outcome if absent). Separate hypotheses from observations. Do not infer real game frame time from encoded FPS, sound output from stream presence, or an interaction from input alone. "
               "Status proposals do not establish coverage or acceptance. Do not invent defects on a clean control. Return the bound identity and criterion IDs exactly. "
               + json.dumps({"identity": expected, "criteria": data["card"]["criteria"], "actions": data["card"]["actions"]}))
     inputs.append({"type": "text", "text": prompt})
@@ -137,8 +188,6 @@ def _submit(body, secret, timeout):
     request = urllib.request.Request(ENDPOINT, data=body, headers={"Content-Type": "application/json", "x-goog-api-key": secret}, method="POST")
     with urllib.request.build_opener(NoRedirect()).open(request, timeout=timeout) as response:
         raw = response.read(4000001)
-        if len(raw) > 4000000:
-            raise StudioError("Video response exceeded preservation bound; reconcile request")
         return raw
 
 
@@ -147,10 +196,11 @@ def analyze(config, root, name, budget, *, dense=None, transport=None):
     if (folder / "analysis.json").exists() or (folder / "analysis-request").exists():
         raise StudioError("Run already submitted/prepared; do not retry an ambiguous operation")
     # All local/media checks and credential presence before reserving or sending.
-    body, expected, files, dense_record = build_request(root, name, budget, dense)
+    cost_bound(budget)
+    body, expected, files, dense_record = build_request(root, name, budget, dense, config=config)
     if budget.get("upload_authorized") is not True:
         raise StudioError("Video upload authorization is absent")
-    secret = credential(config, "gemini")
+    secret = "offline-test-transport" if transport is not None else credential(config, "gemini")
     slot = reserve(root, budget, expected["run_id"], expected["clip_sha256"])
     dest = folder / "analysis-request"
     dest.mkdir(exist_ok=False)
@@ -159,16 +209,25 @@ def analyze(config, root, name, budget, *, dense=None, transport=None):
                  request_bytes=len(body), created_utc=datetime.now(timezone.utc).isoformat())
     write_json(slot, state)
     write_json(dest / "request.json", state)
+    (dest / "request.original.json").write_bytes(body)
+    files.append(file_record(root, dest / "request.original.json"))
     result = {"schema_version": 1, "run_sha256": sha256(folder / "run.json"), "status": "ambiguous",
-              "backend": "gemini_interactions", "model": budget["model"], "identity": expected, "analysis_tool": tool_identity(),
+              "execution_scope": "test" if transport is not None else "provider", "backend": "gemini_interactions", "model": budget["model"], "identity": expected, "analysis_tool": tool_identity(), "profile": analysis_profile(budget),
               "coverage": {"requested_video_fps": 1, "full_video_submitted": True,
                            "dense_frame_count": len(dense_record["frames"]) if dense_record else 0,
-                           "effective_model_gap_seconds": None, "fixture_detection": "not_run"},
+                           "effective_model_gap_seconds": None, "fixture_detection": "not_run", "dense_interval": dense_record["interval"] if dense_record else None, "dense_max_gap_seconds": dense_record["max_gap_seconds"] if dense_record else None},
               "usage": None, "findings": [], "files": files}
+    received = False
     try:
         raw = (transport or _submit)(body, secret, min(config["timeout"], 180))
+        received = True
+        oversized = len(raw) > 4000000
+        raw = raw[:4000000]
+        result["response_truncated"] = oversized
         (dest / "response.original.json").write_bytes(raw)
         result["files"].append(file_record(root, dest / "response.original.json"))
+        if oversized:
+            raise StudioError("Received response exceeded preservation limit")
         response = json.loads(raw)
         result.update(provider_id=response.get("id"), reported_model=response.get("model"), usage=response.get("usage"))
         if response.get("status") != "completed" or not response.get("id"):
@@ -176,7 +235,7 @@ def analyze(config, root, name, budget, *, dense=None, transport=None):
         if response.get("model", "").removeprefix("models/") != budget["model"]:
             raise StudioError("Provider returned an unexpected model; preserve response for review")
         text = "".join(p["text"] for step in response.get("steps", []) if step.get("type") == "model_output" for p in step.get("content", []) if p.get("type") == "text")
-        data = validate_run(root, name, current=False)
+        data = validate_run(root, name, current=False, config=config)
         parsed = validate_findings(json.loads(text), expected, [c["id"] for c in data["card"]["criteria"]], data["card"]["duration_seconds"])
         result.update(status="observations_received", findings=parsed["findings"])
         # Conservatively price every reported token at the higher approved rate.
@@ -184,15 +243,31 @@ def analyze(config, root, name, budget, *, dense=None, transport=None):
         rates = budget.get("rates_usd_per_million", {})
         if type(usage.get("total_tokens")) is not int or usage["total_tokens"] < 0 or not rates:
             state["status"] = "usage_unverified"
+            result.update(status="received_invalid", reason="Received response lacks valid usage; reconcile before further submissions")
         else:
             price = max(number(v, "token rate", .000001, 1000) for v in rates.values())
             upper_cost = usage["total_tokens"] * price / 1000000
             state.update(status="completed" if upper_cost <= state["reserved_usd"] else "over_budget", conservative_cost_usd=upper_cost)
         state.update(provider_id=response["id"], usage=usage)
+    except urllib.error.HTTPError as exc:
+        try:
+            error_body = exc.read(4000001)
+            truncated = len(error_body) > 4000000
+        except (OSError, ValueError):
+            error_body, truncated = b"", False
+        exc.close()
+        error_body = error_body[:4000000].replace(secret.encode(), b"[redacted]")
+        (dest / "response.error.original").write_bytes(error_body)
+        result["files"].append(file_record(root, dest / "response.error.original"))
+        state.update(status="rejected", http_status=exc.code, response_truncated=truncated,
+                     response_headers={k: str(v).replace(secret, "[redacted]") for k, v in (exc.headers or {}).items() if k.lower() in {"content-type", "retry-after", "x-request-id"}})
+        result.update(status="rejected", http_status=exc.code, reason="Provider returned HTTP rejection; bytes retained, no retry")
     except (Exception, KeyboardInterrupt):
-        state["status"] = "ambiguous"
-        result.update(status="ambiguous", findings=[])
-        result["reason"] = "Submission or response could not be confirmed; preserve and reconcile, never automatically resubmit"
+        status = "received_invalid" if received else "ambiguous"
+        state.update(status=status, provider_id=result.get("provider_id"), usage=result.get("usage"))
+        result.update(status=status, findings=[])
+        result["reason"] = "Received result is invalid; inspect original response and usage" if received else "Transport outcome unknown; reconcile account evidence before any new authorization"
+        result["reconciliation"] = "store=false prevents relying on later retrieval; preserve local bytes/account evidence, no automatic retry or recapture"
     finally:
         write_json(slot, state)
         write_json(dest / "outcome.json", state)

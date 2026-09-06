@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import platform
 import struct
+import tempfile
 import wave
 from .common import StudioError, file_record, output_root, read_json, relative, sha256, write_json
 from .config import require_executable
@@ -15,8 +16,13 @@ from .validation import interval, number, validate_run
 def inspect_media(config, source):
     source = Path(source).resolve()
     probe = run([require_executable(config, "ffprobe"), "-v", "error", "-show_streams", "-show_format",
-                 "-show_frames", "-show_entries", "frame=media_type,best_effort_timestamp_time,pkt_duration_time:stream:format", "-of", "json", str(source)], timeout=120)
-    raw = json.loads(probe["stdout"])
+                 "-show_frames", "-show_entries", "frame=media_type,stream_index,best_effort_timestamp_time,pkt_duration_time,duration_time,nb_samples:stream:format", "-of", "json", str(source)], timeout=120)
+    try:
+        raw = json.loads(probe["stdout"])
+        if not isinstance(raw, dict):
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise StudioError("FFprobe returned malformed metadata") from None
     video = [s for s in raw.get("streams", []) if s["codec_type"] == "video"]
     pts = [float(f["best_effort_timestamp_time"]) for f in raw.get("frames", []) if f.get("media_type") == "video" and "best_effort_timestamp_time" in f]
     if len(video) != 1 or len(pts) < 2 or any(b <= a for a, b in zip(pts, pts[1:])):
@@ -25,10 +31,31 @@ def inspect_media(config, source):
     number(duration, "media duration", .01)
     # A readable header or packet list alone cannot finalize an incomplete container.
     run([require_executable(config, "ffmpeg"), "-v", "error", "-xerror", "-err_detect", "explode", "-i", str(source), "-map", "0:v:0", "-map", "0:a?", "-f", "null", "-"], timeout=120)
-    normalized = [round(p - pts[0], 9) for p in pts]
+    origin = float(raw["format"].get("start_time", 0))
+    coverage = {}
+    for stream in raw["streams"]:
+        kind = stream["codec_type"]
+        if kind not in {"video", "audio"}:
+            continue
+        frames = [f for f in raw["frames"] if f.get("stream_index") == stream["index"] and "best_effort_timestamp_time" in f]
+        ranges = []
+        for frame in frames:
+            timestamp = float(frame["best_effort_timestamp_time"]) - origin
+            frame_duration = float(frame.get("duration_time", frame.get("pkt_duration_time", 0)))
+            if kind == "audio" and frame.get("nb_samples") and stream.get("sample_rate"):
+                frame_duration = int(frame["nb_samples"]) / int(stream["sample_rate"])
+            number(timestamp, "stream timestamp", -1200, 1200)
+            number(frame_duration, "decoded frame duration", .000000001, 1200)
+            ranges.append((timestamp, timestamp + frame_duration))
+        if not ranges:
+            raise StudioError("Stream has no timestamped decoded frames")
+        coverage[str(stream["index"])] = {"kind": kind, "start_seconds": min(r[0] for r in ranges),
+            "end_seconds": max(r[1] for r in ranges), "last_frame_duration_seconds": ranges[-1][1] - ranges[-1][0],
+            "time_base": stream.get("time_base"), "frame_count": len(frames)}
+    normalized = [round(p - origin, 9) for p in pts]
     return {"duration_seconds": duration, "streams": raw["streams"], "frame_count": len(pts),
             "original_pts_seconds": pts, "timestamps_seconds": normalized,
-            "first_pts_seconds": pts[0], "max_pts_gap_seconds": max(b-a for a, b in zip(pts, pts[1:])),
+            "timeline_origin_seconds": origin, "stream_coverage": coverage, "first_pts_seconds": pts[0], "max_pts_gap_seconds": max(b-a for a, b in zip(pts, pts[1:])),
             "has_audio": any(s["codec_type"] == "audio" for s in raw["streams"]),
             "decode": "completed", "game_present_cadence": "unknown", "recorder_drops": "unknown",
             "duplicate_images": "unknown", "listening": "not_run"}
@@ -40,12 +67,26 @@ def _native_args(profile, duration):
         raise StudioError("Native recording requires this Windows host, operator and permitted recorder receipt")
     if grant.get("target") != profile.get("target") or not grant.get("target") or not grant.get("receipt"):
         raise StudioError("Native recording requires an exact authorized target and receipt")
-    deadline = datetime.fromisoformat(grant["deadline_utc"].replace("Z", "+00:00"))
-    if (deadline - datetime.now(timezone.utc)).total_seconds() < duration + 5:
+    try:
+        deadline = datetime.fromisoformat(grant["deadline_utc"].replace("Z", "+00:00"))
+        if deadline.tzinfo is None:
+            raise ValueError()
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise StudioError("Native deadline must be an explicit timezone-aware UTC timestamp") from None
+    startup = number(profile.get("startup_seconds", 5), "startup budget", 0, 30)
+    grace = number(profile.get("finalize_seconds", 5), "finalization budget", .01, 30)
+    if (deadline - datetime.now(timezone.utc)).total_seconds() < duration + startup + grace:
         raise StudioError("Native recording exceeds the authorized window")
     for key in ("output_index", "offset_x", "offset_y", "width", "height", "fps"):
         if type(profile.get(key)) is not int or profile[key] < (1 if key in {"width", "height", "fps"} else 0):
             raise StudioError("Native capture needs explicit target geometry and cadence")
+    authorized = grant.get("capture", {})
+    for key in ("output_index", "offset_x", "offset_y", "width", "height", "fps", "encoder", "audio_device", "startup_seconds", "finalize_seconds"):
+        expected = profile.get(key, 5 if key in {"startup_seconds", "finalize_seconds"} else None)
+        if key not in authorized or authorized[key] != expected:
+            raise StudioError("Native capture geometry/profile differs from authorization: " + key)
+    if profile.get("encoder") != "h264_nvenc":
+        raise StudioError("Native profile currently supports explicitly selected h264_nvenc only")
     if profile["fps"] > 60:
         raise StudioError("Capture profile supports up to 60 FPS")
     source = (f"ddagrab=output_idx={profile['output_index']}:framerate={profile['fps']}:"
@@ -56,14 +97,14 @@ def _native_args(profile, duration):
         if grant.get("audio_device") != profile["audio_device"]:
             raise StudioError("Audio device is outside capture authorization")
         args += ["-f", "dshow", "-i", "audio=" + profile["audio_device"], "-map", "0:v:0", "-map", "1:a:0", "-c:a", "aac"]
-    args += ["-c:v", "h264_nvenc"]
+    args += ["-c:v", profile["encoder"], "-fps_mode", "passthrough"]
     return args
 
 
 def capture(config, root, name, profile, *, cancelled=None):
-    data = validate_run(root, name)
+    data = validate_run(root, name, config=config)
     folder = relative(root, name)
-    if (folder / "capture.json").exists() or (folder / "recorder").exists():
+    if (folder / "capture.json").exists() or (folder / "recorder").exists() or (folder / "capture-preflight.json").exists():
         raise StudioError("Capture is immutable; prepare a new run")
     duration = data["card"]["duration_seconds"]
     route = profile.get("route")
@@ -76,7 +117,16 @@ def capture(config, root, name, profile, *, cancelled=None):
         args = ["-i", str(source), "-map", "0:v:0", "-map", "0:a?", "-c", "copy"]
         source_identity = {"sha256": sha256(source), "route": "file", "native_recording": False}
     elif route == "windows_ddagrab":
-        args = _native_args(profile, duration)
+        try:
+            args = _native_args(profile, duration)
+            encoders = run([ffmpeg, "-hide_banner", "-encoders"], timeout=10)["stdout"]
+            if "h264_nvenc" not in encoders:
+                raise StudioError("Installed FFmpeg does not expose selected h264_nvenc encoder")
+            args = _native_args(profile, duration)  # deadline after encoder discovery
+        except StudioError as error:
+            write_json(folder / "capture-preflight.json", {"schema_version": 1, "run_sha256": sha256(folder / "run.json"),
+                "status": "rejected_before_start", "reason": str(error), "native_started": False})
+            raise
         source_identity = {"route": route, "host": profile["host"], "operator": profile["operator"],
                            "target": profile["target"], "authorization": profile["authorization"],
                            "native_recording": True}
@@ -84,27 +134,32 @@ def capture(config, root, name, profile, *, cancelled=None):
         raise StudioError("Unknown/denied recorder route; configure file or permitted windows_ddagrab")
     output = folder / "capture.mp4"
     args = [ffmpeg, "-hide_banner", "-loglevel", "warning", "-n", "-stdin"] + args + ["-t", str(duration), "-movflags", "+faststart", str(output)]
-    process = record(args, job_dir=folder / "recorder", duration=duration, cancelled=cancelled)
+    process = record(args, job_dir=folder / "recorder", duration=duration,
+                     startup=profile.get("startup_seconds", 5) if route != "file" else 5,
+                     grace=profile.get("finalize_seconds", 5), cancelled=cancelled)
     result = {"schema_version": 1, "run_sha256": sha256(folder / "run.json"), "status": "incomplete",
               "source": source_identity, "process": process, "requested_duration_seconds": duration,
-              "requested_fps": profile.get("fps"), "audio_capture_source": profile.get("audio_device", "source file" if route == "file" else "none"),
+              "requested_fps": profile.get("fps"), "encoder": profile.get("encoder", "stream_copy"), "fps_mode": "passthrough" if route != "file" else "stream_copy", "audio_capture_source": profile.get("audio_device", "source file" if route == "file" else "none"),
               "exclusions": [], "media": None, "files": [file_record(root, folder / "recorder/process.json"), file_record(root, folder / "recorder/stdout.log")]}
     if output.is_file():
         result["files"].append(file_record(root, output))
         try:
             result["media"] = inspect_media(config, output)
-            enough = result["media"]["duration_seconds"] >= duration - .15
+            coverage = result["media"]["stream_coverage"]
+            enough = all(c["start_seconds"] <= .002 and c["end_seconds"] >= duration - .002 for c in coverage.values())
+            if any(c["kind"] == "audio" and c["mandatory"] for c in data["card"]["criteria"]) and not result["media"]["has_audio"]:
+                enough = False
             if process["status"] == "completed" and enough:
                 result["status"] = "completed"
             else:
-                result["reason"] = "Capture ended early or was interrupted"
-        except StudioError:
+                result["reason"] = "Capture interrupted or required video/audio interval is incomplete"
+        except (StudioError, ValueError, TypeError, KeyError, OSError):
             result["reason"] = "Container failed complete video/audio decode"
     else:
         result["reason"] = "Recorder produced no media"
     # Source/candidate mutation during capture invalidates acceptance, preserving output.
     try:
-        validate_run(root, name)
+        validate_run(root, name, config=config)
         if route == "file" and sha256(source) != source_identity["sha256"]:
             raise StudioError("Source changed")
     except StudioError:
@@ -115,7 +170,7 @@ def capture(config, root, name, profile, *, cancelled=None):
 
 
 def dense_frames(config, root, name, selected):
-    validate_run(root, name, current=False)
+    validate_run(root, name, current=False, config=config)
     folder = relative(root, name)
     captured = read_json(folder / "capture.json")
     if captured["status"] != "completed":
@@ -143,11 +198,22 @@ def dense_frames(config, root, name, selected):
     return result
 
 
+# Versioned acceptance requirements; ground truth is never included in requests.
+CORPUS_ROLES = [
+    ("clean", "pass", "temporal", None), ("brief", "fail", "disappearance", [.9, 1]),
+    ("single", "fail", "disappearance", [56/60, 57/60]), ("stutter", "fail", "game_stall", [.9, 31/30]),
+    ("recorder_drop", "fail", "recorder_loss", [.9, 1]), ("interaction_success", "pass", "interaction", None),
+    ("interaction_failure", "fail", "interaction", None), ("clean", "pass", "audio", [.95, 1.15]),
+    ("silent", "fail", "audio", None), ("clean", "pass", "temporal", None)]
+
 def fixtures(config, destination):
     """Create anonymous moving original geometry + cue; truth is a separate file."""
     dest = Path(destination)
     output_root(dest.parent)
-    dest.mkdir(parents=True, exist_ok=False)
+    try:
+        dest.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        raise StudioError("Fixture destination exists; preserve originals and choose a new directory") from None
     ffmpeg = require_executable(config, "ffmpeg")
     # 160x96 original raster frames. No licensed art, screenshots or player media.
     cases = {"clean": [], "brief": [27, 28, 29], "single": [28], "stutter": [], "recorder_drop": [], "interaction_success": [], "interaction_failure": [], "silent": []}
@@ -172,6 +238,8 @@ def fixtures(config, destination):
                             color = (219, 219, 191)
                         if name.startswith("interaction") and 115 < x < 135 and 35 < y < 62:
                             color = (33, 190, 92) if name == "interaction_success" and n >= 30 else (199, 44, 34)
+                        if name.startswith("interaction") and n >= 15 and 115 < x < 135 and 15 < y < 25:
+                            color = (40, 140, 240)  # independent visible input marker
                         pixels.extend(color)
                 stream.write(pixels)
         wav = dest / (name + ".wav")
@@ -182,6 +250,7 @@ def fixtures(config, destination):
         output = dest / (name + ".mp4")
         run([ffmpeg, "-v", "error", "-n", "-f", "rawvideo", "-pixel_format", "rgb24", "-video_size", "160x96", "-framerate", str(fps), "-i", str(raw), "-i", str(wav)] + (["-vf", "select=not(between(n\\,27\\,29))", "-vsync", "vfr"] if name == "recorder_drop" else []) + ["-c:v", "mpeg4", "-q:v", "2", "-c:a", "aac", "-movflags", "+faststart", str(output)], timeout=60)
         metadata = inspect_media(config, output)
+        write_json(dest / (name + "-decoded.json"), metadata)
         outputs.append({**file_record(dest, output), "case": name, "frames": metadata["frame_count"]})
         telemetry = []
         time_seconds = 0
@@ -190,6 +259,9 @@ def fixtures(config, destination):
             telemetry.append({"time_seconds": time_seconds, "frame_ms": ms})
             time_seconds += ms/1000
         write_json(dest / (name + "-timing.json"), telemetry)
+        if name.startswith("interaction"):
+            write_json(dest / (name + "-actions.json"), {"input_seconds": .5, "outcome_window": [.5, 1.1], "outcome_seconds": 1 if name.endswith("success") else None,
+                "before_state": "idle", "after_state": "active" if name.endswith("success") else "idle", "source": "original generator marker and state"})
         truth[name] = {"missing_frame_indexes": missing, "fps": fps, "event_interval": [min(missing)/fps, (max(missing)+1)/fps] if missing else None,
                        "game_stall": name == "stutter", "recorder_frame_loss": name == "recorder_drop",
                        "interaction_outcome": name == "interaction_success" if name.startswith("interaction") else None,
@@ -198,4 +270,16 @@ def fixtures(config, destination):
     manifest = {"schema_version": 1, "original": True, "fps": 30, "outputs": outputs, "perception": "not_run",
                 "note": "Generated/decoded media only. Truth excluded from analyzer prompt. No detection claims."}
     write_json(dest / "fixtures.json", manifest)
+    roles = {}
+    for i, (case, status, category, event) in enumerate(CORPUS_ROLES, 1):
+        roles[f"M{i:02d}"] = {"case": case, "media": file_record(dest, dest / (case + ".mp4")),
+            "expected_status": status, "category": category, "event_interval": event, "tolerance_seconds": .1 if i == 8 else 1/60 if i == 3 else .0334,
+            "decoded": file_record(dest, dest / (case + "-decoded.json")),
+            "telemetry": file_record(dest, dest / (case + "-timing.json"))}
+        if case.startswith("interaction"):
+            roles[f"M{i:02d}"]["actions"] = file_record(dest, dest / (case + "-actions.json"))
+    (dest / "generator.original.py").write_bytes(Path(__file__).read_bytes())
+    write_json(dest / "acceptance-roles.json", {"schema_version": 2, "corpus_id": "studio-review-acceptance-v2", "unique_clips": 8, "acceptance_roles": 10,
+        "dense_interval": [.7, 1.3], "roles": roles, "generator": file_record(dest, dest / "generator.original.py"),
+        "ground_truth": file_record(dest, dest / "ground-truth.json"), "revision_note": "Explicit revised corpus: eight two-second files cover ten roles; clean reused in a distinct M10 recheck run. Original six-second v1 plan remains historical."})
     return manifest
