@@ -132,9 +132,19 @@ class ProductionReliabilityTests(unittest.TestCase):
         log = self.root / "legacy.log"
         original = b"previous run\r\nraw bytes: \xff\x00\n"
         log.write_bytes(original)
+        for args, options in (([self.root / "missing-program"], {}),
+                              ([sys.executable, "\x00"], {}),
+                              ([sys.executable], {"env": {"FIXTURE": None}})):
+            with self.assertRaisesRegex(StudioError, "Could not start"):
+                processes.run(args, log=log, hide_window=True, **options)
+            self.assertEqual(log.read_bytes(), original)
+
+    def test_malformed_launch_records_start_failure_without_pid(self):
         with self.assertRaisesRegex(StudioError, "Could not start"):
-            processes.run([self.root / "missing-program"], log=log, hide_window=True)
-        self.assertEqual(log.read_bytes(), original)
+            processes.run([sys.executable, "\x00"], job_dir=self.root / "bad-args", hide_window=True)
+        record = read_json(self.root / "bad-args/process.json")
+        self.assertEqual(record["status"], "start_failed")
+        self.assertIsNone(record["pid"])
 
     def test_interruption_during_timeout_cleanup_retries_owned_cleanup(self):
         with (
@@ -143,6 +153,7 @@ class ProductionReliabilityTests(unittest.TestCase):
         ):
             child = launch.return_value
             child.pid = 123
+            child.returncode = None
             child.poll.return_value = -1
             child.wait.side_effect = subprocess.TimeoutExpired(["fixture"], 1)
             with self.assertRaises(KeyboardInterrupt):
@@ -160,12 +171,31 @@ class ProductionReliabilityTests(unittest.TestCase):
         ):
             child = launch.return_value
             child.pid = 123
+            child.returncode = None
             child.poll.return_value = None
             child.wait.side_effect = subprocess.TimeoutExpired(["fixture"], 1)
             with self.assertRaises(KeyboardInterrupt):
                 self.run_python("unused")
         record = read_json(self.root / "job/process.json")
         self.assertEqual(record["cleanup"], "unverified")
+
+    def test_interrupted_timeout_cleanup_does_not_resignal_reaped_pid(self):
+        with patch("studio_tools.processes.subprocess.Popen") as launch:
+            child = launch.return_value
+            child.pid = 123
+            child.returncode = None
+            child.wait.side_effect = subprocess.TimeoutExpired(["fixture"], 1)
+            child.poll.return_value = -1
+
+            def interrupted_stop(process, hide_window):
+                process.returncode = -1
+                raise KeyboardInterrupt
+
+            with patch("studio_tools.processes._stop_owned", side_effect=interrupted_stop) as stop:
+                with self.assertRaises(KeyboardInterrupt):
+                    self.run_python("unused")
+                stop.assert_called_once_with(child, True)
+        self.assertEqual(read_json(self.root / "job/process.json")["cleanup"], "unverified")
 
     def test_cleanup_failure_is_not_reported_as_stopped(self):
         # No live process is deliberately left behind by this failure fixture.
@@ -321,6 +351,34 @@ class ProductionReliabilityTests(unittest.TestCase):
         job, = (self.root / "artifacts/jobs").iterdir()
         self.assertIn(job.name, str(failure.exception))
         self.assertEqual(read_json(job / "diagnostics.json")["status"], "unverified")
+
+    def test_godot_postrun_validation_failures_identify_their_job(self):
+        (self.root / "project.godot").touch()
+        (self.root / "export_presets.cfg").touch()
+        write_json(self.root / "project.json", {"capabilities": {"godot_smoke": "studio-smoke-v1"}})
+        templates = self.root / "templates"
+        templates.mkdir()
+        (templates / "fixture").write_bytes(b"mock template")
+        config = load(overrides={"executables": {"godot": sys.executable},
+                                 "godot_export_templates": str(templates)})
+        for index, (mode, report) in enumerate((("smoke", None), ("smoke", "{broken"),
+                                                ("smoke", "[]"), ("smoke", '{"ok":false}'),
+                                                ("export", None))):
+            output = self.root / f"output-{index}"
+            jobs = []
+
+            def fake_run(args, **kwargs):
+                result = processes.run([sys.executable, "-c", "print('mock engine output')"], **kwargs)
+                jobs.append(Path(kwargs["job_dir"]))
+                if report is not None:
+                    output.write_text(report)
+                return result
+
+            with patch("studio_tools.adapters.godot.run", side_effect=fake_run):
+                with self.assertRaises(StudioError) as failure:
+                    godot.execute(config, self.root, mode, output, "fixture")
+            self.assertIn("artifacts/jobs/" + jobs[0].name + "/stdout.log", str(failure.exception))
+            self.assertEqual(read_json(jobs[0] / "process.json")["status"], "completed")
 
     def test_native_godot_run_does_not_request_console_hiding(self):
         (self.root / "project.godot").touch()
