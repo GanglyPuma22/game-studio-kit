@@ -83,7 +83,7 @@ class ReviewRegressions(unittest.TestCase):
                 if fail:
                     raise StudioError("simulated failure")
                 output.write_bytes(b"build")
-                return {"stdout": "", "elapsed_seconds": 1}
+                return {"stdout": "mock export completed", "elapsed_seconds": 1}
 
             with patch("studio_tools.adapters.godot.run", side_effect=fake_run):
                 if fail:
@@ -127,7 +127,7 @@ class ReviewRegressions(unittest.TestCase):
                 (staged / "windows_release_x86_64.exe").read_bytes(), b"template"
             )
             output.write_bytes(b"export")
-            return {"stdout": "", "elapsed_seconds": 1}
+            return {"stdout": "mock export completed", "elapsed_seconds": 1}
 
         with patch("studio_tools.adapters.godot.run", side_effect=fake_run):
             godot.execute(self.config, self.root, "export", output, "Windows")

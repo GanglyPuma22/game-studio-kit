@@ -8,7 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, PropertyMock
 
 from studio_tools import processes
 from studio_tools.adapters import gaea, godot
@@ -71,6 +71,7 @@ class ProductionReliabilityTests(unittest.TestCase):
         self.assertEqual(record["status"], "timed_out")
         self.assertEqual(record["cleanup"], "owned_tree_stopped")
         self.assertIsNotNone(record["returncode"])
+
     def test_timeout_stops_descendant_without_stopping_unrelated_process(self):
         child = self.root / "child.py"
         heartbeat = self.root / "heartbeat"
@@ -193,13 +194,43 @@ class ProductionReliabilityTests(unittest.TestCase):
         ):
             child = launch.return_value
             child.pid = 123
-            child.poll.return_value = -1
+            child.poll.side_effect = [None, -1]
             with self.assertRaisesRegex(OSError, "fixture receipt failure"):
                 self.run_python("unused")
             stop.assert_called_once_with(child, True)
         record = read_json(self.root / "job/process.json")
         self.assertEqual(record["status"], "interrupted")
         self.assertEqual(record["cleanup"], "owned_tree_stopped")
+
+    def test_interruption_before_running_record_stops_launched_child(self):
+        with (
+            patch("studio_tools.processes.subprocess.Popen") as launch,
+            patch("studio_tools.processes._stop_owned", return_value=True) as stop,
+        ):
+            child = launch.return_value
+            type(child).pid = PropertyMock(side_effect=[KeyboardInterrupt, 123])
+            child.poll.side_effect = [None, -1]
+            with self.assertRaises(KeyboardInterrupt):
+                self.run_python("unused")
+            stop.assert_called_once_with(child, True)
+        record = read_json(self.root / "job/process.json")
+        self.assertEqual(record["pid"], 123)
+        self.assertEqual(record["status"], "interrupted")
+        self.assertEqual(record["cleanup"], "owned_tree_stopped")
+
+    def test_interruption_after_wait_reaped_child_does_not_signal_pid(self):
+        with (
+            patch("studio_tools.processes.subprocess.Popen") as launch,
+            patch("studio_tools.processes._stop_owned") as stop,
+        ):
+            child = launch.return_value
+            child.pid = 123
+            child.wait.side_effect = KeyboardInterrupt
+            child.poll.return_value = 0
+            with self.assertRaises(KeyboardInterrupt):
+                self.run_python("unused")
+            stop.assert_not_called()
+        self.assertEqual(read_json(self.root / "job/process.json")["cleanup"], "unverified")
 
     @unittest.skipUnless(os.name == "nt", "Native Windows console visibility check")
     def test_windows_hidden_child_has_no_console_window(self):
@@ -252,10 +283,44 @@ class ProductionReliabilityTests(unittest.TestCase):
         self.assertEqual(read_json(runs[1].parent / "process.json")["status"], "completed")
 
     def test_godot_classifier_counts_warnings_orphans_and_colored_errors(self):
+        self.assertEqual(godot.classify_log(" \n")["status"], "unverified")
         self.assertEqual(godot.classify_log("scene complete\n")["status"], "clean")
         result = godot.classify_log("WARNING: first\nOrphan StringName: X\n ERROR: late\n")
         self.assertEqual(result, {"status": "errors", "error_count": 1, "warning_count": 2})
         self.assertEqual(godot.classify_log("\x1b[31mSCRIPT ERROR: late\x1b[0m")["error_count"], 1)
+
+    def test_godot_process_failures_identify_durable_job_evidence(self):
+        (self.root / "project.godot").touch()
+        config = load(overrides={"executables": {"godot": sys.executable}, "timeout": 1})
+        for code, status in (("import sys;print('failure',flush=True);sys.exit(3)", "failed"),
+                             ("import time;print('partial',flush=True);time.sleep(30)", "timed_out")):
+            def fake_run(args, **kwargs):
+                return processes.run([sys.executable, "-c", code], **kwargs)
+
+            before = set((self.root / "artifacts/jobs").glob("*"))
+            with patch("studio_tools.adapters.godot.run", side_effect=fake_run):
+                with self.assertRaises(StudioError) as failure:
+                    godot.execute(config, self.root)
+            new_jobs = set((self.root / "artifacts/jobs").glob("*")) - before
+            self.assertEqual(len(new_jobs), 1)
+            job = new_jobs.pop()
+            self.assertIn("artifacts/jobs/" + job.name, str(failure.exception))
+            self.assertTrue((job / "stdout.log").read_bytes())
+            self.assertEqual(read_json(job / "process.json")["status"], status)
+
+    def test_empty_headless_output_is_unverified_and_fails_with_job_identity(self):
+        (self.root / "project.godot").touch()
+        config = load(overrides={"executables": {"godot": sys.executable}})
+
+        def fake_run(args, **kwargs):
+            return processes.run([sys.executable, "-c", "pass"], **kwargs)
+
+        with patch("studio_tools.adapters.godot.run", side_effect=fake_run):
+            with self.assertRaisesRegex(StudioError, "diagnostics unverified") as failure:
+                godot.execute(config, self.root)
+        job, = (self.root / "artifacts/jobs").iterdir()
+        self.assertIn(job.name, str(failure.exception))
+        self.assertEqual(read_json(job / "diagnostics.json")["status"], "unverified")
 
     def test_native_godot_run_does_not_request_console_hiding(self):
         (self.root / "project.godot").touch()

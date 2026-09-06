@@ -24,13 +24,16 @@ application itself may print sensitive data. Explicit child environment override
 do not mutate the parent environment.
 
 Timeout and nonzero exit retain the partial/final log. Startup failure records a
-null PID and start_failed. A failed cleanup is unverified, never "stopped"; inspect
+null PID and start_failed. Only bytes flushed by the child reach the log; a hard
+kill may lose output still buffered inside the application.
+A failed cleanup is unverified, never "stopped"; inspect
 that owned PID before another heavy job. Cleanup targets the launched process tree,
 not a process name. Commands must stay in the foreground until their work finishes;
 daemonized work needs an operation-specific lifecycle, not a successful parent exit.
 
 The older log=path argument remains available and deliberately replaces that
-caller-selected log. Use job_dir for repeated runs and immutable history; do not
+caller-selected log after a successful launch; a failed launch restores its prior
+bytes. Use job_dir for repeated runs and immutable history; do not
 supply both. Successful returns name the log and process_record. The raw log bytes
 are preserved; stdout in the returned value is decoded as UTF-8 with replacement.
 
@@ -45,13 +48,15 @@ an installed executable is not sufficient capability evidence.
 
 Godot operations store a fresh artifacts/jobs/godot-<mode>-<id>/ directory for
 each run. Zero-exit runs also get diagnostics.json; nonzero/timeout/start failures
-retain their process record and log. Inspect the returned process_evidence paths
+retain their process record and log, with the job identity in the exception.
+Inspect the returned process_evidence paths
 instead of relying on a fixed godot-import.log that a later run overwrites.
 
 A process record saying completed means the child exited zero. It is distinct
 from engine success. The Godot adapter classifies the **complete** output after
 exit; ERROR and SCRIPT ERROR fail the operation. WARNING and Orphan StringName
-are counted and reported as warnings, not clean. Project-owned Godot checks can
+are counted and reported as warnings, not clean. Empty captured output is
+unverified and fails headless operations. Project-owned Godot checks can
 reuse studio_tools.adapters.godot.classify_log(completed_output). The function
 only classifies text; it cannot tell whether the caller supplied the full log or
 whether a warning is acceptable. Keep original diagnostics and record the review
