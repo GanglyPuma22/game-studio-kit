@@ -13,3 +13,17 @@ Use triangle/solid intersection against the entire support volume to detect pene
 For each pad record substrate hashes, world transform, tolerance, maximum penetration, maximum gap, supported area and unresolved intersections. Adjust the authored transform or geometry; do not hide an intersection with a center-only offset. Check strut-to-pad and strut-to-hull joins after moving supports. Render multiple native angles and a normal play view; rerun after any substrate or transform edit. Example acceptance: no sole penetrates more than the declared 2 mm tolerance and intended load-bearing areas contact within that tolerance. Choose tolerance for the asset, not as a universal constant.
 
 A reusable adversarial case is a flat pad over a flat base with a thin separate shelf under one corner. The test must report that intersection while the center probe remains unchanged; remove the shelf and it must clear. This guide does not claim an automatic geometry checker is implemented.
+
+For assemblies, identify intended load-bearing patches, supporting members and
+deliberate clearance/burial. A component resting on a housing is not unsupported
+merely because it is above terrain. A rounded rock's raised rim is not its full
+contact patch. Do not automatically lower the whole assembly from a terrain-only
+grid; test designated support and unintended intersections against all substrates.
+
+Every moving-terrain diagnostic names its coordinate frame, simulation tick,
+actual published body transform, substrate/mesh identity and sampled domain.
+Compare source, provider triangles and physics in that same frame; previous-state
+transforms can manufacture a gap. Visible-mesh comparisons additionally require
+the active/renderable LOD and fade state. An inactive root mesh cannot establish
+visible terrain fidelity. Keep that result unverified and obtain matched native
+close/play views; headless diagnostics do not replace visual inspection.

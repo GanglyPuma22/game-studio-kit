@@ -37,6 +37,11 @@ def build(config, recipe, root):
         raise StudioError("Gaea graph missing or changed since UI verification")
     if not isinstance(recipe["arguments"], list) or not recipe["outputs"]:
         raise StudioError("Gaea recipe needs argument array and expected output files")
+    execution_mode = recipe.get("execution_mode", "native")
+    if execution_mode not in ("native", "unattended"):
+        raise StudioError("Gaea execution_mode must be native or unattended")
+    if execution_mode == "unattended" and recipe.get("unattended_verified") is not True:
+        raise StudioError("Gaea unattended execution needs separate host verification")
     root.mkdir(parents=True, exist_ok=True)
     if any(root.iterdir()):
         raise StudioError(
@@ -55,6 +60,7 @@ def build(config, recipe, root):
         [require_executable(config, "gaea"), *args],
         timeout=config["timeout"],
         log=root / "gaea-build.log",
+        hide_window=execution_mode == "unattended",
     )
     from ..common import relative, file_record
 
@@ -68,6 +74,8 @@ def build(config, recipe, root):
         "schema_version": 1,
         "status": "built",
         "version": recipe["version"],
+        "execution_mode": execution_mode,
+        "unattended_verified": recipe.get("unattended_verified") is True,
         "graph_sha256": recipe["graph_sha256"],
         "variables": recipe["variables"],
         "outputs": outputs,

@@ -25,3 +25,16 @@ For a fresh reproduction, extract the whole package into a path with spaces and 
 Run the exact [Windows smoke procedure](windows-smoke.md) before claiming native plugin discovery, ordinary controls, perceptual animation/audio or GPU performance. Paid live smoke remains a separately authorized work-card operation with current account prices; mock tests do not establish provider entitlement or visual/audio output quality.
 
 If a check fails, preserve source and task/evidence identity. Fix only the observed issue, rerun its affected checks, and update the compatibility record. Do not advance asset/candidate acceptance to make a package validation green.
+
+For the production process/evidence regressions alone:
+
+```text
+python -m unittest discover -s tests -p test_production_reliability.py -v
+```
+
+These use small Python child processes and mocked application boundaries. They
+check partial timeout logs, startup/nonzero receipts, unique repeated Godot logs,
+late exit-zero errors, warning classification, and separate Gaea native/unattended
+declarations. Native Windows also checks that a hidden Python child has no console
+window; this proves no Gaea/Blender/Godot unattended capability. No provider,
+desktop control, application fixture or native QOA run is required.

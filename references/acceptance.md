@@ -24,3 +24,8 @@ Use the host capture tool to save to a new immutable path under `GAME/artifacts/
 Write a separate observation/metadata JSON sidecar under that capture folder. Record capture_id, candidate_id, content_digest, the capture's exact path and SHA-256, method and observer, plus camera/FOV, renderer, internal render size, actual window/display size and captured pixel dimensions separately. Keep unavailable observations explicitly unverified. Add the sidecar's own path and SHA-256 to the verdict evidence's `attachments` list, so both capture and metadata are hash-checked. Include actual listening facts on audio-pass evidence; a sidecar or receipt alone does not grant acceptance. Measure wall duration using a monotonic host clock rather than summing engine delta. Report moving/stationary time and ordinary-input coverage; physical keyboard and captured-mouse operation are separate from injected smoke inputs. These metadata declarations still need actual native observation.
 
 For bounded environments, exercise every reachable edge through ordinary movement and observe collision, escape, reset/respawn and recovery outcomes. A timed capture alone does not establish boundary coverage. Include continuous movement and camera pitch limits, record stationary intervals, and separate each observation from injected tests or artistic/listening acceptance.
+
+Process completion is not a clean-engine verdict. Inspect full shutdown output,
+retain warnings/errors and keep a shorter comparison separate from the original
+run. [Process and evidence lifecycle](execution-evidence.md) describes the shared
+runner and Godot's per-run logs/diagnostics. Those records do not pass native review.

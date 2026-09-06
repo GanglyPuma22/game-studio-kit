@@ -16,3 +16,14 @@ The original local helper writes 16-bit big-endian PGM, an 8-bit shore mask and 
 For Gaea read [the installed-version recipe](references/gaea.md). Start with a graph which already builds in the native UI. Expose only declared variables, verify the exact executable/arguments for the installed version and entitlement, and hash the graph. The helper launches that verified argument array into a new empty output directory and checks expected files. It does not invent `.terrain` schema or claim a comprehensive graph-authoring API.
 
 Native graph authoring uses the host's real computer-use tools, one desktop owner and an editable checkpoint. Record bit depth, export range, tile layout, coordinate axes and mask semantics explicitly; inspect adjacent borders numerically and in-engine. Gaea success does not certify dimensions, collision or scene composition. If the installation/entitlement is missing, retain the local route and provide the exact setup/native handoff.
+
+Before a limited export, screen the prepared height against the project's actual
+collision topology over every declared walking route (including width/shoulders),
+landing, support and bank footprint. Record the tested domain, spacing/offsets,
+uncovered regions, worst location and uncertainty; a high sample count in one
+rectangle does not prove full coverage. Include interior/offset samples or a
+conservative bound for features between samples. Missing hits/nonfinite results
+cannot pass. Keep project-specific projection/provider code in the project.
+Planning results must be repeated against actual export/import/published physics;
+reserve an explicit quantization/error allowance and measure the cost of a
+density change before adopting it. A patch-build batch time is not a GPU benchmark.
