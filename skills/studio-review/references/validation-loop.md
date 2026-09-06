@@ -31,11 +31,11 @@ python "$KIT/scripts/studio.py" review prepare --project "$GAME" --card artifact
 python "$KIT/scripts/studio.py" review capture --project "$GAME" --run artifacts/reviews/RUN --profile artifacts/recorder.json
 python "$KIT/scripts/studio.py" review dense --project "$GAME" --run artifacts/reviews/RUN --interval 0.7 1.3
 python "$KIT/scripts/studio.py" review analyze --project "$GAME" --run artifacts/reviews/RUN --budget artifacts/video-budget.json --dense artifacts/reviews/RUN/dense-0/frames.json
-python "$KIT/scripts/studio.py" --config /explicit/host.json review qualify --project "$GAME" --review artifacts/evaluation.json
-python "$KIT/scripts/studio.py" --config /explicit/host.json review ingest --project "$GAME" --run artifacts/reviews/RUN --review artifacts/named-review.json
-python "$KIT/scripts/studio.py" --config /explicit/host.json review assess --project "$GAME" --run artifacts/reviews/RUN --evidence artifacts/observations.json
-python "$KIT/scripts/studio.py" --config /explicit/host.json review prepare --project "$GAME" --card artifacts/after-card.json --candidate artifacts/after-candidate.json --role after --previous artifacts/reviews/BEFORE --affected PERF
-python "$KIT/scripts/studio.py" --config /explicit/host.json review compare --project "$GAME" --before artifacts/reviews/BEFORE --after artifacts/reviews/AFTER
+python "$KIT/scripts/studio.py" review qualify --config /explicit/host.json --project "$GAME" --review artifacts/evaluation.json
+python "$KIT/scripts/studio.py" review ingest --config /explicit/host.json --project "$GAME" --run artifacts/reviews/RUN --review artifacts/named-review.json
+python "$KIT/scripts/studio.py" review assess --config /explicit/host.json --project "$GAME" --run artifacts/reviews/RUN --evidence artifacts/observations.json
+python "$KIT/scripts/studio.py" review prepare --config /explicit/host.json --project "$GAME" --card artifacts/after-card.json --candidate artifacts/after-candidate.json --role after --previous artifacts/reviews/BEFORE --affected PERF
+python "$KIT/scripts/studio.py" review compare --config /explicit/host.json --project "$GAME" --before artifacts/reviews/BEFORE --after artifacts/reviews/AFTER
 ```
 
 `analyze` requires an applicable exact-media/model/money authorization before use.
