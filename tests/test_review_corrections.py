@@ -251,14 +251,55 @@ class LifecycleCorrections(unittest.TestCase):
             self.assertEqual(result['stop_reason'], 'cancelled_before_start')
 
     def test_C16_startup_budget_allows_natural_completion(self):
+        from unittest.mock import MagicMock
+        from studio_tools.processes import record
+        # Check the deadline contract independently of OS spawn/scheduling cost.
+        for natural_exit in (True, False):
+            with self.subTest(natural_exit=natural_exit), tempfile.TemporaryDirectory() as root:
+                clock = [0.0]
+                child = MagicMock(pid=123, returncode=None)
+                def poll():
+                    if natural_exit and clock[0] >= .3:
+                        child.returncode = 0
+                    return child.returncode
+                def sleep(seconds):
+                    clock[0] += seconds
+                def wait(timeout):
+                    child.returncode = 0
+                child.poll.side_effect = poll
+                child.wait.side_effect = wait
+                with patch('studio_tools.processes.subprocess.Popen', return_value=child), \
+                     patch('studio_tools.processes.time.monotonic', side_effect=lambda: clock[0]), \
+                     patch('studio_tools.processes.time.sleep', side_effect=sleep):
+                    result = record(['controlled recorder'], job_dir=Path(root)/'job', duration=.15, startup=.2, grace=.3)
+                self.assertEqual(result['status'], 'completed')
+                self.assertEqual(result['watchdog_seconds'], .35)
+                if natural_exit:
+                    self.assertIsNone(result['stop_reason'])
+                    child.stdin.write.assert_not_called()
+                    child.wait.assert_not_called()
+                    self.assertGreaterEqual(clock[0], .3)
+                    self.assertLess(clock[0], .35)
+                else:
+                    self.assertEqual(result['stop_reason'], 'duration')
+                    child.stdin.write.assert_called_once_with(b'q\n')
+                    child.wait.assert_called_once_with(timeout=.3)
+                    self.assertGreaterEqual(clock[0], .35)
+                    self.assertLess(clock[0], .4)
+
+    def test_C16_real_child_completes_with_startup_allowance(self):
         import sys
         from studio_tools.processes import record
         with tempfile.TemporaryDirectory() as root:
             result = record([sys.executable, '-u', '-c', "import time; time.sleep(.1); print('ready'); time.sleep(.15); print('finalized')"],
-                job_dir=Path(root)/'job', duration=.15, startup=.2, grace=.3)
+                job_dir=Path(root)/'job', duration=.15, startup=2, grace=.3)
             self.assertEqual(result['status'], 'completed')
             self.assertIsNone(result['stop_reason'])
-            self.assertIn('ready', (Path(root)/'job/stdout.log').read_text())
+            self.assertTrue(result['graceful'])
+            self.assertEqual(result['cleanup'], 'not_needed')
+            output = (Path(root)/'job/stdout.log').read_text()
+            self.assertIn('ready', output)
+            self.assertIn('finalized', output)
 
     def test_C16_failed_cleanup_preserves_timeout(self):
         from studio_tools.processes import record
