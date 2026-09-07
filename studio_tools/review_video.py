@@ -113,8 +113,28 @@ def validate_findings(result, expected, criterion_ids, duration):
     return result
 
 
+
+def request_questions(card, expected):
+    schema = {"type": "object", "properties": {**{k: {"type": "string"} for k in expected},
+        "findings": {"type": "array", "items": {"type": "object", "properties": {
+            **{k: {"type": "string"} for k in ("criterion_id", "status", "category", "observation", "severity", "hypothesis", "next_check")},
+            "interval": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+            "action": {"type": "object", "properties": {"input_seconds": {"type": "number"}, "outcome_seconds": {"type": ["number", "null"]},
+                "before_state": {"type": "string"}, "after_state": {"type": "string"}, "outcome_window": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}},
+                "required": ["input_seconds", "outcome_seconds", "before_state", "after_state", "outcome_window"]}},
+            "required": ["criterion_id", "status", "category", "interval", "observation", "severity", "hypothesis", "next_check"]}}},
+        "required": list(expected) + ["findings"]}
+    prompt = ("Review the full continuous video and supplemental original frames. Report observed symptoms with exact second intervals, severity, uncertainty and next checks. "
+              "For interaction findings include the observed input, outcome window, timestamp/state transition (null outcome if absent). Separate hypotheses from observations. Do not infer real game frame time from encoded FPS, sound output from stream presence, or an interaction from input alone. "
+              "Status proposals do not establish coverage or acceptance. Do not invent defects on a clean control. Return the bound identity and criterion IDs exactly. "
+              + json.dumps({"identity": expected, "criteria": card["criteria"], "actions": card["actions"]}))
+    return schema, prompt
+
 def build_request(root, name, budget, dense=None, *, config=None):
     data = validate_run(root, name, current=False, config=config)
+    if "prompt_contract_id" in data["card"]:
+        from .review_records import validate_neutral_run
+        validate_neutral_run(data)
     folder = relative(root, name)
     capture = read_json(folder / "capture.json")
     if capture["status"] != "completed":
@@ -152,24 +172,12 @@ def build_request(root, name, budget, dense=None, *, config=None):
         for frame in frames:
             image = verify_file(root, frame)
             index = frame["frame_index"]
-            if type(index) is not int or not 0 <= index < len(capture["media"]["timestamps_seconds"]) or frame["time_seconds"] != capture["media"]["timestamps_seconds"][index]:
+            if type(index) is not int or not 0 <= index < len(capture["media"]["timestamps_seconds"]) or frame["time_seconds"] != capture["media"]["timestamps_seconds"][index] or frame["original_pts_seconds"] != capture["media"]["original_pts_seconds"][index]:
                 raise StudioError("Dense timestamp does not match original video PTS")
             inputs += [{"type": "text", "text": f"Supplemental original video frame at {frame['time_seconds']:.9f} seconds (original PTS {frame['original_pts_seconds']:.9f})."},
                        {"type": "image", "mime_type": "image/png", "resolution": "high", "data": base64.b64encode(image.read_bytes()).decode()}]
             files.append(file_record(root, image))
-    schema = {"type": "object", "properties": {**{k: {"type": "string"} for k in expected},
-        "findings": {"type": "array", "items": {"type": "object", "properties": {
-            **{k: {"type": "string"} for k in ("criterion_id", "status", "category", "observation", "severity", "hypothesis", "next_check")},
-            "interval": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
-            "action": {"type": "object", "properties": {"input_seconds": {"type": "number"}, "outcome_seconds": {"type": ["number", "null"]},
-                "before_state": {"type": "string"}, "after_state": {"type": "string"}, "outcome_window": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}},
-                "required": ["input_seconds", "outcome_seconds", "before_state", "after_state", "outcome_window"]}},
-            "required": ["criterion_id", "status", "category", "interval", "observation", "severity", "hypothesis", "next_check"]}}},
-        "required": list(expected) + ["findings"]}
-    prompt = ("Review the full continuous video and supplemental original frames. Report observed symptoms with exact second intervals, severity, uncertainty and next checks. "
-              "For interaction findings include the observed input, outcome window, timestamp/state transition (null outcome if absent). Separate hypotheses from observations. Do not infer real game frame time from encoded FPS, sound output from stream presence, or an interaction from input alone. "
-              "Status proposals do not establish coverage or acceptance. Do not invent defects on a clean control. Return the bound identity and criterion IDs exactly. "
-              + json.dumps({"identity": expected, "criteria": data["card"]["criteria"], "actions": data["card"]["actions"]}))
+    schema, prompt = request_questions(data["card"], expected)
     inputs.append({"type": "text", "text": prompt})
     payload = {"model": budget["model"], "input": inputs, "store": False,
                "generation_config": {"max_output_tokens": budget["max_output_tokens"], "thinking_level": "low"},
@@ -201,9 +209,32 @@ def validate_analysis(root, name, run, analysis):
     """
     try:
         _replay_analysis(root, relative(root, name), run, analysis)
+    except StudioError:
+        raise
     except (KeyError, TypeError, ValueError, OSError) as exc:
         raise StudioError("Analysis replay needs intact request/response/outcome evidence") from exc
 
+
+
+def validate_neutral_request(run, payload, expected, frames):
+    from .review_records import validate_neutral_run
+    validate_neutral_run(run)
+    schema, prompt = request_questions(run["card"], expected)
+    parts = payload["input"]
+    types = ["video"] + [kind for _ in frames for kind in ("text", "image")] + ["text"]
+    texts = [{"type": "text", "text": f"Supplemental original video frame at {frame['time_seconds']:.9f} seconds (original PTS {frame['original_pts_seconds']:.9f})."} for frame in frames]
+    texts.append({"type": "text", "text": prompt})
+    if (set(payload) != {"model", "input", "store", "generation_config", "response_format"}
+        or [part.get("type") for part in parts] != types
+        or [part for part in parts if part["type"] == "text"] != texts
+        or payload.get("response_format") != {"type": "text", "mime_type": "application/json", "schema": schema}):
+        raise StudioError("Qualification request text/layout differs from frozen neutral contract")
+    for part in parts:
+        if part["type"] in {"video", "image"}:
+            video = part["type"] == "video"
+            keys = {"type", "mime_type", "data", "processing" if video else "resolution"}
+            if set(part) != keys or part["mime_type"] != ("video/mp4" if video else "image/png"):
+                raise StudioError("Qualification media input differs from neutral contract")
 
 def _replay_analysis(root, folder, run, analysis):
     dest = folder / "analysis-request"
@@ -250,6 +281,8 @@ def _replay_analysis(root, folder, run, analysis):
         raise StudioError("Analysis full-video input differs from the captured clip")
     dense = read_json(verify_file(root, request["dense"])) if request.get("dense") else None
     frames = dense["frames"] if dense else []
+    if "prompt_contract_id" in run["card"]:
+        validate_neutral_request(run, payload, expected, frames)
     if len(images) != len(frames):
         raise StudioError("Analysis dense inputs differ from retained coverage")
     gap = None
@@ -263,7 +296,7 @@ def _replay_analysis(root, folder, run, analysis):
             raise StudioError("Analysis dense selection differs from original run/PTS")
         for image, frame in zip(images, frames):
             verify_file(root, frame)
-            if image.get("resolution") != "high" or hashlib.sha256(base64.b64decode(image["data"], validate=True)).hexdigest() != frame["sha256"] or frame["time_seconds"] != times[frame["frame_index"]]:
+            if image.get("resolution") != "high" or hashlib.sha256(base64.b64decode(image["data"], validate=True)).hexdigest() != frame["sha256"] or frame["time_seconds"] != times[frame["frame_index"]] or frame["original_pts_seconds"] != capture["media"]["original_pts_seconds"][frame["frame_index"]]:
                 raise StudioError("Analysis dense image/timestamp differs from original submission")
         selected = [times[i] for i in indexes]
         gap = max(b-a for a, b in zip([start]+selected, selected+[end]))

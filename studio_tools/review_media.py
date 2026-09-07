@@ -104,7 +104,7 @@ def _native_args(profile, duration):
 def capture(config, root, name, profile, *, cancelled=None):
     data = validate_run(root, name, config=config)
     folder = relative(root, name)
-    if (folder / "capture.json").exists() or (folder / "recorder").exists() or (folder / "capture-preflight.json").exists():
+    if (folder / "capture.json").exists() or (folder / "recorder").exists() or (folder / "capture-preflight.json").exists() or (folder / "capture.original.json").exists():
         raise StudioError("Capture is immutable; prepare a new run")
     duration = data["card"]["duration_seconds"]
     route = profile.get("route")
@@ -158,16 +158,55 @@ def capture(config, root, name, profile, *, cancelled=None):
     else:
         result["reason"] = "Recorder produced no media"
     # Source/candidate mutation during capture invalidates acceptance, preserving output.
+    continuity_verified = False
     try:
         validate_run(root, name, config=config)
         if route == "file" and sha256(source) != source_identity["sha256"]:
             raise StudioError("Source changed")
-    except StudioError:
+        continuity_verified = True
+    except (StudioError, OSError):
         result.update(status="incomplete", reason="Candidate or source changed during capture")
     result["ok"] = result["status"] == "completed"
+    # Preserve finalization/source-continuity decisions separately from derived
+    # capture metadata. Revalidation never reruns capture or upgrades old records.
+    original = folder / "capture.original.json"
+    write_json(original, {"schema_version": 1, "profile": profile, "continuity_verified_at_finish": continuity_verified, "capture": result})
+    result["files"].append(file_record(root, original))
     write_json(folder / "capture.json", result)
     return result
 
+
+
+def validate_capture(config, root, name, run_data):
+    """Re-derive completed media claims and bind the original finalization."""
+    folder = relative(root, name)
+    captured = read_json(folder / "capture.json")
+    original = folder / "capture.original.json"
+    if not original.is_file():
+        if captured.get("status") == "completed":
+            raise StudioError("Completed capture needs original finalization receipt; preserve legacy evidence under its original helper")
+        return  # Historical incomplete attempts remain inspectable, never accepted.
+    record = read_json(original)
+    saved = record.get("capture", {})
+    expected = {**saved, "files": saved.get("files", []) + [file_record(root, original)]}
+    if record.get("schema_version") != 1 or captured != expected:
+        raise StudioError("Capture differs from original finalization/source-continuity receipt")
+    process = read_json(folder / "recorder/process.json")
+    if captured.get("process") != process:
+        raise StudioError("Capture process differs from original recorder outcome")
+    if captured.get("status") != "completed":
+        return
+    duration = run_data["card"]["duration_seconds"]
+    media = inspect_media(config, folder / "capture.mp4")
+    enough = all(c["start_seconds"] <= .002 and c["end_seconds"] >= duration - .002
+                 for c in media["stream_coverage"].values())
+    audio_required = any(c["kind"] == "audio" and c["mandatory"] for c in run_data["card"]["criteria"])
+    if (captured.get("media") != media or captured.get("requested_duration_seconds") != duration
+        or record.get("continuity_verified_at_finish") is not True
+        or captured.get("ok") is not True or process.get("status") != "completed"
+        or process.get("stop_reason") not in {None, "duration"} or process.get("graceful") is not True
+        or process.get("cleanup") != "not_needed" or not enough or audio_required and not media["has_audio"]):
+        raise StudioError("Capture completion/media facts differ from decoded clip or recorder outcome")
 
 def dense_frames(config, root, name, selected):
     validate_run(root, name, current=False, config=config)
@@ -279,7 +318,8 @@ def fixtures(config, destination):
         if case.startswith("interaction"):
             roles[f"M{i:02d}"]["actions"] = file_record(dest, dest / (case + "-actions.json"))
     (dest / "generator.original.py").write_bytes(Path(__file__).read_bytes())
-    write_json(dest / "acceptance-roles.json", {"schema_version": 2, "corpus_id": "studio-review-acceptance-v2", "unique_clips": 8, "acceptance_roles": 10,
+    from .review_records import PROMPT_CONTRACT_ID
+    write_json(dest / "acceptance-roles.json", {"prompt_contract_id": PROMPT_CONTRACT_ID, "schema_version": 2, "corpus_id": "studio-review-acceptance-v2", "unique_clips": 8, "acceptance_roles": 10,
         "dense_interval": [.7, 1.3], "roles": roles, "generator": file_record(dest, dest / "generator.original.py"),
         "ground_truth": file_record(dest, dest / "ground-truth.json"), "revision_note": "Explicit revised corpus: eight two-second files cover ten roles; clean reused in a distinct M10 recheck run. Original six-second v1 plan remains historical."})
     return manifest

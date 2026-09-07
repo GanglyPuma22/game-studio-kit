@@ -371,7 +371,7 @@ class QualificationCorrections(unittest.TestCase):
 
     def test_F02_target_response_is_replayed_before_acceptance(self):
         from studio_tools import review_records as r
-        prior=read_json(self.root/self.target/'run.json');card=copy.deepcopy(prior['card']);card['criteria']=[c for c in card['criteria'] if c['id']=='TEMP']
+        prior=read_json(self.root/self.target/'run.json');card=copy.deepcopy(prior['card']);card.pop('prompt_contract_id');card['criteria']=[c for c in card['criteria'] if c['id']=='TEMP']
         for wrong_identity in (True,False):
             name=v.prepare_run(self.root,card,prior['candidate']);folder=self.root/name
             m.capture(self.config,self.root,name,{'route':'file','source':str(self.root/'artifacts/originals/clean.mp4')})
@@ -403,6 +403,7 @@ class QualificationCorrections(unittest.TestCase):
     def test_C04_named_failures_and_timing_review_are_executable(self):
         from studio_tools import review_records as r
         card=read_json(self.root/self.target/'run.json')['card'];candidate=read_json(self.root/self.target/'run.json')['candidate']
+        card.pop('prompt_contract_id',None)
         card['criteria']=[{'id':'PERF','dimension':'performance','kind':'performance','action_ids':['move'],'expected':'floor','mandatory':True,'interval':[0,2],'p95_ms':40}]
         name=v.prepare_run(self.root,card,candidate)
         m.capture(self.config,self.root,name,{'route':'file','source':str(self.root/'artifacts/originals/clean.mp4')})

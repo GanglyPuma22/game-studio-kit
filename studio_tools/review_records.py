@@ -6,9 +6,29 @@ Test approvals exercise the same path but can never confer production capability
 """
 from pathlib import Path
 import uuid
-import json
+import re
 from .common import StudioError, digest, file_record, read_json, relative, sha256, write_json
 from .records import required, verify_file, validate_listening, VERDICTS
+
+
+# Code-owned question contract: the same neutral questions for every corpus role.
+# Version independently of media/truth v2. No outcome labels or exact events here.
+PROMPT_CONTRACT_ID = "studio-review-neutral-v1"
+NEUTRAL_QUESTIONS = {"duration_seconds": 2,
+    "actions": [{"id": "move", "expected": "Inspect continuous movement, cue and controlled state change"}],
+    "criteria": [
+            {"id": "TEMP", "dimension": "motion", "kind": "temporal", "action_ids": ["move"], "expected": "Classify observed disappearance, game stall, or recorder loss with boundaries", "mandatory": True, "interval": [0, 2], "dense_interval": [.7, 1.3], "max_gap_seconds": .0334, "minimum_event_seconds": .1},
+            {"id": "INPUT", "dimension": "interaction", "kind": "interaction", "action_ids": ["move"], "expected": "Blue input marker precedes active green state", "expected_state": "active", "mandatory": False, "interval": [0, 2]},
+            {"id": "SOUND", "dimension": "audio", "kind": "audio", "action_ids": ["move"], "expected": "Locate the original cue or its absence", "mandatory": True, "interval": [0, 2]},
+            {"id": "WORLD", "dimension": "visual", "kind": "visual", "action_ids": ["move"], "expected": "Original scene is legible", "mandatory": True, "interval": [0, 2]}]}
+
+def validate_neutral_run(run):
+    card = run["card"]
+    if (card.get("prompt_contract_id") != PROMPT_CONTRACT_ID
+        or any(card.get(k) != value for k, value in NEUTRAL_QUESTIONS.items())
+        or not re.fullmatch(r"[0-9a-f]{32}", run["run_id"])
+        or not re.fullmatch(r"[0-9a-f]{32}", run["candidate"]["candidate_id"])):
+        raise StudioError("Qualification requires the frozen neutral contract and opaque run/candidate identities")
 
 
 def approve(config, root, source):
@@ -153,10 +173,12 @@ def named_result(root, references, run, clip_hash, criterion, *, config=None, ru
     return matches[0] if matches else None
 
 
-def qualification_data(root, value):
+def qualification_data(root, value, *, config=None):
     """Recompute ten role scores; never trust a precomputed qualified boolean."""
     from .validation import interval, validate_run
     from .review_media import CORPUS_ROLES
+    if value.get("prompt_contract_id") != PROMPT_CONTRACT_ID:
+        raise StudioError("Qualification requires approved neutral prompt contract v1; preserve older receipts")
     corpus_path = verify_file(root, value["corpus"])
     corpus = read_json(corpus_path)
     def corpus_file(reference):
@@ -178,12 +200,19 @@ def qualification_data(root, value):
     if len(cases) != 10 or {c["role"] for c in cases} != set(corpus["roles"]):
         raise StudioError("Qualification must retain every required fault/control role")
     inputs = [value["corpus"], corpus_file(corpus["generator"]), corpus_file(corpus["ground_truth"])]
+    if corpus.get("prompt_contract_id") != PROMPT_CONTRACT_ID:
+        raise StudioError("Corpus requires the neutral prompt contract revision")
     scores, common, runs = [], None, {}
+    shared_candidate = None
     for case in cases:
         role = case["role"]
         truth = corpus["roles"][role]
         run_name = case["run"]
-        run = validate_run(root, run_name, current=False, check_assessment=False)
+        run = validate_run(root, run_name, current=False, check_assessment=False, config=config)
+        validate_neutral_run(run)
+        if shared_candidate is not None and shared_candidate != run["candidate"]["candidate_id"]:
+            raise StudioError("Neutral corpus requires one shared opaque candidate identity")
+        shared_candidate = run["candidate"]["candidate_id"]
         if value["observer"] == run["card"]["owner"]:
             raise StudioError("Qualification observer must be independent of corpus run owner")
         folder = relative(root, run_name)
@@ -267,7 +296,7 @@ def qualification_data(root, value):
         runs[role] = (run, folder)
     if runs["M10"][0].get("previous") != file_record(root, runs["M02"][1] / "run.json") or runs["M10"][0]["run_id"] == runs["M01"][0]["run_id"]:
         raise StudioError("Qualification repair must be a distinct affected recheck of the fault run")
-    return {"binding": common, "scores": scores, "qualified": all(s["accepted"] for s in scores if s["mandatory"]),
+    return {"prompt_contract_id": PROMPT_CONTRACT_ID, "binding": common, "scores": scores, "qualified": all(s["accepted"] for s in scores if s["mandatory"]),
         "max_gap_seconds": .0334, "minimum_event_seconds": .1, "corpus_digest": sha256(verify_file(root, value["corpus"])), "inputs": inputs}
 
 
@@ -275,13 +304,13 @@ def qualify(config, root, source):
     value, authorization = approve(config, root, source)
     if value.get("kind") != "qualification-evaluation" or value["role"] != "independent_qualifier":
         raise StudioError("Qualification needs an approved independent evaluator record")
-    result = qualification_data(root, value)
+    result = qualification_data(root, value, config=config)
     return _save(root, value, authorization, source, "review-qualification", result)
 
 
 def qualified(root, reference, analysis, *, config=None):
     adopted = imported(root, reference, "review-qualification", config=config)
-    recomputed = qualification_data(root, adopted["review"])
+    recomputed = qualification_data(root, adopted["review"], config=config)
     if any(adopted.get(k) != v for k, v in recomputed.items()):
         raise StudioError("Qualification scores differ from retained corpus evidence")
     expected = {"model": analysis["model"], "profile": analysis["profile"], "tool_source_digest": analysis["analysis_tool"]["source_digest"]}

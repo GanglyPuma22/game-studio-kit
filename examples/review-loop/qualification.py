@@ -6,6 +6,8 @@ builder sees only neutral identities/media/criteria. This tests ingestion and
 scoring reachability, never model perception or actual human observations.
 """
 import argparse
+import copy
+import uuid
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -26,19 +28,15 @@ def create(destination):
     review_media.fixtures(config, fixtures)
     corpus = read_json(fixtures / "acceptance-roles.json")
     (root / "scene.txt").write_text("Original synthetic acceptance scene\n")
-    candidate = new_candidate(root, "original", "raster-v2", "synthetic")
+    candidate = new_candidate(root, uuid.uuid4().hex, "raster-v2", "synthetic")
     card = {"schema_version": 1, "work_card_id": "CONTRACT", "owner": "test generator",
         "candidate_id": candidate["candidate_id"], "content_digest": candidate["content_digest"],
         "duration_seconds": 2, "max_rechecks": 1, "settings": {"renderer": "raster", "resolution": [160, 96], "audio": "original cue"},
         "route_id": "original", "input_route": "synthetic",
         "launch": {"intent": "human", "entrypoint": "scene.txt", "entrypoint_sha256": sha256(root / "scene.txt"),
                    "delivered_args": [], "effective_audio_backend": "unknown", "import_audio_backend": "not_applicable", "live_services": "disabled"},
-        "actions": [{"id": "move", "expected": "Inspect continuous movement, cue and controlled state change"}],
-        "criteria": [
-            {"id": "TEMP", "dimension": "motion", "kind": "temporal", "action_ids": ["move"], "expected": "Classify observed disappearance, game stall, or recorder loss with boundaries", "mandatory": True, "interval": [0, 2], "dense_interval": [.7, 1.3], "max_gap_seconds": .0334, "minimum_event_seconds": .1},
-            {"id": "INPUT", "dimension": "interaction", "kind": "interaction", "action_ids": ["move"], "expected": "Blue input marker precedes active green state", "expected_state": "active", "mandatory": False, "interval": [0, 2]},
-            {"id": "SOUND", "dimension": "audio", "kind": "audio", "action_ids": ["move"], "expected": "Locate the original cue or its absence", "mandatory": True, "interval": [0, 2]},
-            {"id": "WORLD", "dimension": "visual", "kind": "visual", "action_ids": ["move"], "expected": "Original scene is legible", "mandatory": True, "interval": [0, 2]}]}
+        "prompt_contract_id": review_records.PROMPT_CONTRACT_ID,
+        **copy.deepcopy(review_records.NEUTRAL_QUESTIONS)}
     runs = {}
     for role, truth in corpus["roles"].items():
         previous = runs.get("M02") if role == "M10" else None
@@ -86,7 +84,7 @@ def create(destination):
         if role in {"M08", "M09"}:
             cases[-1].update(listening={"performed": True, "playback_route": "simulated original-file playback", "interval_seconds": [0, 2]}, listened_clip_sha256=sha256(root / run / "capture.mp4"))
     evaluator = {"schema_version": 1, "kind": "qualification-evaluation", "observer": "simulated independent reviewer",
-        "role": "independent_qualifier", "scope": "test", "corpus": file_record(root, fixtures / "acceptance-roles.json"), "cases": cases}
+        "role": "independent_qualifier", "scope": "test", "prompt_contract_id": review_records.PROMPT_CONTRACT_ID, "corpus": file_record(root, fixtures / "acceptance-roles.json"), "cases": cases}
     evaluation_path = root / "artifacts/test-evaluation.json"
     write_json(evaluation_path, evaluator)
     config["review_trust"][evaluator["observer"]] = {"scope": "test", "roles": ["independent_qualifier", "independent_reviewer"], "approved_sha256": [sha256(evaluation_path)]}

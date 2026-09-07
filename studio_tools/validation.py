@@ -185,6 +185,10 @@ def validate_run(root, name, *, current=True, check_assessment=True, config=None
                 raise StudioError("Stale " + stage + " run identity")
             for item in stage_data.get("files", []):
                 verify_file(root, item)
+    if (folder / "capture.json").exists():
+        from .review_media import validate_capture
+        from .config import load
+        validate_capture(config or load(), root, name, data)
     if (folder / "analysis.json").exists():
         from .review_video import validate_analysis
         validate_analysis(root, name, data, read_json(folder / "analysis.json"))
@@ -363,19 +367,47 @@ def action_trace(root, reference, run, clip_hash, criterion):
     clock = trace["clock"]
     offset = number(clock.get("offset_seconds"), "action clock offset", -86400, 86400)
     uncertainty = number(clock.get("uncertainty_seconds"), "action clock uncertainty", 0, 1200)
-    number(clock.get("precision_seconds"), "action clock precision", .000000001, .001)
+    precision = number(clock.get("precision_seconds"), "action clock precision", .000000001, .001)
+    if trace["provenance"] not in {"synthetic", "operator_reported"}:
+        raise StudioError("Action provenance must be synthetic or operator_reported")
     verify_file(root, trace["source_evidence"])
     actions = [{**a, "input_seconds": a["input_seconds"] + offset, "outcome_seconds": a["outcome_seconds"] + offset} for a in trace["actions"]]
     result = interaction_result(criterion, actions)
-    if any(a["outcome_seconds"] - a["input_seconds"] <= 2 * uncertainty for a in actions):
-        result.update(status="unverified", reason="Clock uncertainty cannot establish input before outcome")
+    if any(a["outcome_seconds"] - a["input_seconds"] <= 2 * (uncertainty + precision) + 1e-12 for a in actions):
+        result.update(status="unverified", reason="Clock precision and uncertainty cannot establish input before outcome")
     result.update(observer=trace["observer"], evidence_scope="test" if trace["provenance"] == "synthetic" else "operator_reported")
     return result, trace["source_evidence"]
 
+
+def criterion_timings(facts, criteria):
+    """Map raw measurements only to their declared, applicable criterion."""
+    performance = {c["id"]: c for c in criteria if c["kind"] == "performance"}
+    if "timings" in facts and "timing" in facts:
+        raise StudioError("Select timings by criterion ID or one legacy timing object, not both")
+    if "timings" in facts:
+        selected = facts["timings"]
+        if not isinstance(selected, dict) or not set(selected) <= set(performance):
+            raise StudioError("Timing collection requires existing performance criterion IDs")
+        for key, timing in selected.items():
+            if not isinstance(timing, dict) or timing.get("interval") != performance[key]["interval"]:
+                raise StudioError("Timing collection interval differs from its criterion")
+        return selected
+    timing = facts.get("timing")
+    if timing is None:
+        return {}
+    if not isinstance(timing, dict):
+        raise StudioError("Legacy timing must be an object")
+    matches = [key for key, c in performance.items() if timing.get("interval") == c["interval"]]
+    if len(matches) != 1:
+        raise StudioError("Legacy timing requires one matching criterion; use timings by criterion ID")
+    return {matches[0]: timing}
+
 def assess(root, name, evidence=None, *, _recompute=False, config=None):
     """Compute only supported assertions; model proposals never certify perception."""
-    data = validate_run(root, name, current=False, check_assessment=False)
+    data = validate_run(root, name, current=False, check_assessment=False, config=config)
     folder = relative(root, name)
+    if (folder / "observations.original.json").exists() and not _recompute:
+        raise StudioError("Assessment inputs already retained; preserve the failed attempt and create an affected recheck")
     if (folder / "assessment.json").exists() and not _recompute:
         raise StudioError("Assessment is immutable; create an affected recheck")
     capture = read_json(folder / "capture.json") if (folder / "capture.json").exists() else None
@@ -399,7 +431,11 @@ def assess(root, name, evidence=None, *, _recompute=False, config=None):
             verify_file(root, item)
             files.append(item)
         if not _recompute:
-            shutil.copyfile(source, folder / "observations.original.json")
+            try:
+                with (folder / "observations.original.json").open("xb") as retained:
+                    retained.write(source.read_bytes())
+            except FileExistsError:
+                raise StudioError("Assessment inputs already retained; create an affected recheck") from None
         files.append(file_record(root, folder / "observations.original.json"))
     reviews = facts.get("reviews", [])
     for reference in reviews:
@@ -412,6 +448,7 @@ def assess(root, name, evidence=None, *, _recompute=False, config=None):
         from .review_records import qualified
         qualification = qualified(root, facts["qualification"], analysis, config=config)
         files.append(facts["qualification"])
+    timings = criterion_timings(facts, data["card"]["criteria"])
     results = []
     for criterion in data["card"]["criteria"]:
         item = {"criterion_id": criterion["id"], "dimension": criterion["dimension"], "interval": criterion["interval"],
@@ -436,8 +473,8 @@ def assess(root, name, evidence=None, *, _recompute=False, config=None):
                 item.update(action)
             else:
                 item.update(status="unverified", reason="State strings need linked raw action provenance or a named adopted review")
-        elif criterion["kind"] == "performance" and facts.get("timing"):
-            timing = facts["timing"]
+        elif criterion["kind"] == "performance" and criterion["id"] in timings:
+            timing = timings[criterion["id"]]
             required(timing, ["file", "method", "interval", "clock_offset_seconds", "clock_uncertainty_seconds"])
             raw_path = verify_file(root, timing["file"])
             files.append(timing["file"])

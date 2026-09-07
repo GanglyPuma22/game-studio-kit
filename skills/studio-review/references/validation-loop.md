@@ -47,7 +47,11 @@ expected state and existing action IDs. Temporal criteria declare separate
 the criterion interval. Sparse full-video sampling plus dense submitted frames
 must be independently evaluated; requested FPS is not observed model sampling.
 
-Run directories are immutable. `validate-run` checks current candidate files;
+Run directories are immutable. Once `observations.original.json` is retained,
+a failed assessment cannot replace it or retry without evidence. Preserve the
+failed inputs and use a new affected recheck; assessment recomputation may read
+the same retained bytes. There is no automatic record migration.
+`validate-run` checks current candidate files;
 historical comparisons use preserved identities. Assessment validation recomputes
 decisions from retained inputs, including adopted reviews and raw telemetry.
 Successful target and corpus analyses share a replay check against original request
@@ -73,6 +77,18 @@ Installed FFmpeg and FFprobe are prerequisites, not verified native capability.
 MP4. Each required stream must cover the interval from its first decoded PTS
 through the final frame duration. Long audio cannot conceal short/delayed video.
 Full decode and stream coverage are retained separately from container duration.
+A new `capture.original.json` retains the original profile (including any native
+grant), finalization result and end-of-capture continuity decision. Validation
+checks derived capture fields against that receipt and the recorder process
+record, then re-decodes every completed clip with the configured FFmpeg/FFprobe.
+Full media cannot override cancellation, timeout, failed cleanup or a changed
+source/candidate. A source removed or replaced during recording leaves an
+incomplete receipt and existing media/logs. Historical validation uses the
+retained continuity decision, not current successor content. Completed older
+captures without the original receipt are held under this helper; preserve and
+inspect them using their original source. Different probe facts also require
+inspection, not relabeling or automatic recapture. Decode validation is background
+work outside the measured native interval.
 
 `windows_ddagrab` requires native Windows and current host/operator/target.
 Declare integer `output_index`, `offset_x`, `offset_y`, `width`, `height`, `fps`
@@ -104,6 +120,15 @@ Static wrapper scanning does not execute a wrapper or resolve its dynamic branch
 retain the actual launch receipt for effective behavior. Master/file capture and
 speaker/system output are different sources and need an explicit relationship.
 
+Use `observations.timings` as a mapping from performance criterion ID to its raw
+timing object when the card has separate measurements, for example
+`{"timings":{"P1":{...},"P2":{...}}}`. Each object's interval must match that
+criterion. Omitted criteria can use an adopted named review or stay not_run.
+The existing single `timing` object remains supported only when its interval
+matches exactly one performance criterion; it does not apply to other intervals.
+Unknown IDs, ambiguous legacy matches, mismatched intervals, or supplying both
+forms are rejected.
+
 Performance requires raw complete wall-frame rows, clock offset/uncertainty and
 precision, plus `timing.context` referencing observer/provenance, run and timing
 hashes, effective settings, host interference observation, `host_evidence` and
@@ -126,8 +151,11 @@ criterion. Only a valid pair supports a measured p95 delta; without
 it no capture overhead claim is made. `requires_recorder_off` keeps a criterion
 pending until the reference exists. Model proposals cannot override measured
 performance. Raw interaction evidence similarly needs exact run/media/input
-route, observer/provenance, source evidence and mapped clock; ordering uncertainty
-must support the claimed input-before-outcome transition.
+route, observer/provenance, source evidence and mapped clock. Provenance must be
+exactly `synthetic` or `operator_reported`; unknown values are rejected. Precision
+is conservatively treated as a per-timestamp error bound, added to uncertainty:
+the input/outcome gap must exceed `2 * (precision_seconds + uncertainty_seconds)`.
+A sub-resolution gap remains unverified even with zero declared uncertainty.
 
 ## Named evidence and qualification
 
@@ -164,6 +192,20 @@ The original provider steps/usage, request/config and tool identities are retain
 and rechecked. Corpus audio roles also require named bounded listening records.
 Scores are recomputed, not accepted from a `qualified: true` assertion. The
 qualification receipt is supplied as `observations.qualification`.
+
+Corpus, evaluation and corpus cards must declare
+`prompt_contract_id: "studio-review-neutral-v1"`. This explicit prompt revision
+keeps the existing v2 eight-clip/ten-role media, truth and tolerances. Use a deep
+copy of `review_records.NEUTRAL_QUESTIONS` for each card: fixed common criteria,
+actions and two-second duration. All cases share one opaque 32-character lowercase
+hex candidate ID; run IDs are opaque too. The approved evaluator record binds
+this contract version at the named checkpoint. Qualification replays the exact
+submitted instructions, schema, text/media layout and original-PTS frame labels;
+extra instructions, role-specific text, or even a shared table of answers reject.
+Only evaluator records contain role/outcome/event truth. General symptom questions
+and the shared dense window remain legitimate. Ordinary game cards are flexible
+and omit the corpus marker. Older corpus receipts without this contract are held;
+no evidence is migrated and no provider request is automatically repeated.
 
 Acceptance corpus **v2** deliberately uses eight original two-second files for
 ten roles. It supersedes the earlier six-second proposal only as an explicit
