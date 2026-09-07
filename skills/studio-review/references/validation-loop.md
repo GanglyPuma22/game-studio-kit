@@ -47,10 +47,15 @@ expected state and existing action IDs. Temporal criteria declare separate
 the criterion interval. Sparse full-video sampling plus dense submitted frames
 must be independently evaluated; requested FPS is not observed model sampling.
 
-Run directories are immutable. Once `observations.original.json` is retained,
-a failed assessment cannot replace it or retry without evidence. Preserve the
-failed inputs and use a new affected recheck; assessment recomputation may read
-the same retained bytes. There is no automatic record migration.
+Helpers write run evidence once. Before input/run validation, assessment reserves
+`assessment-attempt.json` with create-exclusive semantics, run hash and exact input
+SHA256, or an explicit no-input case. It retains that input snapshot as
+`observations.original.json`. Deleting or changing the input alone cannot permit
+a same-run retry; partial/unreadable attempts also leave the reservation. Preserve
+the attempt and use a fresh affected recheck. Successful recomputation checks the
+same reservation/input without writing another attempt. Legacy assessment replay
+without a marker remains read-only and does not gain a retrospective reservation.
+There is no automatic record migration.
 `validate-run` checks current candidate files;
 historical comparisons use preserved identities. Assessment validation recomputes
 decisions from retained inputs, including adopted reviews and raw telemetry.
@@ -77,8 +82,11 @@ Installed FFmpeg and FFprobe are prerequisites, not verified native capability.
 MP4. Each required stream must cover the interval from its first decoded PTS
 through the final frame duration. Long audio cannot conceal short/delayed video.
 Full decode and stream coverage are retained separately from container duration.
-A new `capture.original.json` retains the original profile (including any native
-grant), finalization result and end-of-capture continuity decision. Validation
+A new `capture.original.json` retains the profile, finalization result and
+end-of-capture continuity decision. File profiles replace the host-local `source`
+path with portable `source_identity` (route/hash/native-recording flag). Native
+profiles retain the original grant semantics unchanged; host file paths remain
+in the invocation/host configuration, not the shared file-capture receipt. Validation
 checks derived capture fields against that receipt and the recorder process
 record, then re-decodes every completed clip with the configured FFmpeg/FFprobe.
 Full media cannot override cancellation, timeout, failed cleanup or a changed
@@ -156,6 +164,9 @@ exactly `synthetic` or `operator_reported`; unknown values are rejected. Precisi
 is conservatively treated as a per-timestamp error bound, added to uncertainty:
 the input/outcome gap must exceed `2 * (precision_seconds + uncertainty_seconds)`.
 A sub-resolution gap remains unverified even with zero declared uncertainty.
+Only actions named by the current criterion participate in its ordering check;
+an uncertain action for another criterion cannot suppress an otherwise supported
+result.
 
 ## Named evidence and qualification
 
@@ -197,7 +208,11 @@ Corpus, evaluation and corpus cards must declare
 `prompt_contract_id: "studio-review-neutral-v1"`. This explicit prompt revision
 keeps the existing v2 eight-clip/ten-role media, truth and tolerances. Use a deep
 copy of `review_records.NEUTRAL_QUESTIONS` for each card: fixed common criteria,
-actions and two-second duration. All cases share one opaque 32-character lowercase
+actions and two-second duration. Emit the code-owned values and fixed identity-key
+order even when a semantically equal input card has reordered dictionaries or
+integer/float variants. Replayed prompt text and schema must match this canonical
+representation; a noncanonical old request remains held without being rewritten.
+All cases share one opaque 32-character lowercase
 hex candidate ID; run IDs are opaque too. The approved evaluator record binds
 this contract version at the named checkpoint. Qualification replays the exact
 submitted instructions, schema, text/media layout and original-PTS frame labels;
@@ -228,10 +243,19 @@ checks evidence lineage; a live recorder/input M10 still needs native validation
 
 Trust boundary: approved named records attest what people reviewed; hashes detect
 drift and do not prove someone listened or that a server processed every frame.
-Host configuration and the executing code must remain controlled by the adopting
-operator. Consumers recheck host approval and recompute records; changing arbitrary
-project files/self-hashes is insufficient. A privileged operator who alters both
-host trust and evidence can lie. Test transport and test observer records never
+Host configuration and executing code remain controlled by the adopting operator.
+Named review consumers recheck the external host approval as well as their retained
+inputs. Capture outcomes have a different boundary: they are trusted local
+producer records preserved through the helper's write-once workflow, without an
+independently immutable or host-approved capture anchor. Decode/process/continuity
+checks expose inconsistent or accidentally changed evidence. A project writer
+who replaces all original outcome records and matching derived hashes can falsify
+that local history; administrator/root privileges are not required. The adopting
+host/orchestrator retains trusted originals outside that mutable producer workspace
+when independently retained history is needed; this helper does not create such
+an external authority. Likewise, the assessment marker protects against a missing
+input or same-run retry, not a writer replacing/deleting both marker and input.
+Test transport and test observer records never
 qualify operational capability. A target analyzed through test transport stays test
 scope even with operational qualification/review inputs; unknown target execution
 scope cannot close a temporal criterion. Even a qualified empirical detection envelope

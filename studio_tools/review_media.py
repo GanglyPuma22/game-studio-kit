@@ -170,7 +170,9 @@ def capture(config, root, name, profile, *, cancelled=None):
     # Preserve finalization/source-continuity decisions separately from derived
     # capture metadata. Revalidation never reruns capture or upgrades old records.
     original = folder / "capture.original.json"
-    write_json(original, {"schema_version": 1, "profile": profile, "continuity_verified_at_finish": continuity_verified, "capture": result})
+    retained_profile = ({**{k: value for k, value in profile.items() if k != "source"},
+                         "source_identity": source_identity} if route == "file" else profile)
+    write_json(original, {"schema_version": 1, "profile": retained_profile, "continuity_verified_at_finish": continuity_verified, "capture": result})
     result["files"].append(file_record(root, original))
     write_json(folder / "capture.json", result)
     return result

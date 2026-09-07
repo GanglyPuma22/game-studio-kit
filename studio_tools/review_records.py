@@ -22,11 +22,17 @@ NEUTRAL_QUESTIONS = {"duration_seconds": 2,
             {"id": "SOUND", "dimension": "audio", "kind": "audio", "action_ids": ["move"], "expected": "Locate the original cue or its absence", "mandatory": True, "interval": [0, 2]},
             {"id": "WORLD", "dimension": "visual", "kind": "visual", "action_ids": ["move"], "expected": "Original scene is legible", "mandatory": True, "interval": [0, 2]}]}
 
-def validate_neutral_run(run):
-    card = run["card"]
+def neutral_questions(card):
     if (card.get("prompt_contract_id") != PROMPT_CONTRACT_ID
-        or any(card.get(k) != value for k, value in NEUTRAL_QUESTIONS.items())
-        or not re.fullmatch(r"[0-9a-f]{32}", run["run_id"])
+        or any(card.get(k) != value for k, value in NEUTRAL_QUESTIONS.items())):
+        raise StudioError("Qualification requires the frozen neutral question contract")
+    # Emit code-owned numeric types/key order, never semantically equal variants.
+    return NEUTRAL_QUESTIONS
+
+
+def validate_neutral_run(run):
+    neutral_questions(run["card"])
+    if (not re.fullmatch(r"[0-9a-f]{32}", run["run_id"])
         or not re.fullmatch(r"[0-9a-f]{32}", run["candidate"]["candidate_id"])):
         raise StudioError("Qualification requires the frozen neutral contract and opaque run/candidate identities")
 

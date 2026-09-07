@@ -1,6 +1,8 @@
 """Operational evidence attached to a work card, using existing verdict semantics."""
 from datetime import datetime, timezone
 import math
+import hashlib
+import json
 from pathlib import Path
 import re
 import shutil
@@ -371,7 +373,7 @@ def action_trace(root, reference, run, clip_hash, criterion):
     if trace["provenance"] not in {"synthetic", "operator_reported"}:
         raise StudioError("Action provenance must be synthetic or operator_reported")
     verify_file(root, trace["source_evidence"])
-    actions = [{**a, "input_seconds": a["input_seconds"] + offset, "outcome_seconds": a["outcome_seconds"] + offset} for a in trace["actions"]]
+    actions = [{**a, "input_seconds": a["input_seconds"] + offset, "outcome_seconds": a["outcome_seconds"] + offset} for a in trace["actions"] if a["id"] in criterion["action_ids"]]
     result = interaction_result(criterion, actions)
     if any(a["outcome_seconds"] - a["input_seconds"] <= 2 * (uncertainty + precision) + 1e-12 for a in actions):
         result.update(status="unverified", reason="Clock precision and uncertainty cannot establish input before outcome")
@@ -402,21 +404,74 @@ def criterion_timings(facts, criteria):
         raise StudioError("Legacy timing requires one matching criterion; use timings by criterion ID")
     return {matches[0]: timing}
 
+
+def reserve_assessment(root, folder, evidence):
+    """Local once-per-run reservation; not protection against replacing all originals."""
+    marker = folder / "assessment-attempt.json"
+    if (folder / "assessment.json").exists() or (folder / "observations.original.json").exists():
+        raise StudioError("Assessment inputs already retained or immutable; create an affected recheck")
+    try:
+        stream = marker.open("x", encoding="utf-8")
+    except FileExistsError:
+        raise StudioError("Assessment attempt already retained; preserve it and create an affected recheck") from None
+    except OSError as exc:
+        raise StudioError("Cannot reserve assessment attempt in the run directory") from exc
+    attempt = {"schema_version": 1, "kind": "assessment-attempt", "input_supplied": evidence is not None,
+               "run_sha256": None, "input_sha256": None, "input_state": "unreadable" if evidence is not None else "not_supplied"}
+    raw = None
+    with stream:
+        try:
+            attempt["run_sha256"] = sha256(folder / "run.json")
+            if evidence is not None:
+                raw = relative(root, evidence).read_bytes()
+                attempt.update(input_sha256=hashlib.sha256(raw).hexdigest(), input_state="snapshotted")
+        except OSError as exc:
+            raise StudioError("Assessment input/run cannot be retained; attempt reserved") from exc
+        finally:
+            json.dump(attempt, stream, indent=2, allow_nan=False)
+            stream.write("\n")
+    if raw is not None:
+        try:
+            with (folder / "observations.original.json").open("xb") as retained:
+                retained.write(raw)
+        except OSError as exc:
+            raise StudioError("Cannot retain reserved assessment input; attempt remains") from exc
+
+
+def assessment_input(root, folder):
+    """Check a new attempt's snapshot; legacy read-only recompute stays unchanged."""
+    marker = folder / "assessment-attempt.json"
+    if not marker.exists():
+        return None
+    attempt = read_json(marker)
+    if (attempt.get("schema_version") != 1 or attempt.get("kind") != "assessment-attempt"
+        or attempt.get("run_sha256") != sha256(folder / "run.json")
+        or type(attempt.get("input_supplied")) is not bool):
+        raise StudioError("Assessment attempt identity changed")
+    retained = folder / "observations.original.json"
+    if attempt["input_supplied"]:
+        if attempt.get("input_state") != "snapshotted" or not retained.is_file() or sha256(retained) != attempt.get("input_sha256"):
+            raise StudioError("Reserved assessment input is missing or changed; preserve the failed attempt")
+    elif retained.exists() or attempt.get("input_sha256") is not None or attempt.get("input_state") != "not_supplied":
+        raise StudioError("No-input assessment attempt differs from retained input")
+    return file_record(root, marker)
+
 def assess(root, name, evidence=None, *, _recompute=False, config=None):
     """Compute only supported assertions; model proposals never certify perception."""
-    data = validate_run(root, name, current=False, check_assessment=False, config=config)
     folder = relative(root, name)
-    if (folder / "observations.original.json").exists() and not _recompute:
-        raise StudioError("Assessment inputs already retained; preserve the failed attempt and create an affected recheck")
-    if (folder / "assessment.json").exists() and not _recompute:
-        raise StudioError("Assessment is immutable; create an affected recheck")
+    if not _recompute:
+        reserve_assessment(root, folder, evidence)
+    attempt_ref = assessment_input(root, folder)
+    data = validate_run(root, name, current=False, check_assessment=False, config=config)
     capture = read_json(folder / "capture.json") if (folder / "capture.json").exists() else None
     analysis = read_json(folder / "analysis.json") if (folder / "analysis.json").exists() else None
     files = [file_record(root, folder / "capture.json")] if capture else []
+    if attempt_ref:
+        files.append(attempt_ref)
     facts = {}
     if analysis:
         files.append(file_record(root, folder / "analysis.json"))
-    if _recompute and (folder / "observations.original.json").exists():
+    if (folder / "observations.original.json").exists():
         evidence = (folder / "observations.original.json").relative_to(Path(root)).as_posix()
     if evidence:
         source = relative(root, evidence)
@@ -430,12 +485,6 @@ def assess(root, name, evidence=None, *, _recompute=False, config=None):
         for item in facts.get("files", []):
             verify_file(root, item)
             files.append(item)
-        if not _recompute:
-            try:
-                with (folder / "observations.original.json").open("xb") as retained:
-                    retained.write(source.read_bytes())
-            except FileExistsError:
-                raise StudioError("Assessment inputs already retained; create an affected recheck") from None
         files.append(file_record(root, folder / "observations.original.json"))
     reviews = facts.get("reviews", [])
     for reference in reviews:

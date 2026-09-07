@@ -201,6 +201,9 @@ class MediaCorrections(ReviewFixture):
         off_context['measurement_id']='on';write_json(folder/'off-context.json',off_context)
         facts['timing']['recorder_off']['context']=file_record(self.root,folder/'off-context.json')
         write_json(folder/'observations.original.json',facts)
+        # Deliberately update this disposable fixture's attempt digest to reach the
+        # recorder-off check; production helpers never rewrite original inputs.
+        attempt=read_json(folder/'assessment-attempt.json');attempt['input_sha256']=sha256(folder/'observations.original.json');write_json(folder/'assessment-attempt.json',attempt)
         # Recompute deliberately bypasses stale assessment references only in this unit control.
         with patch('studio_tools.validation.validate_run',return_value=read_json(folder/'run.json')):
             with self.assertRaisesRegex(StudioError,'distinct'):v.assess(self.root,name,_recompute=True)

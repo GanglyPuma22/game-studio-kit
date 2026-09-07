@@ -115,6 +115,10 @@ def validate_findings(result, expected, criterion_ids, duration):
 
 
 def request_questions(card, expected):
+    if "prompt_contract_id" in card:
+        from .review_records import neutral_questions
+        card = neutral_questions(card)
+        expected = {key: expected[key] for key in ("run_id", "candidate_id", "clip_sha256")}
     schema = {"type": "object", "properties": {**{k: {"type": "string"} for k in expected},
         "findings": {"type": "array", "items": {"type": "object", "properties": {
             **{k: {"type": "string"} for k in ("criterion_id", "status", "category", "observation", "severity", "hypothesis", "next_check")},
@@ -227,7 +231,7 @@ def validate_neutral_request(run, payload, expected, frames):
     if (set(payload) != {"model", "input", "store", "generation_config", "response_format"}
         or [part.get("type") for part in parts] != types
         or [part for part in parts if part["type"] == "text"] != texts
-        or payload.get("response_format") != {"type": "text", "mime_type": "application/json", "schema": schema}):
+        or json.dumps(payload.get("response_format"), allow_nan=False) != json.dumps({"type": "text", "mime_type": "application/json", "schema": schema}, allow_nan=False)):
         raise StudioError("Qualification request text/layout differs from frozen neutral contract")
     for part in parts:
         if part["type"] in {"video", "image"}:
