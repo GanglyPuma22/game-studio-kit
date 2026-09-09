@@ -13,4 +13,4 @@ Original source SHA-256 values:
 | `probe_mcp.py` | `44014086312cff4d7591bab0f6f52ca5a94fd71713209b5afbcbbb440735517e` |
 | `Test-LifecycleContracts.ps1` | `676b58003391e3139029c8c484436f9d87c6ad39935b0bbae236d25512405ea3` |
 
-The PowerShell contract script performs parsing and static source assertions only. Python policy tests execute configuration, current-status and bounded-retry behavior with fakes. Neither qualifies the packaged files on native Windows; use the separate lifecycle qualification card and record exact package revision and file hashes there.
+The PowerShell contract script performs parsing and static source assertions only. Python policy tests execute configuration, current-status and bounded-retry behavior with fakes. Neither qualifies the packaged files on native Windows; use the [native Windows qualification card](windows-lifecycle-qualification.md) and record exact package revision and file hashes there.

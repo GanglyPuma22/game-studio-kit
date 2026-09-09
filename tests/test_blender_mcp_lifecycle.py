@@ -154,6 +154,10 @@ class BlenderMcpConfigDoctorTests(unittest.TestCase):
         report = inspect(load())["capabilities"]["blender_mcp"]
         self.assertEqual(report["status"], "needs_setup")
         self.assertFalse(report["configured"])
+        self.assertIn(
+            "skills/studio-blender/references/windows-lifecycle-qualification.md",
+            report["next_step"],
+        )
 
     def test_config_rejects_non_loopback_or_telemetry_enabled_server(self):
         for env_update in (

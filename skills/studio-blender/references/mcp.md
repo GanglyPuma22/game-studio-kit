@@ -54,4 +54,4 @@ Save checkpoints deliberately and use only project-scoped operations within the 
 
 If graceful close reports `NEEDS_USER_CLOSE`, preserve the receipt and close the visible prompt manually. Never kill by process name and never stop the app-owned MCP subprocess.
 
-The migrated source and validation boundary are recorded in [lifecycle provenance](lifecycle-provenance.md). If addon/server installation or native access is unavailable, use the fully independent [background Blender route](../SKILL.md).
+Before adopting this route on a host, run the [native Windows qualification card](windows-lifecycle-qualification.md). The migrated source and validation boundary are recorded in [lifecycle provenance](lifecycle-provenance.md). If addon/server installation or native access is unavailable, use the fully independent [background Blender route](../SKILL.md).

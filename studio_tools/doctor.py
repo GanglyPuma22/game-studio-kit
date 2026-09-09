@@ -19,7 +19,8 @@ ACTIONS = {
     "computer_use": "The active host must expose computer-use tools and inspect the native app; follow docs/windows-smoke.md.",
     "blender_mcp": (
         "Optional Windows lifecycle: configure every blender_mcp host field, "
-        "then run its native qualification card."
+        "then run skills/studio-blender/references/"
+        "windows-lifecycle-qualification.md."
     ),
 }
 
