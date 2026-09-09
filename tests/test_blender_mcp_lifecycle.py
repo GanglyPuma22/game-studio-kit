@@ -1,6 +1,9 @@
 """Behavioral policy tests for the optional supervised Blender MCP route."""
 
 import asyncio
+import contextlib
+import io
+import json
 import os
 import re
 import subprocess
@@ -8,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from studio_tools.blender_mcp import (
     call_current_addon_status,
@@ -17,6 +21,9 @@ from studio_tools.blender_mcp import (
 from studio_tools.common import StudioError
 from studio_tools.config import load
 from studio_tools.doctor import inspect
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 CURRENT = {
@@ -190,6 +197,13 @@ class BlenderMcpConfigDoctorTests(unittest.TestCase):
         with self.assertRaisesRegex(StudioError, "outside the installed kit"):
             load(overrides={"blender_mcp": block})
 
+    def test_lifecycle_identity_paths_must_be_absolute(self):
+        for field in ("working_root", "blender_executable", "probe_python"):
+            block = {**self.block, field: f"relative/{field}"}
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(StudioError, f"blender_mcp.{field} must be absolute"):
+                    load(overrides={"blender_mcp": block})
+
     def test_probe_server_config_comes_only_from_explicit_host_file(self):
         host = Path(self.temp.name) / "host.json"
         host.write_text(__import__("json").dumps({"blender_mcp": self.block}))
@@ -242,6 +256,202 @@ class BlenderMcpConfigDoctorTests(unittest.TestCase):
                 with self.assertRaises(StudioError):
                     load(overrides={"blender_mcp": block})
         self.assertTrue(re.fullmatch(r"[A-Za-z0-9._-]{1,128}", self.block["owner"]))
+
+
+class BlenderMcpLifecycleCliTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        self.game = root / "game"
+        (self.game / "source").mkdir(parents=True)
+        (self.game / "source" / "asset.blend").write_bytes(b"blend")
+        for name in ("blender.exe", "python.exe", "blender-mcp.exe"):
+            (root / name).touch()
+        self.host = root / "host.json"
+        self.block = {
+            "working_root": str(root / "runs"),
+            "blender_executable": str(root / "blender.exe"),
+            "probe_python": str(root / "python.exe"),
+            "owner": "studio-blender-test",
+            "server": {
+                "command": str(root / "blender-mcp.exe"),
+                "args": [],
+                "env": {
+                    "BLENDER_HOST": "127.0.0.1",
+                    "BLENDER_PORT": "9876",
+                    "DISABLE_TELEMETRY": "true",
+                    "BLENDER_MCP_DISABLE_TELEMETRY": "true",
+                },
+            },
+        }
+        self.host.write_text(json.dumps({"blender_mcp": self.block}))
+
+    def test_entrypoint_routes_ensure_through_packaged_lifecycle_script(self):
+        from studio_tools.blender_mcp_lifecycle import execute
+
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout='{"status":"PLAN_VALID"}', stderr=""
+        )
+        with patch(
+            "studio_tools.blender_mcp_lifecycle._powershell",
+            return_value="C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        ), patch(
+            "studio_tools.blender_mcp_lifecycle.subprocess.run", return_value=completed
+        ) as runner:
+            result = execute(
+                load(path=self.host),
+                self.host,
+                self.game,
+                "ensure",
+                source="source/asset.blend",
+                session="review-fix",
+                plan_only=True,
+            )
+
+        self.assertEqual(result["status"], "PLAN_VALID")
+        command = runner.call_args.args[0]
+        self.assertEqual(command[0], "C:\\Program Files\\PowerShell\\7\\pwsh.exe")
+        self.assertIn(str(ROOT / "skills/studio-blender/scripts/lifecycle/Ensure-SupervisedBlenderMCP.ps1"), command)
+        self.assertIn(str((self.game / "source" / "asset.blend").resolve()), command)
+        self.assertIn(str(self.host.resolve()), command)
+        self.assertIn(str(Path(self.block["working_root"]).resolve()), command)
+
+    def test_entrypoint_routes_stop_through_packaged_lifecycle_script(self):
+        from studio_tools.blender_mcp_lifecycle import execute
+
+        receipt = Path(self.temp.name) / "ownership.json"
+        receipt.write_text("{}")
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout='{"status":"CLOSED"}', stderr=""
+        )
+        with patch(
+            "studio_tools.blender_mcp_lifecycle._powershell",
+            return_value="C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        ), patch(
+            "studio_tools.blender_mcp_lifecycle.subprocess.run", return_value=completed
+        ) as runner:
+            result = execute(
+                load(path=self.host),
+                self.host,
+                self.game,
+                "stop",
+                receipt=receipt,
+            )
+
+        self.assertEqual(result["status"], "CLOSED")
+        command = runner.call_args.args[0]
+        self.assertIn(
+            str(
+                ROOT
+                / "skills/studio-blender/scripts/lifecycle/Stop-SupervisedBlenderMCP.ps1"
+            ),
+            command,
+        )
+        self.assertIn(str(receipt.resolve()), command)
+
+    def test_contract_check_wraps_plain_powershell_success_as_json(self):
+        from studio_tools.blender_mcp_lifecycle import execute
+
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="PASS: 5 components and 35 lifecycle contracts\n",
+            stderr="",
+        )
+        with patch(
+            "studio_tools.blender_mcp_lifecycle._powershell", return_value="pwsh.exe"
+        ), patch(
+            "studio_tools.blender_mcp_lifecycle.subprocess.run", return_value=completed
+        ):
+            result = execute(
+                load(path=self.host), self.host, self.game, "contracts"
+            )
+
+        self.assertEqual(
+            result,
+            {
+                "ok": True,
+                "summary": "PASS: 5 components and 35 lifecycle contracts",
+            },
+        )
+
+    def test_cli_requires_explicit_config_and_ensure_inputs(self):
+        from studio_tools.cli import dispatch, parser
+
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            parser().parse_args(["blender-mcp", "ensure", "--project", str(self.game)])
+
+        without_inputs = parser().parse_args(
+            [
+                "blender-mcp",
+                "ensure",
+                "--project",
+                str(self.game),
+                "--config",
+                str(self.host),
+            ]
+        )
+        with self.assertRaisesRegex(StudioError, "requires --source and --session"):
+            dispatch(without_inputs)
+
+        args = parser().parse_args(
+            [
+                "blender-mcp",
+                "ensure",
+                "--project",
+                str(self.game),
+                "--config",
+                str(self.host),
+                "--source",
+                "source/asset.blend",
+                "--session",
+                "review-fix",
+                "--plan-only",
+            ]
+        )
+        self.assertEqual(args.command, "blender-mcp")
+        self.assertEqual(args.operation, "ensure")
+
+
+class BlenderMcpPowerShellRegressionTests(unittest.TestCase):
+    @staticmethod
+    def _source(name):
+        return (
+            ROOT / "skills/studio-blender/scripts/lifecycle" / name
+        ).read_text(encoding="utf-8")
+
+    def test_stop_serializes_before_receipt_validation(self):
+        source = self._source("Stop-SupervisedBlenderMCP.ps1")
+        self.assertIn("GameStudioKit-BlenderMCP-127_0_0_1-9876", source)
+        self.assertLess(source.index("WaitOne"), source.index("$receiptPath"))
+        self.assertIn("ReleaseMutex", source)
+
+    def test_malformed_active_pointer_is_inside_recovery_guard(self):
+        source = self._source("Ensure-SupervisedBlenderMCP.ps1")
+        active_block = source[source.index("if (Test-Path -LiteralPath $activePath)") :]
+        self.assertLess(active_block.index("try {"), active_block.index("ConvertFrom-Json"))
+
+    def test_reuse_requires_canonical_source_path_and_hash(self):
+        source = self._source("Ensure-SupervisedBlenderMCP.ps1")
+        reuse_block = source[source.index("if (Test-Path -LiteralPath $activePath)") : source.index("$unownedBlender")]
+        self.assertIn("existing.source_scene", reuse_block)
+        self.assertIn("existing.source_sha256", reuse_block)
+        self.assertIn("OrdinalIgnoreCase", reuse_block)
+
+    def test_startup_failure_closes_in_memory_owned_process_without_stop_preconditions(self):
+        source = self._source("Ensure-SupervisedBlenderMCP.ps1")
+        startup_catch = source[source.index("} catch {", source.index("$process = $null")) :]
+        self.assertNotIn("& $stopScript", startup_catch)
+        self.assertIn("CloseMainWindow", startup_catch)
+        self.assertIn("WaitForExit", startup_catch)
+        self.assertIn("NEEDS_USER_CLOSE", startup_catch)
+
+    def test_documented_addon_filename_matches_bootstrap_module(self):
+        recipe = (ROOT / "skills/studio-blender/references/mcp.md").read_text(encoding="utf-8")
+        bootstrap = self._source("supervised_bootstrap.py")
+        self.assertIn("`blender_mcp.py`", recipe)
+        self.assertIn('addon_utils.enable("blender_mcp"', bootstrap)
 
 
 if __name__ == "__main__":

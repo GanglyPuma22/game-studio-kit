@@ -15,9 +15,9 @@ def parser():
     )
     sub = p.add_subparsers(dest="command", required=True)
 
-    def command(name, project=False):
+    def command(name, project=False, config_required=False):
         c = sub.add_parser(name)
-        c.add_argument("--config")
+        c.add_argument("--config", required=config_required)
         if project:
             c.add_argument(
                 "--project",
@@ -49,6 +49,12 @@ def parser():
     c.add_argument("--angles", default="0")
     c.add_argument("--target", default="0,0,0")
     c.add_argument("--output", help="Required .glb destination for export; otherwise defaults to artifacts/blender")
+    c = command("blender-mcp", True, config_required=True)
+    c.add_argument("operation", choices=["ensure", "status", "stop", "contracts"])
+    c.add_argument("--source")
+    c.add_argument("--session")
+    c.add_argument("--receipt")
+    c.add_argument("--plan-only", action="store_true")
     c = command("terrain", True)
     c.add_argument("--output", default="source/terrain")
     c.add_argument("--resolution", type=int, default=33)
@@ -157,6 +163,19 @@ def dispatch(a):
             output_root(dest.parent)
             write_json(dest, result)
         return result
+    if a.command == "blender-mcp":
+        from .blender_mcp_lifecycle import execute
+
+        return execute(
+            config,
+            a.config,
+            Path(a.project).resolve(),
+            a.operation,
+            source=a.source,
+            session=a.session,
+            receipt=a.receipt,
+            plan_only=a.plan_only,
+        )
     # Read-only validation does not create the project directory.
     root = (
         Path(a.project).resolve()

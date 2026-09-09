@@ -71,21 +71,26 @@ try {
 New-Item -ItemType Directory -Path $WorkingRoot -Force | Out-Null
 $activePath = Join-Path $WorkingRoot 'active-receipt.json'
 $testScript = Join-Path $PSScriptRoot 'Test-SupervisedBlenderMCP.ps1'
-$stopScript = Join-Path $PSScriptRoot 'Stop-SupervisedBlenderMCP.ps1'
 $bootstrap = Join-Path $PSScriptRoot 'supervised_bootstrap.py'
-foreach ($dependency in @($testScript,$stopScript,$bootstrap,(Join-Path $PSScriptRoot 'probe_mcp.py'))) {
+foreach ($dependency in @($testScript,$bootstrap,(Join-Path $PSScriptRoot 'probe_mcp.py'))) {
     if (!(Test-Path -LiteralPath $dependency -PathType Leaf)) { throw "Lifecycle dependency missing: $dependency" }
 }
 
 if (Test-Path -LiteralPath $activePath) {
-    $active = Get-Content -LiteralPath $activePath -Raw | ConvertFrom-Json
     try {
+        $active = Get-Content -LiteralPath $activePath -Raw | ConvertFrom-Json
+        if (!$active.receipt_path) { throw 'Active lifecycle pointer has no receipt path' }
         $existing = Get-Content -LiteralPath $active.receipt_path -Raw | ConvertFrom-Json
         & $testScript -OwnershipReceipt $active.receipt_path -WorkingRoot $WorkingRoot -ProbePython $ProbePython -McpServerConfig $McpServerConfig -OwnerIdentity $ownerName -SkipProtocolProbe | Out-Null
         if ($existing.session_id -ne $SessionId) {
             throw "A healthy supervised Blender session is leased to another agent session: $($existing.session_id)"
         }
-        if ($existing.source_sha256 -ne $sourceSha) {
+        $sameSourcePath = [string]::Equals(
+            [IO.Path]::GetFullPath($existing.source_scene),
+            $sourcePath,
+            [StringComparison]::OrdinalIgnoreCase
+        )
+        if (!$sameSourcePath -or $existing.source_sha256 -ne $sourceSha) {
             throw "A healthy supervised Blender session owns port 9876 for another source: $($existing.working_scene)"
         }
         $healthJson = & $testScript -OwnershipReceipt $active.receipt_path -WorkingRoot $WorkingRoot -ProbePython $ProbePython -McpServerConfig $McpServerConfig -OwnerIdentity $ownerName
@@ -176,10 +181,49 @@ try {
     $result | Add-Member -NotePropertyName native_client_rehandshake_policy -NotePropertyValue $rehandshakePolicy
     $result | ConvertTo-Json -Depth 6
 } catch {
-    if ($process -and !$process.HasExited) {
-        try { & $stopScript -OwnershipReceipt $ownershipReceipt -WorkingRoot $WorkingRoot -OwnerIdentity $ownerName | Out-Null } catch { }
+    $startupFailure = $_
+    if ($process) {
+        $process.Refresh()
+        if (!$process.HasExited) {
+            if (![string]::Equals(
+                [IO.Path]::GetFullPath($process.Path),
+                [IO.Path]::GetFullPath($BlenderExe),
+                [StringComparison]::OrdinalIgnoreCase
+            )) {
+                throw 'Startup failed; refusing cleanup because the owned process executable identity changed'
+            }
+            [void]$process.CloseMainWindow()
+            if (!$process.WaitForExit(20000)) {
+                $cleanupNote = 'Startup failed and the owned Blender process did not close after CloseMainWindow; save or dismiss the visible prompt manually. No force-kill was attempted.'
+                if (Test-Path -LiteralPath $ownershipReceipt -PathType Leaf) {
+                    try {
+                        $failedReceipt = Get-Content -LiteralPath $ownershipReceipt -Raw | ConvertFrom-Json
+                        $failedReceipt.status = 'NEEDS_USER_CLOSE'
+                        $failedReceipt | Add-Member -NotePropertyName cleanup_note -NotePropertyValue $cleanupNote -Force
+                        $failedReceipt | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ownershipReceipt -Encoding utf8
+                    } catch { }
+                }
+                throw $cleanupNote
+            }
+        }
     }
-    throw
+    if (Test-Path -LiteralPath $ownershipReceipt -PathType Leaf) {
+        try {
+            $failedReceipt = Get-Content -LiteralPath $ownershipReceipt -Raw | ConvertFrom-Json
+            $failedReceipt.status = 'STARTUP_FAILED_CLOSED'
+            $failedReceipt | Add-Member -NotePropertyName closed_utc -NotePropertyValue ([DateTimeOffset]::UtcNow.ToString('o')) -Force
+            $failedReceipt | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ownershipReceipt -Encoding utf8
+        } catch { }
+    }
+    if (Test-Path -LiteralPath $activePath) {
+        try {
+            $failedActive = Get-Content -LiteralPath $activePath -Raw | ConvertFrom-Json
+            if ([IO.Path]::GetFullPath($failedActive.receipt_path) -eq [IO.Path]::GetFullPath($ownershipReceipt)) {
+                Remove-Item -LiteralPath $activePath
+            }
+        } catch { }
+    }
+    throw $startupFailure
 }
 } finally {
     if ($mutexAcquired) { $lifecycleMutex.ReleaseMutex() }

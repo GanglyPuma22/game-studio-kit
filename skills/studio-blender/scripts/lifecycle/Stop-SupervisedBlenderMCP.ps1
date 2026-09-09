@@ -7,6 +7,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ownerName = $OwnerIdentity
+$lifecycleMutex = [System.Threading.Mutex]::new($false, 'Global\GameStudioKit-BlenderMCP-127_0_0_1-9876')
+$mutexAcquired = $false
+try {
+    $mutexAcquired = $lifecycleMutex.WaitOne([TimeSpan]::FromSeconds(10))
+    if (!$mutexAcquired) { throw 'Another agent is currently changing the supervised Blender MCP lifecycle' }
+
 $receiptPath = [IO.Path]::GetFullPath($OwnershipReceipt)
 if (!(Test-Path -LiteralPath $receiptPath -PathType Leaf)) { throw "Missing ownership receipt: $receiptPath" }
 $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
@@ -43,3 +49,7 @@ if (Test-Path -LiteralPath $activePath) {
     if ([IO.Path]::GetFullPath($active.receipt_path) -eq $receiptPath) { Remove-Item -LiteralPath $activePath }
 }
 @{status='CLOSED'; ownership_receipt=$receiptPath; working_scene=$receipt.working_scene} | ConvertTo-Json
+} finally {
+    if ($mutexAcquired) { $lifecycleMutex.ReleaseMutex() }
+    $lifecycleMutex.Dispose()
+}

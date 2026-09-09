@@ -31,6 +31,9 @@ def _validate_blender_mcp(block):
     for key in BLENDER_MCP_REQUIRED - {"server"}:
         if not isinstance(block[key], str) or not block[key].strip():
             raise StudioError(f"blender_mcp.{key} must be a non-empty string")
+    for key in ("working_root", "blender_executable", "probe_python"):
+        if not Path(block[key]).is_absolute():
+            raise StudioError(f"blender_mcp.{key} must be absolute")
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", block["owner"]):
         raise StudioError(
             "blender_mcp.owner must use 1-128 letters, digits, dots, "

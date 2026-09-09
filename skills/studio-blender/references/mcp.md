@@ -2,7 +2,7 @@
 
 The core background adapter needs no MCP. Optional upstream: `ahujasid/blender-mcp`, revision `c5f35d9cc54451d785ac4c00c48bf9e98a2e8db9`, project version `1.9.1`, MIT. [Pinned source](https://github.com/ahujasid/blender-mcp/tree/c5f35d9cc54451d785ac4c00c48bf9e98a2e8db9) and [retained license](../../../third_party/blender-mcp/LICENSE). No server/addon code is vendored; this studio-authored connection recipe is based on the inspected README, addon preferences and server/telemetry source.
 
-When this route is chosen and setup is authorized, obtain **both addon and server from that exact revision**, install the server in a host-owned virtual environment, and install the matching `addon.py` in the intended Blender profile. Do not automatically fetch upstream main, enable addons globally, or operate an already open project. Keep a host record of exact revision, addon/server paths and actual versions. Dependencies are declared in the pinned upstream pyproject; review/license them during optional installation. The packaged lifecycle supervises an existing compatible installation; it is not an installer.
+When this route is chosen and setup is authorized, obtain **both addon and server from that exact revision**, install the server in a host-owned virtual environment, and install the matching `addon.py` in the intended Blender profile under the module filename `blender_mcp.py`. The pinned upstream `install-addon` command performs this rename; a manual installation must do it explicitly because the packaged bootstrap enables the `blender_mcp` module. Do not automatically fetch upstream main, enable addons globally, or operate an already open project. Keep a host record of exact revision, addon/server paths and actual versions. Dependencies are declared in the pinned upstream pyproject; review/license them during optional installation. The packaged lifecycle supervises an existing compatible installation; it is not an installer.
 
 Add one `blender_mcp` block to the same explicit host JSON used by `doctor`. Keep the file and `working_root` outside KIT so an installed plugin cache remains immutable:
 
@@ -33,13 +33,10 @@ Use PowerShell and values from the single host file. `Ensure` copies the source 
 
 ```powershell
 $Kit = "C:\Tools\game-studio-kit"
+$Game = "C:\Projects\Game"
 $HostConfig = "C:\Studio Host\host.json"
-$Source = "C:\Projects\Game\source\asset.blend"
 $Session = "agent-task-unique-id"
-$HostData = Get-Content -LiteralPath $HostConfig -Raw | ConvertFrom-Json
-$Mcp = $HostData.blender_mcp
-$Lifecycle = Join-Path $Kit "skills\studio-blender\scripts\lifecycle"
-$Ensure = & (Join-Path $Lifecycle "Ensure-SupervisedBlenderMCP.ps1") -SourceScene $Source -SessionId $Session -WorkingRoot $Mcp.working_root -BlenderExe $Mcp.blender_executable -ProbePython $Mcp.probe_python -McpServerConfig $HostConfig -OwnerIdentity $Mcp.owner | ConvertFrom-Json
+$Ensure = python "$Kit\scripts\studio.py" blender-mcp ensure --project $Game --source "source/asset.blend" --session $Session --config $HostConfig | ConvertFrom-Json
 ```
 
 `Ensure` verifies its own newly launched MCP subprocess and returns an ownership receipt. That does **not** prove the app's already-running MCP client has reconnected. Before any mutation, use the current app client to call `get_addon_status`, require `source=native`, `up_to_date=true`, `protocol_version=expected_protocol_version=5`, and `telemetry_consent=false`; then call `get_scene_info` and verify the working scene returned by `Ensure`. Verify PID, file path and owner with a read-only `execute_blender_code` identity check when the client exposes it.
@@ -49,7 +46,7 @@ After a successful `Ensure`, if and only if the current client's first read-only
 Save checkpoints deliberately and use only project-scoped operations within the work card; optional upstream cloud-generation integrations do not inherit authorization. When finished, close only the receipt-bound process:
 
 ```powershell
-& (Join-Path $Lifecycle "Stop-SupervisedBlenderMCP.ps1") -OwnershipReceipt $Ensure.ownership_receipt -WorkingRoot $Mcp.working_root -OwnerIdentity $Mcp.owner
+python "$Kit\scripts\studio.py" blender-mcp stop --project $Game --receipt $Ensure.ownership_receipt --config $HostConfig
 ```
 
 If graceful close reports `NEEDS_USER_CLOSE`, preserve the receipt and close the visible prompt manually. Never kill by process name and never stop the app-owned MCP subprocess.

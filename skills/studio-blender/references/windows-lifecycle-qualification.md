@@ -11,7 +11,9 @@ Record the KIT revision and hashes before starting:
 ```powershell
 $Kit = "C:\Tools\game-studio-kit"
 $HostConfig = "C:\Studio Host\host.json"
-$Source = "C:\Qualification Inputs\small-known.blend"
+$Project = "C:\Qualification Inputs"
+$SourceRelative = "small-known.blend"
+$Source = Join-Path $Project $SourceRelative
 $Evidence = "C:\Qualification Evidence\blender-mcp"
 $Session = "blender-mcp-qualification-unique"
 $env:PYTHONDONTWRITEBYTECODE = "1"
@@ -21,44 +23,32 @@ Get-ChildItem -File -LiteralPath "$Kit\skills\studio-blender\scripts\lifecycle" 
 Get-FileHash -Algorithm SHA256 -LiteralPath $Source
 python "$Kit\scripts\studio.py" check-package --root $Kit
 python "$Kit\scripts\studio.py" doctor --config $HostConfig
-& "$Kit\skills\studio-blender\scripts\lifecycle\Test-LifecycleContracts.ps1"
+python "$Kit\scripts\studio.py" blender-mcp contracts --project $Project --config $HostConfig
 ```
 
 Record portable tests, package validation and the PowerShell static contracts separately. Static contracts do not qualify native lifecycle behavior. Confirm the host configuration points to the intended existing Blender executable, probe Python, MCP server command, loopback port `9876`, telemetry-off environment and an empty external working root.
 
 ## Native stage
 
-Proceed only in the separately authorized desktop window after confirming no Blender process or port-9876 listener belongs to another task or user. Load the single host JSON and packaged scripts:
+Proceed only in the separately authorized desktop window after confirming no Blender process or port-9876 listener belongs to another task or user. Invoke the packaged lifecycle through the absolute studio entrypoint:
 
 ```powershell
-$HostData = Get-Content -LiteralPath $HostConfig -Raw | ConvertFrom-Json
-$Mcp = $HostData.blender_mcp
-$Lifecycle = Join-Path $Kit "skills\studio-blender\scripts\lifecycle"
-$EnsureArgs = @{
-  SourceScene = $Source
-  SessionId = $Session
-  WorkingRoot = $Mcp.working_root
-  BlenderExe = $Mcp.blender_executable
-  ProbePython = $Mcp.probe_python
-  McpServerConfig = $HostConfig
-  OwnerIdentity = $Mcp.owner
-}
-$Current = & (Join-Path $Lifecycle "Ensure-SupervisedBlenderMCP.ps1") @EnsureArgs | ConvertFrom-Json
+$Current = python "$Kit\scripts\studio.py" blender-mcp ensure --project $Project --source $SourceRelative --session $Session --config $HostConfig | ConvertFrom-Json
 ```
 
 Qualify these behaviors and retain receipts:
 
 1. Confirm cold Ensure returns `PASS`, `reused=false`, an external `working_scene`, and coherent owner, PID, process-start, executable, source hash, listener and protocol-probe evidence.
 2. Run the same Ensure command again. Require `reused=true` with the same PID and working scene.
-3. Change only `SessionId` to another safe ID and require refusal without changing or closing the owned Blender process.
+3. Change only `--session` to another safe ID and require refusal without changing or closing the owned Blender process.
 4. Through the actual app client used for later work, call `get_addon_status`, `get_scene_info`, a read-only PID/file/owner identity check, and viewport capture. Require native protocol 5, matching expected protocol, telemetry false and the exact working scene. The fresh helper subprocess result from Ensure is separate evidence and cannot satisfy this step.
 5. Through that app client, make one reversible named edit in the working copy, save it, inspect it and confirm the original input hash is unchanged. Never replay the mutation after an error. Run Ensure again and require the same PID/scene plus preservation of the named edit; assign that returned receipt to `$Current`.
 6. If testing a controlled owned-Blender restart while retaining the same app MCP client, first stop the saved owned Blender using `$Current`, then run Ensure again and assign its new receipt to `$Current`. Preserve the app client's first and second addon-status results. Exactly one second read-only `get_addon_status` is allowed only after the new Ensure passed and the first status has `source=error` with `WinError 10053` or `Connection to Blender lost`. Require the second status and new scene/identity checks to pass. Any transport exception, different error or second failure stops the test.
-7. Exercise stale-receipt and process-start mismatch refusal with copied synthetic receipts. For example, copy the current ownership JSON into `$Evidence`, change only its `process_start_utc`, then invoke `Test-SupervisedBlenderMCP.ps1` with the same working root, probe Python, host config and owner; require refusal before a protocol probe. Use another existing saved `.blend` in a separate copied receipt for a full read-only wrong-scene probe. Label synthetic results accurately and do not manipulate unrelated processes to claim PID-reuse coverage.
+7. Exercise stale-receipt and process-start mismatch refusal with copied synthetic receipts. For example, copy the current ownership JSON into `$Evidence`, set `$SyntheticReceipt` to that copy, change only its `process_start_utc`, then invoke `python "$Kit\scripts\studio.py" blender-mcp status --project $Project --receipt $SyntheticReceipt --config $HostConfig`; require refusal before a protocol probe. Use another existing saved `.blend` in a separate copied receipt for a full read-only wrong-scene probe. Label synthetic results accurately and do not manipulate unrelated processes to claim PID-reuse coverage.
 8. Stop only through the latest returned receipt:
 
 ```powershell
-& (Join-Path $Lifecycle "Stop-SupervisedBlenderMCP.ps1") -OwnershipReceipt $Current.ownership_receipt -WorkingRoot $Mcp.working_root -OwnerIdentity $Mcp.owner
+python "$Kit\scripts\studio.py" blender-mcp stop --project $Project --receipt $Current.ownership_receipt --config $HostConfig
 ```
 
 Require the owned Blender/listener to close while the app-owned MCP subprocess and unrelated applications remain untouched. If graceful close reports `NEEDS_USER_CLOSE`, retain the receipt and ask the desktop owner to handle the visible prompt. Do not force-kill.
