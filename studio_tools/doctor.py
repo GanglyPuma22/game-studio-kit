@@ -17,6 +17,10 @@ ACTIONS = {
     "fish": "Optional: set FISH_AUDIO_API_KEY (or configured variable); authorize voice rights, explicit model and nonzero budget before file speech.",
     "elevenlabs": "Optional: set ELEVENLABS_API_KEY (or the configured variable), confirm rights, entitlement and work-card budget.",
     "computer_use": "The active host must expose computer-use tools and inspect the native app; follow docs/windows-smoke.md.",
+    "blender_mcp": (
+        "Optional Windows lifecycle: configure every blender_mcp host field, "
+        "then run its native qualification card."
+    ),
 }
 
 
@@ -89,6 +93,20 @@ def inspect(config):
         capabilities[name] = {"status": "unverified", "operations": "unverified", "network_probed": False, "next_step": step}
     present = bool(os.environ.get(config["credentials"].get("gemini", "")))
     capabilities["review_video_analysis"].update(status="unverified" if present else "needs_setup", credential_present=present)
+    configured = "blender_mcp" in config
+    capabilities["blender_mcp"] = {
+        "status": "configured" if configured else "needs_setup",
+        "configured": configured,
+        "version_verified": False,
+        "interactive_status": "unverified",
+        "next_step": ACTIONS["blender_mcp"],
+        "reason": (
+            "Explicit lifecycle paths and local server policy are configured; "
+            "native protocol and current app-client checks remain required"
+            if configured
+            else "No explicit blender_mcp host block was supplied"
+        ),
+    }
     return {
         "schema_version": 1,
         "host": platform.system(),

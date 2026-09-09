@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import os
+import re
 import shutil
 from .common import StudioError, read_json
 
@@ -11,6 +12,64 @@ DEFAULTS = {
     "timeout": 180,
     "path_mappings": [],
 }
+
+BLENDER_MCP_REQUIRED = {
+    "working_root",
+    "blender_executable",
+    "probe_python",
+    "owner",
+    "server",
+}
+
+
+def _validate_blender_mcp(block):
+    if not isinstance(block, dict):
+        raise StudioError("blender_mcp must be an object")
+    missing = BLENDER_MCP_REQUIRED - block.keys()
+    if missing:
+        raise StudioError("blender_mcp is missing: " + ", ".join(sorted(missing)))
+    for key in BLENDER_MCP_REQUIRED - {"server"}:
+        if not isinstance(block[key], str) or not block[key].strip():
+            raise StudioError(f"blender_mcp.{key} must be a non-empty string")
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", block["owner"]):
+        raise StudioError(
+            "blender_mcp.owner must use 1-128 letters, digits, dots, "
+            "underscores, or hyphens"
+        )
+    server = block["server"]
+    if (
+        not isinstance(server, dict)
+        or not isinstance(server.get("command"), str)
+        or not server["command"].strip()
+    ):
+        raise StudioError("blender_mcp.server.command must be explicit")
+    if not isinstance(server.get("args", []), list) or not all(
+        isinstance(item, str) for item in server.get("args", [])
+    ):
+        raise StudioError("blender_mcp.server.args must be a string array")
+    env = server.get("env")
+    required_env = {
+        "BLENDER_HOST": "127.0.0.1",
+        "BLENDER_PORT": "9876",
+        "DISABLE_TELEMETRY": "true",
+        "BLENDER_MCP_DISABLE_TELEMETRY": "true",
+    }
+    if (
+        not isinstance(env, dict)
+        or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in env.items()
+        )
+        or any(env.get(k) != v for k, v in required_env.items())
+    ):
+        raise StudioError(
+            "blender_mcp.server.env must select loopback port 9876 with "
+            "telemetry disabled"
+        )
+    kit_root = Path(__file__).resolve().parents[1]
+    working_root = Path(block["working_root"]).resolve()
+    if working_root == kit_root or working_root.is_relative_to(kit_root):
+        raise StudioError("blender_mcp.working_root must be outside the installed kit")
 
 
 def load(path=None, overrides=None):
@@ -36,6 +95,8 @@ def load(path=None, overrides=None):
         or not 0 < config["timeout"] <= 3600
     ):
         raise StudioError("timeout must be 1–3600 seconds")
+    if "blender_mcp" in config:
+        _validate_blender_mcp(config["blender_mcp"])
     return config
 
 
