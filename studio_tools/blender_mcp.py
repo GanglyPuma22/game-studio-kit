@@ -1,7 +1,6 @@
 """Policy shared by Blender MCP probes and current-client handoffs."""
 
 import json
-from pathlib import Path
 
 from .common import StudioError
 
@@ -14,11 +13,10 @@ def load_explicit_server_config(path):
     if path is None:
         raise StudioError("An explicit Blender MCP host config path is required")
     try:
-        data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
         from .config import load
 
-        return load(overrides=data)["blender_mcp"]["server"]
-    except (OSError, json.JSONDecodeError, KeyError) as exc:
+        return load(path=path)["blender_mcp"]["server"]
+    except KeyError as exc:
         raise StudioError(
             "Could not load the explicit Blender MCP host config"
         ) from exc
