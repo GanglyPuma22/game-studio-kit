@@ -12,12 +12,23 @@ Keep the complete package at a location such as `C:\Tools\game-studio-kit` and a
     "blender": "C:\\Program Files\\Blender Foundation\\Blender 5.0\\blender.exe",
     "godot": "C:\\Tools\\Godot\\Godot_v4.5.1-stable_win64.exe"
   },
+  "blender_mcp": {
+    "working_root": "C:\\Studio Host\\blender-mcp-runs",
+    "blender_executable": "C:\\Program Files\\Blender Foundation\\Blender 5.1\\blender.exe",
+    "probe_python": "C:\\Studio Host\\blender-mcp-1.9.1\\Scripts\\python.exe",
+    "owner": "game-studio-kit-blender-mcp-v1",
+    "server": {
+      "command": "C:\\Studio Host\\blender-mcp-1.9.1\\Scripts\\blender-mcp.exe",
+      "args": [],
+      "env": {"BLENDER_HOST": "127.0.0.1", "BLENDER_PORT": "9876", "DISABLE_TELEMETRY": "true", "BLENDER_MCP_DISABLE_TELEMETRY": "true"}
+    }
+  },
   "timeout": 300,
   "credentials": {"meshy": "MESHY_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY", "fish": "FISH_AUDIO_API_KEY"}
 }
 ```
 
-The JSON should contain escaped backslashes exactly as normal Windows JSON requires. `--config` or `STUDIO_CONFIG` selects it. Keys live only in environment variables. Path discovery is an alternative, not a reason to edit global PATH automatically. `doctor` probes versions offline and `setup` prints missing actions; a `ready` executable is not verified native computer use or provider entitlement.
+The optional `blender_mcp` block is needed only for the [interactive lifecycle](../skills/studio-blender/references/mcp.md); omit it when using the independent background route. Its working root must stay outside KIT. The JSON should contain escaped backslashes exactly as normal Windows JSON requires. `--config` or `STUDIO_CONFIG` selects it. Keys live only in environment variables. Path discovery is an alternative, not a reason to edit global PATH automatically. `doctor` probes versions offline and `setup` prints missing actions; configured lifecycle paths do not establish version or interactive readiness.
 
 ```powershell
 $Kit = "C:\Tools\game-studio-kit"

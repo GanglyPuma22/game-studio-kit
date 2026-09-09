@@ -26,7 +26,7 @@ Keep editable `.blend` under source with `.gdignore`. Use simple Principled base
 
 Inspect the fresh import: actual mesh/material/skin/clip counts, evaluated bounds, pivot and hierarchy. Exclude Blender bone-display custom shapes from geometry bounds. Review fixed-camera rest/stress images, multiple viewpoints and motion samples. GPU rendering is separate from finding a GPU; record the actual engine/device when tested. For fixed-camera or turntable evidence, use `blender render --source source/asset.blend --camera ReviewCamera --frames 1,13,25 --angles 0,90,180,270 --target 0,0,0.75 --output artifacts/turntable-001`. Target coordinates are Blender source-space metres; angle zero preserves the exact camera. Use a new empty evidence directory. This owned process does not save camera changes back to the source.
 
-If structured production cannot answer a perceptual/UI question, save a checkpoint and use host-provided computer use on an owned app instance. For optional interactive MCP read [the pinned connection recipe](references/mcp.md). It is not required to run the core fixture.
+If structured production cannot answer a perceptual/UI question, save a checkpoint and use host-provided computer use on an owned app instance. On native Windows, the optional interactive MCP route has a packaged, receipt-owned lifecycle; read [the lifecycle recipe](references/mcp.md) before using it. It is not required to run the core fixture, and the background adapter remains independent.
 
 Output `.blend`, GLB, metadata/hashes, roundtrip inspection and review images. Fill [asset record](../../templates/asset.json); a clean import advances exported/imported evidence, not the user's visual acceptance.
 

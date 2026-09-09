@@ -7,7 +7,7 @@ python -m unittest discover -s tests -v
 python -m studio_tools check-package --root .
 ```
 
-The standard-library tests use temporary directories and mocked provider boundaries. They cover package relocation and reference closure, invalid config/missing tools, process timeout ownership, candidate content/capture mismatches, missing exports/clip metadata, nonhumanoid rig rejection, interrupted/ambiguous Meshy lifecycle, partial downloads, local PCM/trim/loop behavior, hosted audio error redaction, terrain dimensions/seams, Gaea capability/recipe checks and app command construction. They do not call a provider or control the visible desktop.
+The standard-library tests use temporary directories and mocked provider boundaries. They cover package relocation and reference closure, invalid config/missing tools, process timeout ownership, candidate content/capture mismatches, missing exports/clip metadata, nonhumanoid rig rejection, interrupted/ambiguous Meshy lifecycle, partial downloads, local PCM/trim/loop behavior, hosted audio error redaction, terrain dimensions/seams, Gaea capability/recipe checks, app command construction, and Blender MCP status/retry policy. They do not call a provider or control the visible desktop. `Test-LifecycleContracts.ps1` checks PowerShell parsing and static invariants; it is not a count of native lifecycle behavior tests.
 
 For optional isolated native QOA success/failure regressions, set `STUDIO_TEST_GODOT`
 to an existing native Godot executable before running the suite. The test creates

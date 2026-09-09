@@ -15,7 +15,7 @@ Implementation validation date: September 5, 2026. This matrix distinguishes exe
 | Meshy image/preview/refine/remesh/retexture/rig/animate | Implemented narrow profiles; mocked contract tests | No paid calls, entitlement/rates/output-quality validation |
 | ElevenLabs effects/speech/music | Implemented bounded profiles; mocked contract tests | No live voice/music/effects generation or rights certification |
 | Gaea installed-version build recipe | Implemented and mocked | No entitled/native installation or UI graph build executed |
-| Blender MCP 1.9.1 pinned addon/server recipe | Documented, telemetry-off configuration supplied | No addon installed, connection started or interactive pairing tested |
+| Blender MCP 1.9.1 / protocol 5 supervised Windows lifecycle | Packaged and policy-tested; explicit host config required | Migrated exact package revision still needs native Windows start/reuse/conflict/stop and current-app-client restart qualification; static PowerShell checks are not native behavior evidence |
 | macOS / other engines | Extension targets | Not tested |
 
 The original functional example is ready for technical reproduction and consolidated review. Target-native smoke and the production art pilot remain required before calling the package ready for that pilot configuration or ready for public release. No target-host/perceptual acceptance has been inferred from the helper test suite.
