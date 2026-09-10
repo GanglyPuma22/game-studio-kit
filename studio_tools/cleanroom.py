@@ -110,7 +110,6 @@ def read_gpu():
         return {"status": "unavailable", "reason": "nvidia-smi not found"}
     fields = "name,utilization.gpu,memory.used,memory.total,clocks.sm,temperature.gpu,power.draw"
     devices = _query(["nvidia-smi", f"--query-gpu={fields}", "--format=csv,noheader,nounits"])
-    apps = _query(["nvidia-smi", "--query-compute-apps=pid,process_name,used_memory", "--format=csv,noheader,nounits"])
     if devices is None:
         return {"status": "unavailable", "reason": "nvidia-smi query failed"}
     names = fields.split(",")
@@ -119,8 +118,13 @@ def read_gpu():
         parts = [p.strip() for p in line.split(",")]
         if len(parts) == len(names):
             parsed.append(dict(zip(names, parts)))
+    apps = _query(["nvidia-smi", "--query-compute-apps=pid,process_name,used_gpu_memory", "--format=csv,noheader,nounits"])
+    if apps is None:
+        # The device query is the one that matters for utilization/thermal; a
+        # failed compute-apps query alone should not sink the whole snapshot.
+        return {"status": "partial", "reason": "nvidia-smi compute-apps query failed", "devices": parsed, "compute_apps": []}
     compute = []
-    for line in (apps or "").splitlines():
+    for line in apps.splitlines():
         parts = [p.strip() for p in line.split(",")]
         if len(parts) == 3 and parts[0].isdigit():
             compute.append({"pid": int(parts[0]), "name": Path(parts[1]).name, "used_memory_mib": parts[2]})
@@ -207,7 +211,7 @@ def _timestamps_in_window(path, started, finished):
             continue
         if stamp.tzinfo is None:
             naive += 1
-            continue
+            # No offset: treat it as host local time rather than discarding it.
         if started <= stamp.astimezone(timezone.utc) <= finished:
             inside += 1
     return {"path": str(path), "timestamps_in_window": inside, "naive_timestamps": naive}
@@ -223,10 +227,22 @@ def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes,
     def heavy(p):
         return p["working_set_bytes"] >= heavy_working_set_bytes or p["cpu_seconds"] >= busy_cpu_seconds
 
-    new_heavy = [later[pid] for pid in later.keys() - prior.keys() if heavy(later[pid])]
-    exited_heavy = [prior[pid] for pid in prior.keys() - later.keys() if prior[pid]["working_set_bytes"] >= heavy_working_set_bytes]
+    overlap = prior.keys() & later.keys()
+    # A PID the OS reused for a different program, or whose CPU counter went
+    # backwards (a restart), is an exit plus a fresh appearance, not one
+    # continuously-running process with a CPU delta.
+    reused = {
+        pid for pid in overlap
+        if prior[pid]["name"] != later[pid]["name"] or later[pid]["cpu_seconds"] < prior[pid]["cpu_seconds"]
+    }
+    continuous = overlap - reused
+    new_heavy = [later[pid] for pid in (later.keys() - prior.keys()) | reused if heavy(later[pid])]
+    exited_heavy = [
+        prior[pid] for pid in (prior.keys() - later.keys()) | reused
+        if prior[pid]["working_set_bytes"] >= heavy_working_set_bytes
+    ]
     busy = []
-    for pid in prior.keys() & later.keys():
+    for pid in continuous:
         delta = later[pid]["cpu_seconds"] - prior[pid]["cpu_seconds"]
         if delta >= busy_cpu_seconds:
             busy.append({"pid": pid, "name": later[pid]["name"], "cpu_delta_seconds": round(delta, 3)})
@@ -243,6 +259,8 @@ def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes,
         agent = _timestamps_in_window(agent_log, started, finished)
         if agent["timestamps_in_window"]:
             reasons.append("agent activity logged inside the window")
+        if agent["naive_timestamps"]:
+            reasons.append("agent log has timestamps without a UTC offset")
     gpu_before, gpu_after = before.get("gpu", {}), after.get("gpu", {})
     limits = list(LIMITS)
     if gpu_before.get("status") == "ok" and gpu_after.get("status") == "ok":
@@ -250,13 +268,17 @@ def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes,
         apps_after = {a["pid"] for a in gpu_after.get("compute_apps", [])}
         if apps_after - apps_before:
             reasons.append("GPU compute processes appeared inside the window")
+        if apps_before - apps_after:
+            reasons.append("GPU compute processes exited inside the window")
     else:
         limits.append("GPU counters unavailable for this window")
     if before.get("power_scheme") != after.get("power_scheme"):
         reasons.append("power scheme changed inside the window")
-    battery = after.get("battery", {})
-    if battery.get("status") == "ok" and battery.get("on_ac") is False:
-        reasons.append("host is on battery power")
+    for snapshot_side in (before, after):
+        battery = snapshot_side.get("battery", {})
+        if battery.get("status") == "ok" and battery.get("on_ac") is False:
+            reasons.append("host is on battery power")
+            break
     if before.get("recorder") or after.get("recorder"):
         reasons.append("recorder process present")
     return {
@@ -274,7 +296,7 @@ def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes,
 
 
 def execute(
-    config, project, capture, *, label=None, settle=0.0, agent_log=None, timeout=None,
+    config, project, capture, *, label=None, scope=None, settle=0.0, agent_log=None, timeout=None,
     busy_fraction=0.05, busy_floor_seconds=1.0, heavy_working_set_mb=200.0,
     snapshot_reader=snapshot, self_pid=None,
 ):
@@ -291,6 +313,9 @@ def execute(
     if agent_log is not None and not Path(agent_log).is_file():
         raise StudioError("Agent log path must be an existing file")
     label = safe_id(label) if label else uuid.uuid4().hex
+    # The scope rung this bench is evidence for; validated like a label so a
+    # capture cannot be silently cited for the wrong rung.
+    scope = safe_id(scope) if scope is not None else None
     bench = root / "artifacts" / "bench" / label
     try:
         bench.mkdir(parents=True, exist_ok=False)
@@ -328,10 +353,15 @@ def execute(
         heavy_working_set_bytes=int(float(heavy_working_set_mb) * 1024 * 1024),
         agent_log=agent_log, self_pid=os.getpid() if self_pid is None else self_pid,
     )
+    if scope is not None and isinstance(verdict, dict) and "scope" in verdict and verdict.get("scope") != scope:
+        # A launch receipt naming a different (or no) rung must not be citable for this one.
+        comparison["reasons"].append("capture scope does not match bench scope")
+        comparison["attributable"] = not comparison["reasons"]
     result = {
         "schema_version": 1,
         "kind": "cleanroom-bench",
         "label": label,
+        "scope": scope,
         "window": window,
         "capture": {
             "status": record.get("status"), "returncode": record.get("returncode"),

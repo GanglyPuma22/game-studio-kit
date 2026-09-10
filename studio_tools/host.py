@@ -10,9 +10,10 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
-from .common import StudioError, write_json
+from .common import StudioError, read_json, write_json
 
 HOST_ROOT = Path(__file__).resolve().parents[1] / "skills" / "studio-review" / "scripts" / "host"
 IS_WINDOWS = os.name == "nt"
@@ -136,11 +137,13 @@ def evaluate(state, window=None, *, now=None, tz=None):
         span = window[1] - window[0]
         if span <= timedelta(0) or span > timedelta(hours=18):
             reasons.append("window must be between 1 minute and 18 hours long")
-        local = [window[0].astimezone(tz), window[1].astimezone(tz)]
+        # Step the UTC timeline itself, one physical hour at a time, and read the
+        # local hour fresh at each step; adding timedeltas to an already-localized
+        # cursor instead would silently skip or repeat an hour across a DST change.
         needed = set()
-        cursor = local[0].replace(minute=0, second=0, microsecond=0)
-        while cursor < local[1]:
-            needed.add(cursor.hour)
+        cursor = window[0]
+        while cursor < window[1]:
+            needed.add(cursor.astimezone(tz).hour)
             cursor += timedelta(hours=1)
         checks["active_hours"]["window_hours_local"] = sorted(needed)
         checks["active_hours"]["covers_window"] = hours_covered(start, end, needed)
@@ -150,7 +153,9 @@ def evaluate(state, window=None, *, now=None, tz=None):
         reasons.append("active hours are not set")
     scheme = state.get("power_scheme", {})
     checks["power_scheme"] = scheme
-    if scheme.get("status") == "ok" and scheme.get("guid") not in HIGH_PERFORMANCE_GUIDS:
+    if scheme.get("status") != "ok":
+        reasons.append("power scheme could not be read")
+    elif scheme.get("guid") not in HIGH_PERFORMANCE_GUIDS:
         reasons.append("power scheme is not High performance")
     battery = state.get("battery", {})
     checks["battery"] = battery
@@ -227,8 +232,25 @@ def apply(config, *, receipt, pause_days=3, active_start=18, active_end=12, what
         raise StudioError("Could not run the host preparation script") from exc
     if completed.returncode:
         raise StudioError("Host preparation script failed; inspect its receipt path and run it by hand with -WhatIf")
-    try:
-        result = json.loads(completed.stdout)
-    except ValueError:
-        raise StudioError("Host preparation script returned invalid JSON") from None
+    # On Windows, -WhatIf prints ShouldProcess diagnostics to stdout before the
+    # receipt JSON, so the receipt file the script wrote is the trustworthy
+    # result; stdout is only a fallback for the rare case the receipt is missing.
+    if target.is_file():
+        result = read_json(target)
+    else:
+        result = _last_json_object(completed.stdout)
+        if result is None:
+            raise StudioError("Host preparation script returned invalid JSON and wrote no receipt")
     return {**result, "ok": True, "what_if": what_if, "receipt": str(target)}
+
+
+def _last_json_object(text):
+    """The last self-contained JSON object in text, ignoring any leading diagnostics."""
+    for match in reversed(list(re.finditer(r"\{", text or ""))):
+        try:
+            candidate = json.loads(text[match.start():])
+        except ValueError:
+            continue
+        if isinstance(candidate, dict):
+            return candidate
+    return None

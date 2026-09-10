@@ -76,10 +76,11 @@ if ($Restore) {
   if ($PSCmdlet.ShouldProcess('Windows Update pause and power scheme', 'restore defaults')) {
     foreach ($n in $pauseNames) { Remove-ItemProperty -Path $ux -Name $n -ErrorAction SilentlyContinue }
     powercfg /setactive $balanced | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'powercfg rejected the scheme change' }
   }
 } else {
   $pending = Get-PendingReboot
-  if ($pending.cbs -or $pending.wu) {
+  if ($pending.cbs -or $pending.wu -or $pending.pending_file_rename) {
     $refused = 'A reboot is already pending; restart before the window, then re-run.'
   } else {
     $start = (Get-Date).ToUniversalTime()
@@ -95,7 +96,10 @@ if ($Restore) {
       Set-ItemProperty -Path $ux -Name ActiveHoursStart -Value $ActiveStart -Type DWord
       Set-ItemProperty -Path $ux -Name ActiveHoursEnd -Value $ActiveEnd -Type DWord
     }
-    if ($PSCmdlet.ShouldProcess('Power scheme', 'set High performance')) { powercfg /setactive $highPerf | Out-Null }
+    if ($PSCmdlet.ShouldProcess('Power scheme', 'set High performance')) {
+      powercfg /setactive $highPerf | Out-Null
+      if ($LASTEXITCODE -ne 0) { throw 'powercfg rejected the scheme change' }
+    }
   }
 }
 

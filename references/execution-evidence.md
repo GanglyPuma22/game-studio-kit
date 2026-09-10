@@ -197,12 +197,16 @@ python <KIT>/scripts/studio.py bench cleanroom --project <GAME> --label settled-
 
 `attributable` is true only when nothing else changed inside the window: no
 heavy process appeared or exited, no other process consumed CPU beyond the busy
-threshold, no GPU compute process appeared, the power scheme did not change,
-the host was on AC power, no recorder process was present, and the agent log
-(when supplied) has no timestamps inside the window. Each violation is a named
-reason. Missing GPU or battery counters are limits, not reasons. The command
-never stops any process other than its own capture. An agent must make no tool
-calls while the command runs; the command owns the wait.
+threshold, no GPU compute process appeared or exited, the power scheme did not
+change, the host was on AC power in both snapshots, no recorder process was
+present, and the agent log (when supplied) has no timestamps inside the window
+and none without a UTC offset. Each violation is a named reason. Missing GPU or
+battery counters are limits, not reasons. The command never stops any process
+other than its own capture. An agent must make no tool calls while the command
+runs; the command owns the wait. `--scope <id>` names the scope rung the bench
+is evidence for and is persisted in `cleanroom.json`; if the capture's own
+receipt names a different (or no) rung, that mismatch is reported as a reason
+so a lower-rung result is never cited for a higher one.
 
 `host preflight` reads Windows Update pause state, pending-reboot keys, active
 hours, power scheme and battery without changing anything, and judges them

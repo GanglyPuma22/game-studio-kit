@@ -54,6 +54,7 @@ def parser():
     c.add_argument("--config")
     c.add_argument("--project", required=True, help="Explicit game/output root outside the toolkit")
     c.add_argument("--label", help="Bench identity under artifacts/bench; default is a new UUID")
+    c.add_argument("--scope", help="Scope rung this bench is evidence for; persisted in the receipt")
     c.add_argument("--settle", type=float, default=0.0, help="Seconds to wait before the first snapshot")
     c.add_argument("--agent-log", help="Agent activity log; timestamps inside the window break attribution")
     c.add_argument("--timeout", type=float, help="Capture timeout in seconds; default 3600")
@@ -274,7 +275,7 @@ def dispatch(a):
         if capture[:1] == ["--"]:
             capture = capture[1:]
         return bench_execute(
-            config, root, capture, label=a.label, settle=a.settle, agent_log=a.agent_log,
+            config, root, capture, label=a.label, scope=a.scope, settle=a.settle, agent_log=a.agent_log,
             timeout=a.timeout, busy_fraction=a.busy_fraction, busy_floor_seconds=a.busy_floor_seconds,
             heavy_working_set_mb=a.heavy_working_set_mb,
         )
