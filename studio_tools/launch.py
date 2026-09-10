@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 import uuid
 from .adapters.godot import classify_log
-from .common import StudioError, file_record, read_json, relative, safe_id, sha256, write_json
+from .common import StudioError, file_record, outside_package, read_json, relative, safe_id, sha256, write_json
 from .config import app_path, require_executable
 from .processes import run
 
@@ -74,16 +74,16 @@ def build_args(config, project, engine, mode, script=None, passthrough=()):
 
 
 def execute(
-    config, project, *, sha256_expected, engine=None, mode="import", script=None,
+    config, project, *, sha256_expected, mode="import", script=None,
     timeout=None, cutoff_utc=None, label=None, scope=None, results=(), scrub=(), passthrough=(),
 ):
     """Verify identity, launch once, wait, and return a verdict with receipts."""
     root = Path(project).resolve()
     if not root.is_dir():
         raise StudioError("Launch needs an existing game project directory")
-    engine_path = Path(engine).expanduser() if engine else Path(require_executable(config, "godot"))
+    engine_path = Path(require_executable(config, "godot")).expanduser()
     if not engine_path.is_file():
-        raise StudioError("Engine executable is missing; set executables.godot or --engine")
+        raise StudioError("Engine executable is missing; set executables.godot in the host config")
     if not isinstance(sha256_expected, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", sha256_expected):
         raise StudioError("Expected engine SHA-256 must be 64 hex characters")
     actual = sha256(engine_path)
@@ -95,9 +95,13 @@ def execute(
         raise StudioError("Launch timeout must be 1–3600 seconds")
     cutoff = parse_utc(cutoff_utc) if cutoff_utc else None
     expected = []
+    results_before = []
     for item in results:
-        relative(root, item)
+        target = relative(root, item)
         expected.append(item)
+        # A result that already exists with the same bytes after the run was not produced by it.
+        present = target.is_file()
+        results_before.append({"path": item, "present": present, "sha256": sha256(target) if present else None})
     prefixes = list(scrub)
     if not all(isinstance(p, str) and p for p in prefixes):
         raise StudioError("Environment scrub prefixes must be non-empty strings")
@@ -115,22 +119,23 @@ def execute(
     verdict = None
     if cutoff is not None:
         remaining = (cutoff - now).total_seconds()
-        if remaining < 1:
+        if remaining <= 0:
             verdict = "cutoff_passed"
         else:
-            effective = min(effective, remaining)
+            effective = max(0.001, min(effective, remaining))
     launch = {
         "schema_version": 1,
         "kind": "owned-launch",
         "label": label,
         "scope": scope,
         "mode": mode,
-        "engine": {"path": str(engine_path.resolve()), "sha256": actual},
+        "engine": {"name": engine_path.name, "sha256": actual},
         "project": str(root),
         "profile": "profile",
         "script": script,
-        "passthrough_count": len(passthrough),
+        "passthrough_count": len(passthrough) - (1 if list(passthrough)[:1] == ["--"] else 0),
         "expected_results": expected,
+        "results_before": results_before,
         "started_utc": now.isoformat(),
         "cutoff_utc": cutoff.isoformat() if cutoff else None,
         "timeout_seconds_effective": round(effective, 3) if verdict is None else None,
@@ -150,6 +155,7 @@ def execute(
     for key in PROFILE_KEYS:
         environment[key] = app_path(config, profile, "godot")
     failure = None
+    interrupt = None
     try:
         run(
             args, cwd=str(root), timeout=effective, env=environment,
@@ -157,23 +163,40 @@ def execute(
         )
     except StudioError as exc:
         failure = str(exc)
+    except KeyboardInterrupt as exc:
+        # The runner has already stopped its own child; write honest receipts, then re-raise.
+        interrupt = exc
+        failure = "launch interrupted before the engine finished"
     record_path = run_dir / "process" / "process.json"
     record = read_json(record_path) if record_path.is_file() else {"status": "start_failed"}
     log_path = run_dir / "process" / "stdout.log"
     text = log_path.read_bytes().decode("utf-8", errors="replace") if log_path.is_file() else ""
-    launch.update(status="launched", pid=record.get("pid"))
+    if interrupt is not None:
+        # A caller interruption is reported honestly, not folded into launched/start_failed.
+        launch.update(status="interrupted", pid=record.get("pid"))
+    else:
+        # Only a process record with a PID proves the engine was launched.
+        launch.update(status="launched" if record.get("pid") else "start_failed", pid=record.get("pid"))
     write_json(run_dir / "owned-launch.json", launch)
-    return _finish(root, run_dir, launch, record, text, None, failure)
+    result = _finish(root, run_dir, launch, record, text, "interrupted" if interrupt is not None else None, failure)
+    if interrupt is not None:
+        raise interrupt
+    return result
 
 
 def _finish(root, run_dir, launch, record, text, verdict, failure):
     diagnostics = classify_log(text)
     write_json(run_dir / "diagnostics.json", diagnostics)
+    before = {entry["path"]: entry for entry in launch.get("results_before", [])}
     result_files = []
     for item in launch["expected_results"]:
         target = relative(root, item)
-        present = target.is_file()
-        result_files.append({"path": item, "present": present, "sha256": sha256(target) if present else None})
+        exists = target.is_file()
+        digest = sha256(target) if exists else None
+        prior = before.get(item, {"present": False, "sha256": None})
+        # Unchanged bytes from before the launch are stale, not produced by this run.
+        stale = exists and prior["present"] and prior["sha256"] == digest
+        result_files.append({"path": item, "present": exists and not stale, "stale": stale, "sha256": digest})
     status = record.get("status", "start_failed") if record else "refused"
     if verdict is None:
         if status == "completed":
@@ -181,6 +204,9 @@ def _finish(root, run_dir, launch, record, text, verdict, failure):
                 verdict = "engine_errors"
             elif any(not entry["present"] for entry in result_files):
                 verdict = "results_missing"
+            elif diagnostics["status"] == "unverified" and launch["mode"] != "native":
+                # A headless engine that printed nothing has not shown it ran the script.
+                verdict = "unverified"
             else:
                 verdict = "completed"
         else:
@@ -227,7 +253,12 @@ def inventory(run_root, output=None):
     if not records:
         raise StudioError("No owned-launch.json records under the run root")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    target = Path(output).expanduser().resolve() if output else root / f"launch-inventory-{stamp}.json"
+    if output:
+        target = Path(output).expanduser()
+        target = target if target.is_absolute() else root / target
+    else:
+        target = root / f"launch-inventory-{stamp}-{uuid.uuid4().hex[:8]}.json"
+    target = outside_package(target)
     if target.exists():
         raise StudioError("Inventory output exists; choose a new filename")
     launches = []
@@ -246,6 +277,7 @@ def inventory(run_root, output=None):
             "dir": folder.relative_to(root).as_posix() or ".",
             "launch": file_record(root, path),
             "exit": file_record(root, exit_path) if exit_record else None,
+            "process": file_record(root, process_path) if process else None,
             "mode": launch.get("mode"),
             "scope": launch.get("scope"),
             "verdict": (exit_record or {}).get("verdict", "no_exit_record"),

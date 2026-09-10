@@ -34,8 +34,7 @@ def parser():
     c.add_argument("--report")
     c.add_argument("--output")
     c = command("launch", True)
-    c.add_argument("--engine", help="Explicit engine executable; defaults to executables.godot")
-    c.add_argument("--sha256", required=True, help="Expected SHA-256 of the engine executable")
+    c.add_argument("--sha256", required=True, help="Expected SHA-256 of executables.godot from the host config")
     c.add_argument("--mode", choices=["import", "test", "check", "native"], default="import")
     c.add_argument("--script", help="Engine script argument, for example res://tests/test_runner.gd")
     c.add_argument("--timeout", type=float, help="Seconds; defaults to host timeout, bounded by --cutoff-utc")
@@ -44,7 +43,7 @@ def parser():
     c.add_argument("--scope", help="Scope rung this launch is evidence for; persisted in the receipts")
     c.add_argument("--result", action="append", default=[], help="Project-relative file the run must produce")
     c.add_argument("--scrub-env", action="append", default=[], help="Environment prefix removed from the child")
-    c.add_argument("passthrough", nargs=argparse.REMAINDER, help="Arguments after -- go to the engine unchanged")
+    c.add_argument("passthrough", nargs=argparse.REMAINDER, help="-- and the arguments after it go to the engine unchanged")
     c = command("evidence")
     c.add_argument("operation", choices=["launches"])
     c.add_argument("run_root")
@@ -147,7 +146,7 @@ def parser():
     c.add_argument("--id", help="Candidate identity for new")
     c.add_argument("--manifest", help="Identity manifest JSON for verify")
     c.add_argument("--engine-version", default="4.5.1")
-    c.add_argument("--output", default="artifacts/candidate.json")
+    c.add_argument("--output", help="Record under artifacts/: candidate.json for new, the receipt for verify")
     return p
 
 
@@ -226,13 +225,12 @@ def dispatch(a):
     if a.command == "launch":
         from .launch import execute as launch_execute
 
-        passthrough = list(a.passthrough)
-        if passthrough[:1] == ["--"]:
-            passthrough = passthrough[1:]
+        # Godot exposes only arguments after `--` through OS.get_cmdline_user_args(),
+        # so the separator itself must reach the engine.
         return launch_execute(
-            config, root, sha256_expected=a.sha256, engine=a.engine, mode=a.mode,
+            config, root, sha256_expected=a.sha256, mode=a.mode,
             script=a.script, timeout=a.timeout, cutoff_utc=a.cutoff_utc, label=a.label,
-            scope=a.scope, results=a.result, scrub=a.scrub_env, passthrough=passthrough,
+            scope=a.scope, results=a.result, scrub=a.scrub_env, passthrough=list(a.passthrough),
         )
     if a.command == "review":
         from . import validation, review_media, review_video
@@ -365,22 +363,23 @@ def dispatch(a):
             config, root, a.operation, path(a.output) if a.output else None, a.preset
         )
     if a.command == "candidate":
+        output = a.output or ("artifacts/candidate.json" if a.operation == "new" else None)
+        if output is not None and not output.startswith("artifacts/"):
+            raise StudioError(
+                "Candidate record belongs under artifacts/ so it cannot hash itself"
+            )
         if a.operation == "verify":
             from .manifest import verify
 
             if not a.manifest:
                 raise StudioError("candidate verify needs --manifest")
-            return verify(root, a.manifest)
+            return verify(root, a.manifest, output=path(output) if output else None)
         from .evidence import new_candidate
         from . import __version__
 
         if not a.id:
             raise StudioError("candidate new needs --id")
         result = new_candidate(root, a.id, a.engine_version, __version__)
-        if not a.output.startswith("artifacts/"):
-            raise StudioError(
-                "Candidate record belongs under artifacts/ so it cannot hash itself"
-            )
-        write_json(path(a.output), result)
+        write_json(path(output), result)
         return result
     raise StudioError("Unknown command")

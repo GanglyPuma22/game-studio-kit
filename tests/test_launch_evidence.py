@@ -26,6 +26,9 @@ class LaunchCase(unittest.TestCase):
         (self.root / "project.godot").touch()
         self.config = load(overrides={"executables": {"godot": sys.executable}, "timeout": 5})
         self.sha = sha256(sys.executable)
+        # CLI launch tests no longer accept --engine; a host config supplies executables.godot.
+        self.host_config = Path(self.tmp.name) / "host.json"
+        write_json(self.host_config, {"executables": {"godot": sys.executable}, "timeout": 5})
 
     def fake_child(self, code):
         def fake_run(args, **kwargs):
@@ -62,7 +65,7 @@ class OwnedLaunchTests(LaunchCase):
         owned = read_json(run_dir / "owned-launch.json")
         exit_record = read_json(run_dir / "exit.json")
         self.assertGreater(owned["pid"], 0)
-        self.assertEqual(owned["engine"]["sha256"], self.sha)
+        self.assertEqual(owned["engine"], {"name": Path(sys.executable).resolve().name, "sha256": self.sha})
         self.assertEqual(owned["status"], "launched")
         self.assertEqual(exit_record["status"], "completed")
         self.assertGreater(exit_record["combined_log_bytes"], 0)
@@ -76,7 +79,7 @@ class OwnedLaunchTests(LaunchCase):
     def test_timeout_returns_verdict_with_exit_code_instead_of_raising(self):
         with patch("studio_tools.launch.run", side_effect=self.fake_child("import time;print('partial',flush=True);time.sleep(30)")):
             with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
-                code = cli.main(["launch", "--project", str(self.root), "--engine", sys.executable, "--sha256", self.sha, "--timeout", "1", "--label", "slow"])
+                code = cli.main(["launch", "--project", str(self.root), "--config", str(self.host_config), "--sha256", self.sha, "--timeout", "1", "--label", "slow"])
         self.assertEqual(code, 1)
         self.assertEqual(err.getvalue(), "")
         verdict = json.loads(out.getvalue())
@@ -177,16 +180,95 @@ class OwnedLaunchTests(LaunchCase):
     def test_cli_launch_passthrough_and_native_visibility(self):
         with patch("studio_tools.launch.run", side_effect=self.fake_child("print('cli')")):
             with contextlib.redirect_stdout(io.StringIO()) as out:
-                code = cli.main(["launch", "--project", str(self.root), "--engine", sys.executable, "--sha256", self.sha, "--mode", "native",
+                code = cli.main(["launch", "--project", str(self.root), "--config", str(self.host_config), "--sha256", self.sha, "--mode", "native",
                                  "--script", "res://tests/probe.gd", "--label", "cli", "--scope", "rung-1", "--", "--regional", "1"])
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(out.getvalue())["verdict"], "completed")
-        self.assertEqual(self.last_args[-2:], ["--regional", "1"])
+        # Godot only sees arguments after `--` via OS.get_cmdline_user_args(), so the
+        # separator itself must reach the engine unchanged.
+        self.assertEqual(self.last_args[-3:], ["--", "--regional", "1"])
         self.assertFalse(self.last_kwargs["hide_window"])
         owned = read_json(self.root / "artifacts/launches/cli/owned-launch.json")
         self.assertEqual(owned["passthrough_count"], 2)
         self.assertEqual(owned["scope"], "rung-1")
+        self.assertEqual(owned["engine"], {"name": Path(sys.executable).resolve().name, "sha256": self.sha})
         self.assertNotIn("--regional", json.dumps(owned))
+
+    def test_stale_result_file_is_not_counted_as_produced(self):
+        result_path = self.root / "artifacts" / "stale.json"
+        result_path.parent.mkdir(parents=True)
+        result_path.write_text("{}")
+        stale = self.execute("print('done')", label="stale", results=["artifacts/stale.json"])
+        self.assertEqual(stale["verdict"], "results_missing")
+        entry = stale["result_files"][0]
+        self.assertTrue(entry["stale"])
+        self.assertFalse(entry["present"])
+        # A run that actually rewrites the file with different bytes counts as produced.
+        changed = self.execute(
+            "import pathlib;print('done');pathlib.Path('artifacts/stale.json').write_text('changed')",
+            label="changed", results=["artifacts/stale.json"],
+        )
+        self.assertEqual(changed["verdict"], "completed")
+        self.assertTrue(changed["result_files"][0]["present"])
+        self.assertFalse(changed["result_files"][0]["stale"])
+
+    def test_unverified_empty_output_is_not_completed_for_headless_modes(self):
+        result = self.execute("pass", label="silent", mode="import")
+        self.assertEqual(result["verdict"], "unverified")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["diagnostics"]["status"], "unverified")
+
+    def test_unverified_empty_output_stays_completed_for_native_mode(self):
+        result = self.execute("pass", label="silent-native", mode="native")
+        self.assertEqual(result["verdict"], "completed")
+        self.assertTrue(result["ok"])
+
+    def test_keyboard_interrupt_after_launch_writes_interrupted_receipts_then_reraises(self):
+        def fake_run(args, *, job_dir, **kwargs):
+            job_dir = Path(job_dir)
+            job_dir.mkdir(parents=True, exist_ok=False)
+            write_json(job_dir / "process.json", {
+                "schema_version": 1, "status": "interrupted", "pid": 4242,
+                "started_utc": "2026-01-01T00:00:00+00:00", "returncode": None,
+                "cleanup": "owned_tree_stopped",
+            })
+            raise KeyboardInterrupt()
+        with patch("studio_tools.launch.run", side_effect=fake_run):
+            with self.assertRaises(KeyboardInterrupt):
+                launch.execute(self.config, self.root, sha256_expected=self.sha, label="ctrl-c")
+        run_dir = self.root / "artifacts/launches/ctrl-c"
+        owned = read_json(run_dir / "owned-launch.json")
+        exit_record = read_json(run_dir / "exit.json")
+        self.assertEqual(owned["status"], "interrupted")
+        self.assertEqual(owned["pid"], 4242)
+        self.assertEqual(exit_record["verdict"], "interrupted")
+        self.assertEqual(exit_record["status"], "interrupted")
+        self.assertFalse(exit_record["ok"])
+
+    def test_cutoff_with_sub_second_remaining_still_launches(self):
+        # The old `remaining < 1` threshold refused sub-second windows outright;
+        # only remaining <= 0 should refuse now, with a fractional floor of 0.001s.
+        cutoff = (datetime.now(timezone.utc) + timedelta(seconds=0.4)).isoformat()
+        result = self.execute("print('tiny')", label="sub-second", timeout=100, cutoff_utc=cutoff)
+        self.assertNotEqual(result["verdict"], "cutoff_passed")
+        self.assertGreaterEqual(self.last_kwargs["timeout"], 0.001)
+        self.assertLess(self.last_kwargs["timeout"], 0.4)
+
+    def test_start_failed_process_record_yields_start_failed_status_and_null_pid(self):
+        def fake_run(args, *, job_dir, **kwargs):
+            job_dir = Path(job_dir)
+            job_dir.mkdir(parents=True, exist_ok=False)
+            write_json(job_dir / "process.json", {
+                "schema_version": 1, "status": "start_failed", "pid": None,
+                "started_utc": "2026-01-01T00:00:00+00:00", "returncode": None,
+            })
+            raise StudioError("Could not start engine; check executable configuration")
+        with patch("studio_tools.launch.run", side_effect=fake_run):
+            result = launch.execute(self.config, self.root, sha256_expected=self.sha, label="cant-start")
+        self.assertEqual(result["verdict"], "start_failed")
+        owned = read_json(self.root / "artifacts/launches/cant-start/owned-launch.json")
+        self.assertEqual(owned["status"], "start_failed")
+        self.assertIsNone(owned["pid"])
 
 
 class LaunchInventoryTests(LaunchCase):
@@ -225,6 +307,36 @@ class LaunchInventoryTests(LaunchCase):
             launch.inventory(self.root / "artifacts/launches", taken)
         with self.assertRaises(StudioError):
             launch.inventory(self.root / "nowhere")
+
+    def test_inventory_output_rejects_destination_inside_the_installed_kit(self):
+        self.execute("print('ok')", label="one")
+        kit_root = Path(launch.__file__).resolve().parents[1]
+        with self.assertRaisesRegex(StudioError, "toolkit"):
+            launch.inventory(self.root / "artifacts/launches", str(kit_root / "leaked-inventory.json"))
+
+    def test_inventory_process_field_is_present_or_null(self):
+        self.execute("print('ok')", label="good")
+        with patch("studio_tools.launch.run") as run:
+            launch.execute(self.config, self.root, sha256_expected=self.sha,
+                            cutoff_utc="2000-01-01T00:00:00Z", label="never-started")
+            run.assert_not_called()
+        launches = self.root / "artifacts/launches"
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(cli.main(["evidence", "launches", str(launches)]), 0)
+        data = json.loads(out.getvalue())
+        by_dir = {entry["dir"]: entry for entry in data["launches"]}
+        self.assertIsNotNone(by_dir["good"]["process"])
+        self.assertIn("sha256", by_dir["good"]["process"])
+        self.assertIsNone(by_dir["never-started"]["process"])
+
+    def test_inventory_default_filename_includes_a_uuid_suffix(self):
+        self.execute("print('ok')", label="one")
+        first = launch.inventory(self.root / "artifacts/launches")
+        name = Path(first["output"]).name
+        self.assertRegex(name, r"^launch-inventory-\d{8}T\d{6}Z-[0-9a-f]{8}\.json$")
+        # A second call in the same second must still get a unique filename.
+        second = launch.inventory(self.root / "artifacts/launches")
+        self.assertNotEqual(first["output"], second["output"])
 
 
 class IdentityManifestTests(LaunchCase):
@@ -279,6 +391,57 @@ class IdentityManifestTests(LaunchCase):
         with contextlib.redirect_stdout(io.StringIO()) as out:
             self.assertEqual(cli.main(["candidate", "--project", str(self.root), "--id", "cand-1"]), 0)
         self.assertEqual(json.loads(out.getvalue())["candidate_id"], "cand-1")
+
+    def test_candidate_verify_output_is_honored_and_validated(self):
+        path = self.root / "manifest.json"
+        write_json(path, {"schema_version": 1, "kind": "identity-manifest", "items": [
+            {"id": "engine", "role": "engine", "path": sys.executable, "sha256": self.sha}]})
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            code = cli.main(["candidate", "verify", "--project", str(self.root), "--manifest", str(path),
+                              "--output", "artifacts/identity/my-receipt.json"])
+        self.assertEqual(code, 0)
+        receipt_path = self.root / "artifacts/identity/my-receipt.json"
+        self.assertTrue(receipt_path.is_file())
+        self.assertEqual(json.loads(out.getvalue())["receipt"], str(receipt_path))
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            code = cli.main(["candidate", "verify", "--project", str(self.root), "--manifest", str(path),
+                              "--output", "outside/receipt.json"])
+        self.assertEqual(code, 1)
+        self.assertIn("artifacts/", err.getvalue())
+
+    def test_manifest_rejects_schema_version_other_than_one(self):
+        record = {"schema_version": 2, "kind": "identity-manifest", "items": [
+            {"id": "engine", "role": "engine", "path": sys.executable, "sha256": self.sha}]}
+        path = self.root / "manifest.json"
+        write_json(path, record)
+        with self.assertRaisesRegex(StudioError, "schema_version"):
+            manifest.verify(self.root, path)
+
+    def test_manifest_rejects_windows_drive_relative_paths(self):
+        record = {"schema_version": 1, "kind": "identity-manifest", "items": [
+            {"id": "engine", "role": "engine", "path": "C:engine.exe", "sha256": self.sha}]}
+        path = self.root / "manifest.json"
+        write_json(path, record)
+        with self.assertRaisesRegex(StudioError, "relative to the project or fully absolute"):
+            manifest.verify(self.root, path)
+
+    def test_manifest_reads_bytes_once_for_parsing_and_hashing(self):
+        record = {"schema_version": 1, "kind": "identity-manifest", "items": [
+            {"id": "engine", "role": "engine", "path": sys.executable, "sha256": self.sha}]}
+        path = self.root / "manifest.json"
+        write_json(path, record)
+        original_read_bytes = Path.read_bytes
+        calls = []
+
+        def counting_read_bytes(self_path):
+            if self_path == path:
+                calls.append(1)
+            return original_read_bytes(self_path)
+
+        with patch.object(Path, "read_bytes", counting_read_bytes):
+            result = manifest.verify(self.root, path)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(read_json(result["receipt"])["manifest"]["sha256"], sha256(path))
 
     def test_template_manifest_loads(self):
         kit = Path(__file__).resolve().parents[1]
