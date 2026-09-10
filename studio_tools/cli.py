@@ -48,6 +48,30 @@ def parser():
     c.add_argument("operation", choices=["launches"])
     c.add_argument("run_root")
     c.add_argument("--output", help="Inventory JSON path; default is a dated file under the run root")
+    # A remainder positional cannot follow another positional, so bench nests its operation.
+    bench = sub.add_parser("bench")
+    c = bench.add_subparsers(dest="operation", required=True).add_parser("cleanroom")
+    c.add_argument("--config")
+    c.add_argument("--project", required=True, help="Explicit game/output root outside the toolkit")
+    c.add_argument("--label", help="Bench identity under artifacts/bench; default is a new UUID")
+    c.add_argument("--settle", type=float, default=0.0, help="Seconds to wait before the first snapshot")
+    c.add_argument("--agent-log", help="Agent activity log; timestamps inside the window break attribution")
+    c.add_argument("--timeout", type=float, help="Capture timeout in seconds; default 3600")
+    c.add_argument("--busy-fraction", type=float, default=0.05, help="CPU seconds per window second that count as busy")
+    c.add_argument("--busy-floor-seconds", type=float, default=1.0)
+    c.add_argument("--heavy-working-set-mb", type=float, default=200.0)
+    c.add_argument("capture", nargs=argparse.REMAINDER, help="Capture command after --, typically studio launch")
+    c = command("host")
+    c.add_argument("operation", choices=["preflight", "apply"])
+    c.add_argument("--window-start", help="ISO 8601 UTC start of the unattended window")
+    c.add_argument("--window-end", help="ISO 8601 UTC end of the unattended window")
+    c.add_argument("--output", help="Preflight receipt path")
+    c.add_argument("--receipt", help="Apply receipt path written by the PowerShell script")
+    c.add_argument("--pause-days", type=int, default=3)
+    c.add_argument("--active-start", type=int, default=18)
+    c.add_argument("--active-end", type=int, default=12)
+    c.add_argument("--what-if", action="store_true", help="Print intended changes without writing them")
+    c.add_argument("--restore", action="store_true", help="Clear the pause and return to Balanced")
     c = command("validate-record", True)
     c.add_argument("--record", required=True)
     c = command("fixture", True)
@@ -220,6 +244,15 @@ def dispatch(a):
         from .launch import inventory
 
         return inventory(a.run_root, a.output)
+    if a.command == "host":
+        from .host import apply as host_apply, preflight
+
+        if a.operation == "preflight":
+            return preflight(config, window_start=a.window_start, window_end=a.window_end, output=a.output)
+        return host_apply(
+            config, receipt=a.receipt, pause_days=a.pause_days, active_start=a.active_start,
+            active_end=a.active_end, what_if=a.what_if, restore=a.restore,
+        )
     # Read-only validation does not create the project directory.
     root = (
         Path(a.project).resolve()
@@ -234,6 +267,17 @@ def dispatch(a):
         from .records import validate
 
         return validate(read_json(path(a.record)), root)
+    if a.command == "bench":
+        from .cleanroom import execute as bench_execute
+
+        capture = list(a.capture)
+        if capture[:1] == ["--"]:
+            capture = capture[1:]
+        return bench_execute(
+            config, root, capture, label=a.label, settle=a.settle, agent_log=a.agent_log,
+            timeout=a.timeout, busy_fraction=a.busy_fraction, busy_floor_seconds=a.busy_floor_seconds,
+            heavy_working_set_mb=a.heavy_working_set_mb,
+        )
     if a.command == "review":
         from . import validation, review_media, review_video
         def needed(field):
