@@ -80,3 +80,43 @@ and interval identities; never subtract an unspecified local time from UTC or
 count an idle wait as active work. Every derived remaining-budget report states
 its cutoff. A fresh receipt does not require asking again within an existing
 valid grant.
+
+## Owned blocking launch and inventory
+
+`launch` is the one-call form of the runner for a project-owned engine run:
+probes, native captures, unattended production stages. It verifies the engine's
+expected SHA-256 before anything else, refuses to start after `--cutoff-utc`,
+bounds the timeout by that cutoff, isolates the profile under
+`artifacts/launches/<label>/profile`, removes child environment variables that
+match `--scrub-env` prefixes, launches through the runner, waits, and returns
+**one verdict JSON**. The calling agent never polls, sleeps or writes to the
+child's stdin; it reads the verdict when the command returns.
+
+```text
+python <KIT>/scripts/studio.py launch --project <GAME> --config <HOST> \
+  --sha256 <engine sha256> --mode native --script res://tests/probe.gd \
+  --cutoff-utc 2026-09-15T13:00:00Z --label foundation-01 \
+  --result artifacts/foundation/summary.json -- --regional-site coast
+```
+
+Each run directory holds `owned-launch.json` (engine identity, mode, script,
+passthrough count, profile, cutoff, effective timeout, PID), `process/` with the
+runner's `stdout.log` and `process.json`, `diagnostics.json` from the complete log,
+and `exit.json` with the verdict. Verdicts: `completed` (exit zero, no engine
+errors, every `--result` present), `engine_errors`, `results_missing`, `failed`,
+`timed_out`, `start_failed`, `interrupted`, `cutoff_passed`. Only `completed` is
+`ok`; the command exits 1 otherwise and still prints the verdict to stdout.
+Exit zero is not acceptance. Receipts never contain argv values or environment;
+passthrough arguments are counted, not recorded.
+
+`evidence launches <run root>` indexes every `owned-launch.json` under a root,
+pairs it with its `exit.json` and process record, hashes both receipts, counts
+log bytes and result files, and writes a dated `launch-inventory-*.json`. It is
+counts and hashes only; a launch with no exit record is reported as such.
+
+`candidate verify --manifest <identity-manifest.json>` hashes every item in an
+[identity manifest](../templates/identity-manifest.json) (engine, helpers,
+sources, packages, assets; absolute paths allowed for files outside GAME) and
+writes a dated receipt under `artifacts/identity/` with per-item
+match/mismatch/missing and one verdict. A matching hash is byte identity, not
+acceptance or entitlement.

@@ -49,3 +49,17 @@ original file example and affected synthetic timing recheck. FFmpeg-dependent
 tests skip when the tools are absent. These are not native/model acceptance.
 See the [operational procedure](../skills/studio-review/references/validation-loop.md)
 for the independently required host, known-failure/clean-control and listening proof.
+
+## Owned launch and identity tests
+
+`test_launch_evidence.py` covers the blocking `launch` command with small Python
+child processes standing in for the engine: engine SHA-256 refusal before launch,
+receipts without argv values or environment, timeout returned as a verdict with
+owned cleanup, exit-zero engine errors and missing result files reported as not
+ok, cutoff refusal and timeout bounding, environment scrubbing and profile
+isolation, launcher mode flags, launch inventory pairing, and identity manifest
+match/mismatch/missing receipts. No engine, provider or desktop is involved.
+
+```text
+python -m unittest discover -s tests -p test_launch_evidence.py -v
+```

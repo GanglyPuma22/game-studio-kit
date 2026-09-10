@@ -27,3 +27,16 @@ On Linux, for example, use `/home/yourname/.local/share/godot/export_templates`.
 Each export copies that root into a fresh project-local temporary profile, retains version directory names, then deletes only that temporary copy on completion or failure. The source templates and normal user profile are never modified. Allow enough disk space for a copy of the configured root; a minimal root containing only the needed version/platform reduces cost. Missing configuration fails before launch. Wrong versions, missing platform binaries, presets or SDKs remain Godot errors. This route supports the documented native Windows/Linux profiles and WSL-to-Windows mapping; Godot self-contained `_sc_`/`._sc_` installations are refused because they bypass environment profile isolation.
 
 Configure a real `export_presets.cfg`, then run `godot export --project <GAME> --config <HOST> --preset <name> --output <relative build path>`. Template staging is regression-tested with fake files; live exports and exported-game native acceptance remain unverified.
+
+## Owned blocking launch
+
+`launch` runs the engine once for a project-owned script and returns one verdict
+when the process ends; see [process and evidence lifecycle](../../../references/execution-evidence.md).
+Modes: `import` (`--headless --audio-driver Dummy --editor --import`), `test` and
+`check` (headless with `--script`; `check` adds `--check-only`), `native`
+(`--resolution 1920x1080 --rendering-method forward_plus`, visible window, `--script`).
+Arguments after `--` reach the engine unchanged. The expected engine SHA-256 is
+mandatory and is verified before launch; a mismatch refuses to start. Use
+`--cutoff-utc` for an authorized window and `--result` for every file the script
+must produce. Headless modes never establish appearance, audible output or
+ordinary controls.
