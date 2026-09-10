@@ -178,3 +178,35 @@ stays in ignored host configuration and the receipt reports `path: null` with
 configured one that is absent, is `missing`. Every other item still requires
 `path`, and `source` is rejected anywhere else. A matching hash is byte
 identity, not acceptance or entitlement.
+
+## Cleanroom windows and host readiness
+
+A performance number is citable only with a cleanroom pair around it. `bench
+cleanroom` takes a host snapshot (process names with CPU seconds and working
+set, `nvidia-smi` devices and compute apps, active power scheme, battery,
+recorder processes), runs the capture command once through the owned runner,
+snapshots again, and writes `before.json`, `after.json`, the capture's job
+receipts and `cleanroom.json` under `artifacts/bench/<label>/`:
+
+```text
+python <KIT>/scripts/studio.py bench cleanroom --project <GAME> --label settled-01 \
+  --agent-log <path to the agent's activity log> -- \
+  python <KIT>/scripts/studio.py launch --project <GAME> --sha256 <engine> --mode native \
+  --script res://tests/regional_foundation_probe.gd --label settled-01
+```
+
+`attributable` is true only when nothing else changed inside the window: no
+heavy process appeared or exited, no other process consumed CPU beyond the busy
+threshold, no GPU compute process appeared, the power scheme did not change,
+the host was on AC power, no recorder process was present, and the agent log
+(when supplied) has no timestamps inside the window. Each violation is a named
+reason. Missing GPU or battery counters are limits, not reasons. The command
+never stops any process other than its own capture. An agent must make no tool
+calls while the command runs; the command owns the wait.
+
+`host preflight` reads Windows Update pause state, pending-reboot keys, active
+hours, power scheme and battery without changing anything, and judges them
+against an optional `--window-start/--window-end` (UTC). `host apply` runs the
+packaged [Prepare-OvernightHost.ps1](../skills/studio-review/scripts/host/Prepare-OvernightHost.ps1)
+with a mandatory receipt path; use `--what-if` first. On non-Windows hosts
+preflight reports `host_kind: unsupported` and apply refuses.

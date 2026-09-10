@@ -76,3 +76,30 @@ Register that directory only when authorized; do not overwrite an existing marke
 Host computer use is a separate capability with actual tool/app permissions: [official computer-use guidance](https://learn.chatgpt.com/docs/computer-use). Preserve user-open applications, save a checkpoint and own only the test window/process. Windows native plugin invocation, ordinary controls, GPU rendering and audible mix remain pending until this procedure is demonstrated on the target host.
 
 For exports, add `godot_export_templates` to the host JSON with the installed `export_templates` root. The helper copies its version subdirectories into an isolated temporary profile; see [export setup and smoke protocol](../skills/studio-godot/references/execution.md). Installing templates into the normal editor profile alone does not configure this isolated route.
+
+## Unattended windows: host preflight and apply
+
+Before an overnight or otherwise unattended run, check the host without changing it:
+
+```powershell
+python "$Kit\scripts\studio.py" host preflight --window-start 2026-09-15T05:00:00Z --window-end 2026-09-15T15:00:00Z --output "C:\Studio Host\receipts\preflight.json"
+```
+
+It reports whether Windows Update is paused past the window end, whether a
+reboot is pending, whether active hours cover every hour of the window (local
+time, at most 18 hours), the power scheme and AC state. A planned Windows
+Update restart inside an unattended window has already cost one production run
+more than four hours.
+
+To make the host ready, run the packaged script once by hand from an elevated
+PowerShell with `-WhatIf` and read the receipt, then without it:
+
+```powershell
+python "$Kit\scripts\studio.py" host apply --receipt "C:\Studio Host\receipts\apply-whatif.json" --what-if
+python "$Kit\scripts\studio.py" host apply --receipt "C:\Studio Host\receipts\apply.json" --pause-days 3 --active-start 18 --active-end 12
+```
+
+`host apply --restore` clears the pause and returns to the Balanced scheme.
+The script changes only Windows Update pause values, active hours and the power
+scheme; it never stops a process. Agents may call `host apply` only after this
+manual validation has been recorded.

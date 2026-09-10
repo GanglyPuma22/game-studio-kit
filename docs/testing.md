@@ -70,3 +70,18 @@ is unexercised. No engine, provider or desktop is involved.
 ```text
 python -m unittest discover -s tests -p test_launch_evidence.py -v
 ```
+
+## Cleanroom and host preflight tests
+
+`test_cleanroom_host.py` covers the pure snapshot comparison (new, exited and
+busy processes, agent-log timestamps inside the window, unavailable GPU as a
+limit), one owned capture between two snapshots with an unrelated child left
+running, capture timeout ownership, this host's real snapshot readers, the
+Windows Update readiness rules including the active-hours case that let a
+restart through, the PowerShell apply command line with `-WhatIf`, and static
+contracts of `Prepare-OvernightHost.ps1`. The script's behaviour on a real
+Windows host is validated by hand; these tests are not native evidence.
+
+```text
+python -m unittest discover -s tests -p test_cleanroom_host.py -v
+```
