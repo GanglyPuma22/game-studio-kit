@@ -33,5 +33,6 @@ preserve unique run logs and classify completed output before reporting status.
 | Effects, ambience, foley, voice, music | [studio-audio](../studio-audio/SKILL.md) |
 | Import, runtime composition and bounded wiring | [studio-godot](../studio-godot/SKILL.md) |
 | Native appearance/input/motion/mix acceptance | [studio-review](../studio-review/SKILL.md) |
+| Overnight, unattended or production-contract run | [overnight-run](references/overnight-run.md) |
 
 First use: follow [Windows setup](../../docs/setup-windows.md) or [Linux setup](../../docs/setup-linux.md). A functional, original [harbor example](../../examples/harbor-pocket/README.md) works independently of any private game. Return a work card, capability result, candidate pointer and decision ledger that another session can consume without this conversation.

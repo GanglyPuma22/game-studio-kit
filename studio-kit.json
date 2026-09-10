@@ -49,6 +49,7 @@
     "examples/review-loop/qualification.py",
     "references/acceptance.md",
     "references/actionable-discovery.md",
+    "references/codex/AGENTS-overnight.md",
     "references/companion-delivery.md",
     "references/execution-evidence.md",
     "references/portability.md",
@@ -65,6 +66,7 @@
     "skills/studio-blender/scripts/lifecycle/supervised_bootstrap.py",
     "skills/studio-blender/scripts/lifecycle/probe_mcp.py",
     "skills/studio-review/scripts/host/Prepare-OvernightHost.ps1",
+    "skills/studio-director/references/overnight-run.md",
     "studio_tools/__init__.py",
     "studio_tools/__main__.py",
     "studio_tools/adapters/__init__.py",
@@ -109,6 +111,9 @@
     "templates/candidate.json",
     "templates/identity-manifest.json",
     "templates/project.json",
+    "templates/return.md",
+    "templates/state.md",
+    "templates/worker-brief.md",
     "templates/work-card.md"
   ],
   "commands": [

@@ -132,3 +132,31 @@ The `--what-if` run writes its receipt too: the receipt is the evidence that
 the run happened, so it is written through .NET calls that `-WhatIf` does not
 suppress, as UTF-8 without a byte-order mark. Give `--output` and `--receipt`
 paths outside the installed kit; both refuse a destination inside it.
+
+## Install global Codex rules for unattended runs
+
+The kit ships the overnight-run procedure as a director reference and a
+paste-ready global block, [AGENTS-overnight](../references/codex/AGENTS-overnight.md).
+Codex loads `%USERPROFILE%\.codex\AGENTS.md` on every session, so the block
+belongs there, and a pointer skill makes the full procedure loadable on demand.
+Do these once by hand, or let an authorized setup agent do them; never overwrite
+existing global instructions, append after them.
+
+```powershell
+$Kit = "C:\Tools\game-studio-kit"
+$Codex = Join-Path $env:USERPROFILE ".codex"
+Add-Content -Path (Join-Path $Codex "AGENTS.md") -Value ("`n" + (Get-Content -Raw (Join-Path $Kit "references\codex\AGENTS-overnight.md")))
+New-Item -ItemType Directory -Force -Path (Join-Path $Codex "skills\overnight-run") | Out-Null
+@"
+---
+name: overnight-run
+description: Use when handed an overnight, unattended or production-contract run for a game project.
+---
+Read and follow $Kit\skills\studio-director\references\overnight-run.md. Its commands are run through $Kit\scripts\studio.py.
+"@ | Set-Content -Path (Join-Path $Codex "skills\overnight-run\SKILL.md") -Encoding UTF8
+```
+
+Confirm in a throwaway Codex session by asking which rules apply to an overnight
+run. Update the pointer when the kit checkout moves; the block itself carries no
+host paths.
+
