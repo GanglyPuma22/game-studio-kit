@@ -185,8 +185,8 @@ A performance number is citable only with a cleanroom pair around it. `bench
 cleanroom` takes a host snapshot (process names with CPU seconds and working
 set, `nvidia-smi` devices and compute apps, active power scheme, battery,
 recorder processes), runs the capture command once through the owned runner,
-snapshots again, and writes `before.json`, `after.json`, the capture's job
-receipts and `cleanroom.json` under `artifacts/bench/<label>/`:
+snapshots again, and writes `before.json`, `after.json`, `during.json`, the
+capture's job receipts and `cleanroom.json` under `artifacts/bench/<label>/`:
 
 ```text
 python <KIT>/scripts/studio.py bench cleanroom --project <GAME> --label settled-01 \
@@ -203,14 +203,34 @@ present, and the agent log (when supplied) has no timestamps inside the window
 and none without a UTC offset. Each violation is a named reason. Missing GPU or
 battery counters are limits, not reasons. The command never stops any process
 other than its own capture. An agent must make no tool calls while the command
-runs; the command owns the wait. `--scope <id>` names the scope rung the bench
-is evidence for and is persisted in `cleanroom.json`; if the capture's own
-receipt names a different (or no) rung, that mismatch is reported as a reason
-so a lower-rung result is never cited for a higher one.
+runs; the command owns the wait.
+
+Two snapshots cannot see a program that lives entirely between them, so one
+long-lived sampler walks the process table for the life of the capture
+(`--sample-interval`, 1–60 seconds, default 10) and records recorder processes
+and heavy newcomers with first/last-seen timestamps in `during.json` and under
+`during` in the receipt. A recorder observed mid-window is a reason, and so is
+a heavy process that ran and exited before the second snapshot. The sampler
+only reads; its own enumeration helpers and the owned capture's process tree
+are excluded, and it never signals anything. Anything shorter-lived than the
+interval can still be missed, which is a stated limit rather than a clean
+result.
+
+If either snapshot's process query fails, `process_enumeration` says so and the
+window is not attributable: an empty process table is a failed query, not a
+quiet host.
+
+`--scope <id>` names the scope rung the bench is evidence for and is persisted
+in `cleanroom.json`. Asking for a rung is asking for proof of it, so the
+capture's own receipt must name the same rung: `scope_check` reports `match`,
+`mismatch`, `missing` or `unparsed`, and anything but `match` is a reason. A
+lower-rung result is therefore never citable for a higher one.
 
 `host preflight` reads Windows Update pause state, pending-reboot keys, active
 hours, power scheme and battery without changing anything, and judges them
 against an optional `--window-start/--window-end` (UTC). `host apply` runs the
 packaged [Prepare-OvernightHost.ps1](../skills/studio-review/scripts/host/Prepare-OvernightHost.ps1)
-with a mandatory receipt path; use `--what-if` first. On non-Windows hosts
-preflight reports `host_kind: unsupported` and apply refuses.
+with a mandatory receipt path; use `--what-if` first, which still writes a real
+receipt because the `--what-if` run is itself the evidence. `--output` and
+`--receipt` must be outside the installed toolkit, like every other output. On
+non-Windows hosts preflight reports `host_kind: unsupported` and apply refuses.

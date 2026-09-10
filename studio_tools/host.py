@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-from .common import StudioError, read_json, write_json
+from .common import StudioError, outside_package, write_json
 
 HOST_ROOT = Path(__file__).resolve().parents[1] / "skills" / "studio-review" / "scripts" / "host"
 IS_WINDOWS = os.name == "nt"
@@ -135,18 +135,25 @@ def evaluate(state, window=None, *, now=None, tz=None):
     checks["active_hours"] = {"start": start, "end": end}
     if window is not None:
         span = window[1] - window[0]
-        if span <= timedelta(0) or span > timedelta(hours=18):
+        sane = timedelta(0) < span <= timedelta(hours=18)
+        if not sane:
             reasons.append("window must be between 1 minute and 18 hours long")
-        # Step the UTC timeline itself, one physical hour at a time, and read the
-        # local hour fresh at each step; adding timedeltas to an already-localized
-        # cursor instead would silently skip or repeat an hour across a DST change.
+        # Step the UTC timeline itself and read the local hour fresh at each
+        # step; adding timedeltas to an already-localized cursor instead would
+        # silently skip or repeat an hour across a DST change. The step is one
+        # minute, not one hour: an hourly step from 10:59 lands past 11:01 and
+        # would miss local hour 11 entirely. The last instant before the end is
+        # added explicitly so a window ending mid-hour still counts that hour,
+        # while the exclusive end instant itself is never counted.
         needed = set()
-        cursor = window[0]
-        while cursor < window[1]:
-            needed.add(cursor.astimezone(tz).hour)
-            cursor += timedelta(hours=1)
+        if sane:
+            cursor = window[0]
+            while cursor < window[1]:
+                needed.add(cursor.astimezone(tz).hour)
+                cursor += timedelta(minutes=1)
+            needed.add((window[1] - timedelta(microseconds=1)).astimezone(tz).hour)
         checks["active_hours"]["window_hours_local"] = sorted(needed)
-        checks["active_hours"]["covers_window"] = hours_covered(start, end, needed)
+        checks["active_hours"]["covers_window"] = bool(needed) and hours_covered(start, end, needed)
         if not checks["active_hours"]["covers_window"]:
             reasons.append("active hours do not cover the whole window")
     elif start is None or end is None:
@@ -188,7 +195,9 @@ def preflight(config, *, window_start=None, window_end=None, output=None, reader
         "ok": verdict["ready"],
     }
     if output:
-        target = Path(output).expanduser().resolve()
+        # A receipt written into the installed toolkit would make the read-only
+        # package a mutable evidence store; refuse it like every other output.
+        target = outside_package(output)
         if target.exists():
             raise StudioError("Preflight output exists; choose a new filename")
         write_json(target, result)
@@ -214,7 +223,7 @@ def apply(config, *, receipt, pause_days=3, active_start=18, active_end=12, what
             raise StudioError(f"Host apply {name} must be an integer {low}–{high}")
     if active_start == active_end:
         raise StudioError("Active hours start and end must differ")
-    target = Path(receipt).expanduser().resolve()
+    target = outside_package(receipt)
     if target.exists():
         raise StudioError("Host receipt exists; choose a new filename")
     command = [
@@ -236,12 +245,29 @@ def apply(config, *, receipt, pause_days=3, active_start=18, active_end=12, what
     # receipt JSON, so the receipt file the script wrote is the trustworthy
     # result; stdout is only a fallback for the rare case the receipt is missing.
     if target.is_file():
-        result = read_json(target)
+        result = _read_receipt(target)
+        if not isinstance(result, dict):
+            raise StudioError("Host preparation receipt is not a JSON object")
     else:
         result = _last_json_object(completed.stdout)
         if result is None:
             raise StudioError("Host preparation script returned invalid JSON and wrote no receipt")
-    return {**result, "ok": True, "what_if": what_if, "receipt": str(target)}
+    # The script writes its receipt even under -WhatIf; say plainly whether the
+    # path being reported is a file that exists.
+    return {**result, "ok": True, "what_if": what_if, "receipt": str(target), "receipt_written": target.is_file()}
+
+
+def _read_receipt(path):
+    """Read the PowerShell receipt tolerating a byte-order mark.
+
+    Windows PowerShell 5.1 writes UTF-8 with a BOM through several of its
+    output paths. The host has already been changed by the time the receipt is
+    read, so a BOM must not turn a successful apply into a decode failure.
+    """
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:
+        raise StudioError(f"Cannot read JSON record: {Path(path).name}") from exc
 
 
 def _last_json_object(text):

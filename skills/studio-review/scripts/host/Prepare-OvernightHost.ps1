@@ -12,8 +12,11 @@
     3. The active power scheme (High performance; -Restore returns to Balanced).
   It refuses to continue when a reboot is already pending. It never stops a
   process. -WhatIf prints intended changes without writing; the receipt is
-  still written so the -WhatIf run itself is evidence. Registry writes require
-  an elevated PowerShell. The receipt object is also printed as JSON on stdout.
+  still written, through .NET calls that ShouldProcess does not suppress, so
+  the -WhatIf run itself is evidence. The receipt is UTF-8 without a byte-order
+  mark under both PowerShell 7 and Windows PowerShell 5.1, because the caller
+  reads it as strict UTF-8. Registry writes require an elevated PowerShell. The
+  receipt object is also printed as JSON on stdout.
 
 .NOTES
   Run once by hand with -WhatIf before any agent is allowed to call it through
@@ -114,8 +117,19 @@ $receipt = [ordered]@{
   before = $before
   after = $after
 }
-New-Item -ItemType Directory -Path (Split-Path -Parent $ReceiptPath) -Force | Out-Null
+# The receipt is evidence of the run itself, a -WhatIf run included, so it is
+# written through .NET rather than the file-writing cmdlets: those honour
+# ShouldProcess and under -WhatIf would write nothing, leaving `studio host
+# apply --what-if` reporting a receipt path that does not exist. WriteAllText
+# with a BOM-less UTF8Encoding also keeps Windows PowerShell 5.1 from prefixing
+# the JSON with a byte-order mark, which the caller reads as strict UTF-8 only
+# after the host has already been changed.
+if (-not [System.IO.Path]::IsPathRooted($ReceiptPath)) {
+  $ReceiptPath = Join-Path (Get-Location).ProviderPath $ReceiptPath
+}
+$receiptDir = [System.IO.Path]::GetDirectoryName($ReceiptPath)
+if ($receiptDir) { [System.IO.Directory]::CreateDirectory($receiptDir) | Out-Null }
 $json = $receipt | ConvertTo-Json -Depth 6
-Set-Content -LiteralPath $ReceiptPath -Value $json -Encoding UTF8
+[System.IO.File]::WriteAllText($ReceiptPath, $json, [System.Text.UTF8Encoding]::new($false))
 Write-Output $json
 if ($refused) { exit 2 }

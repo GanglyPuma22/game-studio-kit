@@ -75,12 +75,19 @@ python -m unittest discover -s tests -p test_launch_evidence.py -v
 
 `test_cleanroom_host.py` covers the pure snapshot comparison (new, exited and
 busy processes, agent-log timestamps inside the window, unavailable GPU as a
-limit), one owned capture between two snapshots with an unrelated child left
-running, capture timeout ownership, this host's real snapshot readers, the
-Windows Update readiness rules including the active-hours case that let a
-restart through, the PowerShell apply command line with `-WhatIf`, and static
-contracts of `Prepare-OvernightHost.ps1`. The script's behaviour on a real
-Windows host is validated by hand; these tests are not native evidence.
+limit, a failed process enumeration refusing attribution), the mid-window
+sampler against an injected enumerator and clock, including a recorder that
+exists only between the two snapshots and the exclusion of the sampler's own
+helper and of the owned capture tree, one owned capture between two snapshots
+with an unrelated child left running, capture timeout ownership, the scope
+rungs a scoped bench will and will not accept, this host's real snapshot
+readers, the Windows Update readiness rules including the active-hours cases
+that let a restart through, receipt paths refused inside the installed toolkit,
+a receipt read back through a byte-order mark, the PowerShell apply command
+line with `-WhatIf`, and static contracts of `Prepare-OvernightHost.ps1`
+including the WhatIf-exempt, BOM-free receipt write. The script's behaviour on
+a real Windows host is validated by hand; these tests are not native
+evidence.
 
 ```text
 python -m unittest discover -s tests -p test_cleanroom_host.py -v

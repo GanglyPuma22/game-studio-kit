@@ -56,6 +56,7 @@ def parser():
     c.add_argument("--label", help="Bench identity under artifacts/bench; default is a new UUID")
     c.add_argument("--scope", help="Scope rung this bench is evidence for; persisted in the receipt")
     c.add_argument("--settle", type=float, default=0.0, help="Seconds to wait before the first snapshot")
+    c.add_argument("--sample-interval", type=float, default=10.0, help="Seconds between mid-window process samples; 1-60")
     c.add_argument("--agent-log", help="Agent activity log; timestamps inside the window break attribution")
     c.add_argument("--timeout", type=float, help="Capture timeout in seconds; default 3600")
     c.add_argument("--busy-fraction", type=float, default=0.05, help="CPU seconds per window second that count as busy")
@@ -277,7 +278,7 @@ def dispatch(a):
         return bench_execute(
             config, root, capture, label=a.label, scope=a.scope, settle=a.settle, agent_log=a.agent_log,
             timeout=a.timeout, busy_fraction=a.busy_fraction, busy_floor_seconds=a.busy_floor_seconds,
-            heavy_working_set_mb=a.heavy_working_set_mb,
+            heavy_working_set_mb=a.heavy_working_set_mb, sample_interval=a.sample_interval,
         )
     if a.command == "review":
         from . import validation, review_media, review_video

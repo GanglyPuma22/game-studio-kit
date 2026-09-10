@@ -103,3 +103,8 @@ python "$Kit\scripts\studio.py" host apply --receipt "C:\Studio Host\receipts\ap
 The script changes only Windows Update pause values, active hours and the power
 scheme; it never stops a process. Agents may call `host apply` only after this
 manual validation has been recorded.
+
+The `--what-if` run writes its receipt too: the receipt is the evidence that
+the run happened, so it is written through .NET calls that `-WhatIf` does not
+suppress, as UTF-8 without a byte-order mark. Give `--output` and `--receipt`
+paths outside the installed kit; both refuse a destination inside it.
