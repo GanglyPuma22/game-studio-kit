@@ -2,6 +2,7 @@
 
 import contextlib
 from datetime import datetime, timedelta, timezone
+import hashlib
 import io
 import json
 import os
@@ -13,8 +14,24 @@ import unittest
 from unittest.mock import patch
 
 from studio_tools import cli, launch, manifest, processes
+from studio_tools.adapters import godot
 from studio_tools.common import StudioError, read_json, sha256, write_json
 from studio_tools.config import load
+
+
+class FakeClock:
+    """Stand-in for the launch module's datetime with scripted now() values.
+
+    The last value repeats, so only the instants a test cares about are scripted.
+    """
+
+    fromisoformat = staticmethod(datetime.fromisoformat)
+
+    def __init__(self, *values):
+        self.values = list(values)
+
+    def now(self, tz=None):
+        return self.values.pop(0) if len(self.values) > 1 else self.values[0]
 
 
 class LaunchCase(unittest.TestCase):
@@ -270,6 +287,80 @@ class OwnedLaunchTests(LaunchCase):
         self.assertEqual(owned["status"], "start_failed")
         self.assertIsNone(owned["pid"])
 
+    def test_declared_results_may_not_be_files_the_launcher_writes(self):
+        owned = [
+            "artifacts/launches/claimed/diagnostics.json",
+            "artifacts/launches/claimed/owned-launch.json",
+            "artifacts/launches/claimed/exit.json",
+            "artifacts/launches/claimed/process/stdout.log",
+            "artifacts/launches/claimed/process/process.json",
+            "artifacts/launches/claimed",
+        ]
+        for item in owned:
+            with patch("studio_tools.launch.run") as run:
+                with self.assertRaisesRegex(StudioError, "launcher writes"):
+                    launch.execute(self.config, self.root, sha256_expected=self.sha,
+                                    label="claimed", results=[item])
+                run.assert_not_called()
+            self.assertFalse((self.root / "artifacts/launches/claimed").exists())
+        # An engine that produces nothing stays short of completed.
+        result = self.execute("print('nothing')", label="claimed", results=["artifacts/real.json"])
+        self.assertEqual(result["verdict"], "results_missing")
+        # Another launch's receipts remain declarable evidence.
+        self.assertTrue(self.execute(
+            "print('elsewhere')", label="reader",
+            results=["artifacts/launches/claimed/exit.json"],
+        )["result_files"][0]["stale"])
+
+    def test_self_contained_engine_is_refused_before_launch(self):
+        installed = Path(self.tmp.name) / "self contained godot"
+        installed.mkdir()
+        engine = installed / "godot"
+        engine.write_bytes(b"not a real engine")
+        engine.chmod(0o755)
+        config = load(overrides={"executables": {"godot": str(engine)}, "timeout": 5})
+        expected = sha256(engine)
+        self.assertFalse(godot.self_contained(engine))
+        for marker in ("_sc_", "._sc_"):
+            (installed / marker).touch()
+            self.assertTrue(godot.self_contained(engine))
+            with patch("studio_tools.launch.run") as run:
+                with self.assertRaisesRegex(StudioError, "self-contained"):
+                    launch.execute(config, self.root, sha256_expected=expected, label="sc")
+                run.assert_not_called()
+            (installed / marker).unlink()
+        self.assertFalse((self.root / "artifacts").exists())
+
+    def test_cutoff_reached_while_preparing_refuses_before_launch(self):
+        start = datetime.now(timezone.utc)
+        cutoff = (start + timedelta(seconds=30)).isoformat()
+        # The window closes between the first cutoff check and the launch instant.
+        clock = FakeClock(start, start + timedelta(seconds=31))
+        with patch("studio_tools.launch.datetime", clock), patch("studio_tools.launch.run") as run:
+            result = launch.execute(self.config, self.root, sha256_expected=self.sha,
+                                     cutoff_utc=cutoff, label="expired-in-prep")
+            run.assert_not_called()
+        self.assertEqual(result["verdict"], "cutoff_passed")
+        self.assertFalse(result["ok"])
+        run_dir = self.root / "artifacts/launches/expired-in-prep"
+        owned = read_json(run_dir / "owned-launch.json")
+        self.assertEqual(owned["status"], "refused")
+        self.assertIsNone(owned["timeout_seconds_effective"])
+        self.assertIsNone(owned["process_record"])
+        self.assertEqual(read_json(run_dir / "exit.json")["verdict"], "cutoff_passed")
+        self.assertFalse((run_dir / "process").exists())
+
+    def test_effective_timeout_uses_the_remainder_at_the_launch_instant(self):
+        start = datetime.now(timezone.utc)
+        cutoff = (start + timedelta(seconds=10)).isoformat()
+        clock = FakeClock(start, start + timedelta(seconds=8))
+        with patch("studio_tools.launch.datetime", clock):
+            self.execute("print('narrow')", label="narrowed", timeout=100, cutoff_utc=cutoff)
+        self.assertLessEqual(self.last_kwargs["timeout"], 2)
+        self.assertGreater(self.last_kwargs["timeout"], 1.5)
+        owned = read_json(self.root / "artifacts/launches/narrowed/owned-launch.json")
+        self.assertEqual(owned["timeout_seconds_effective"], round(self.last_kwargs["timeout"], 3))
+
 
 class LaunchInventoryTests(LaunchCase):
     def test_inventory_pairs_launches_and_flags_missing_exit(self):
@@ -281,7 +372,9 @@ class LaunchInventoryTests(LaunchCase):
         with contextlib.redirect_stdout(io.StringIO()) as out:
             self.assertEqual(cli.main(["evidence", "launches", str(launches)]), 0)
         data = json.loads(out.getvalue())
-        self.assertEqual(data["totals"], {"launches": 3, "completed": 1, "not_ok": 2, "timed_out": 1, "missing_exit": 1})
+        self.assertEqual(data["totals"], {"launches": 3, "completed": 1, "not_ok": 2,
+                                          "timed_out": 1, "missing_exit": 1, "mismatched": 0})
+        self.assertTrue(data["ok"])
         by_dir = {entry["dir"]: entry for entry in data["launches"]}
         self.assertEqual(by_dir["good"]["verdict"], "completed")
         self.assertEqual(by_dir["good"]["scope"], "rung-1")
@@ -290,6 +383,9 @@ class LaunchInventoryTests(LaunchCase):
         self.assertEqual(by_dir["slow"]["cleanup"], "owned_tree_stopped")
         self.assertEqual(by_dir["orphan"]["verdict"], "no_exit_record")
         self.assertIsNone(by_dir["orphan"]["exit"])
+        self.assertEqual(by_dir["orphan"]["pairing"], "missing_exit")
+        self.assertEqual(by_dir["good"]["pairing"], "paired")
+        self.assertIsNone(by_dir["good"]["pairing_reason"])
         self.assertEqual(by_dir["good"]["launch"]["sha256"], sha256(launches / "good/owned-launch.json"))
         self.assertIn("exit zero is not acceptance", data["limits"])
         self.assertTrue(Path(data["output"]).is_file())
@@ -337,6 +433,75 @@ class LaunchInventoryTests(LaunchCase):
         # A second call in the same second must still get a unique filename.
         second = launch.inventory(self.root / "artifacts/launches")
         self.assertNotEqual(first["output"], second["output"])
+
+    def test_inventory_flags_receipts_that_do_not_belong_together(self):
+        self.execute("print('ok')", label="good", scope="rung-1")
+        self.execute("print('ok')", label="other", scope="rung-2")
+        launches = self.root / "artifacts/launches"
+        # A completed exit record from a different launch cannot vouch for this one.
+        shutil.copy(launches / "other/exit.json", launches / "good/exit.json")
+        data = launch.inventory(launches)
+        by_dir = {entry["dir"]: entry for entry in data["launches"]}
+        self.assertEqual(by_dir["good"]["pairing"], "mismatched")
+        self.assertIn("label", by_dir["good"]["pairing_reason"])
+        self.assertEqual(by_dir["good"]["verdict"], "mismatched_receipts")
+        self.assertFalse(by_dir["good"]["ok"])
+        self.assertIsNone(by_dir["good"]["diagnostics"])
+        self.assertEqual(by_dir["good"]["result_files"], {"present": [], "missing": []})
+        self.assertIsNotNone(by_dir["good"]["exit"])
+        self.assertEqual(by_dir["other"]["pairing"], "paired")
+        self.assertEqual(data["totals"]["mismatched"], 1)
+        self.assertEqual(data["totals"]["completed"], 1)
+        self.assertFalse(data["ok"])
+        # A scope that was swapped after the fact is caught the same way.
+        exit_record = read_json(launches / "other/exit.json")
+        exit_record["scope"] = "rung-9"
+        write_json(launches / "other/exit.json", exit_record)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(cli.main(["evidence", "launches", str(launches)]), 1)
+        second = {entry["dir"]: entry for entry in json.loads(out.getvalue())["launches"]}
+        self.assertIn("scope", second["other"]["pairing_reason"])
+        self.assertFalse(second["other"]["ok"])
+        # Kinds are checked too; a foreign record never lends its verdict.
+        exit_record["kind"] = "identity-receipt"
+        write_json(launches / "other/exit.json", exit_record)
+        third = {e["dir"]: e for e in launch.inventory(launches)["launches"]}
+        self.assertIn("launch-exit", third["other"]["pairing_reason"])
+
+    def test_inventory_hashes_the_same_receipt_bytes_it_summarized(self):
+        self.execute("print('ok')", label="paired", scope="rung-1")
+        launches = self.root / "artifacts/launches"
+        record_path = (launches / "paired/owned-launch.json").resolve()
+        original = Path.read_bytes
+        parsed = {}
+
+        def racing_read_bytes(self_path):
+            raw = original(self_path)
+            if Path(self_path).resolve() == record_path and "raw" not in parsed:
+                parsed["raw"] = raw
+                # A concurrent writer replaces the receipt right after it was read.
+                write_json(record_path, {**json.loads(raw.decode()), "mode": "native"})
+            return raw
+
+        with patch.object(Path, "read_bytes", racing_read_bytes):
+            data = launch.inventory(launches)
+        entry = data["launches"][0]
+        self.assertEqual(entry["mode"], "import")
+        self.assertEqual(entry["launch"]["sha256"], hashlib.sha256(parsed["raw"]).hexdigest())
+        self.assertNotEqual(entry["launch"]["sha256"], sha256(record_path))
+        self.assertEqual(entry["pairing"], "paired")
+
+    def test_inventory_relative_output_must_stay_under_the_run_root(self):
+        self.execute("print('ok')", label="one")
+        launches = self.root / "artifacts/launches"
+        for escape in ("../../escaped.json", "../sibling.json", "nested/../../../escaped.json"):
+            with self.assertRaises(StudioError):
+                launch.inventory(launches, escape)
+        self.assertFalse((self.root / "artifacts/sibling.json").exists())
+        self.assertFalse((self.root / "escaped.json").exists())
+        self.assertFalse(Path(self.tmp.name, "escaped.json").exists())
+        result = launch.inventory(launches, "nested/inventory.json")
+        self.assertEqual(Path(result["output"]), (launches / "nested/inventory.json").resolve())
 
 
 class IdentityManifestTests(LaunchCase):
@@ -422,8 +587,19 @@ class IdentityManifestTests(LaunchCase):
             {"id": "engine", "role": "engine", "path": "C:engine.exe", "sha256": self.sha}]}
         path = self.root / "manifest.json"
         write_json(path, record)
-        with self.assertRaisesRegex(StudioError, "relative to the project or fully absolute"):
-            manifest.verify(self.root, path)
+        for drive_relative in ("C:engine.exe", "c:build\\engine.exe"):
+            record["items"][0]["path"] = drive_relative
+            write_json(path, record)
+            with self.assertRaisesRegex(StudioError, "relative to the project or fully absolute"):
+                manifest.verify(self.root, path)
+        # Genuinely absolute paths in either form name a fixed external file.
+        for absolute in ("C:\\engines\\godot.exe", "/opt/engines/godot"):
+            record["items"][0]["path"] = absolute
+            write_json(path, record)
+            self.assertEqual(manifest.verify(self.root, path)["verdict"], "missing")
+        record["items"][0]["path"] = sys.executable
+        write_json(path, record)
+        self.assertEqual(manifest.verify(self.root, path)["verdict"], "match")
 
     def test_manifest_reads_bytes_once_for_parsing_and_hashing(self):
         record = {"schema_version": 1, "kind": "identity-manifest", "items": [

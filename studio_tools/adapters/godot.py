@@ -12,6 +12,24 @@ from ..common import StudioError, read_json, write_json
 from ..processes import run
 
 
+SELF_CONTAINED_MARKERS = ("_sc_", "._sc_")
+
+
+def self_contained(executable):
+    """True when a marker beside the engine makes that Godot self-contained.
+
+    Such an installation keeps its data next to the executable and ignores the
+    environment profile, so any claim of profile isolation would be false.
+    """
+    path = Path(executable).expanduser()
+    folders = {path.parent, path.resolve().parent}
+    return any(
+        (folder / name).exists()
+        for folder in folders
+        for name in SELF_CONTAINED_MARKERS
+    )
+
+
 def classify_log(output):
     """Classify a completed log without echoing potentially private diagnostics."""
     # Preserve the adapter's conservative substring detection, including
@@ -103,8 +121,7 @@ def execute(config, project, mode="import", output=None, preset=None):
             raise StudioError(
                 "Export template source must not contain the project artifacts directory"
             )
-        executable_dir = Path(args[0]).parent
-        if any((executable_dir / name).exists() for name in ("_sc_", "._sc_")):
+        if self_contained(args[0]):
             raise StudioError(
                 "Isolated export requires Godot without a self-contained _sc_ marker"
             )

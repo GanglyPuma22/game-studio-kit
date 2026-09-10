@@ -8,12 +8,14 @@ and a process record that is distinct from engine success.
 
 from __future__ import annotations
 from datetime import datetime, timezone
+import hashlib
+import json
 import os
 from pathlib import Path
 import re
 import uuid
-from .adapters.godot import classify_log
-from .common import StudioError, file_record, outside_package, read_json, relative, safe_id, sha256, write_json
+from .adapters.godot import classify_log, self_contained
+from .common import StudioError, outside_package, read_json, relative, safe_id, sha256, write_json
 from .config import app_path, require_executable
 from .processes import run
 
@@ -89,19 +91,18 @@ def execute(
     actual = sha256(engine_path)
     if actual != sha256_expected.lower():
         raise StudioError("Engine identity mismatch; refusing to launch an unverified engine")
+    if self_contained(engine_path):
+        # Such an engine keeps its state beside the executable and ignores the
+        # profile environment below, so isolation could not be claimed honestly.
+        raise StudioError(
+            "Owned launch requires Godot without a self-contained _sc_ marker; "
+            "the isolated profile would be ignored"
+        )
     args = build_args(config, root, engine_path.resolve(), mode, script, passthrough)
     limit = config["timeout"] if timeout is None else timeout
     if type(limit) not in (int, float) or not 0 < limit <= MAX_TIMEOUT:
         raise StudioError("Launch timeout must be 1–3600 seconds")
     cutoff = parse_utc(cutoff_utc) if cutoff_utc else None
-    expected = []
-    results_before = []
-    for item in results:
-        target = relative(root, item)
-        expected.append(item)
-        # A result that already exists with the same bytes after the run was not produced by it.
-        present = target.is_file()
-        results_before.append({"path": item, "present": present, "sha256": sha256(target) if present else None})
     prefixes = list(scrub)
     if not all(isinstance(p, str) and p for p in prefixes):
         raise StudioError("Environment scrub prefixes must be non-empty strings")
@@ -110,6 +111,20 @@ def execute(
     # receipt can be matched to a ladder rung without free text.
     scope = safe_id(scope) if scope is not None else None
     run_dir = root / "artifacts" / "launches" / label
+    owned = run_dir.resolve()
+    expected = []
+    results_before = []
+    for item in results:
+        target = relative(root, item)
+        if target == owned or target.is_relative_to(owned):
+            # owned-launch.json, diagnostics.json, the process record and the log
+            # are written by this launcher: declaring one as a required result
+            # would let an engine that produced nothing still reach completed.
+            raise StudioError("Declared results must not be files this launcher writes")
+        expected.append(item)
+        # A result that already exists with the same bytes after the run was not produced by it.
+        present = target.is_file()
+        results_before.append({"path": item, "present": present, "sha256": sha256(target) if present else None})
     try:
         run_dir.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
@@ -154,6 +169,22 @@ def execute(
     }
     for key in PROFILE_KEYS:
         environment[key] = app_path(config, profile, "godot")
+    if cutoff is not None:
+        # Writing the receipt and preparing the profile consume part of the window,
+        # so the authorization is rechecked against the clock at the launch instant
+        # and the wait is bounded by what is actually left of it.
+        remaining = (cutoff - datetime.now(timezone.utc)).total_seconds()
+        if remaining <= 0:
+            launch.update(status="refused", timeout_seconds_effective=None, process_record=None)
+            write_json(run_dir / "owned-launch.json", launch)
+            return _finish(
+                root, run_dir, launch, None, "", "cutoff_passed",
+                "Authorized cutoff passed while the launch was prepared",
+            )
+        effective = max(0.001, min(float(limit), remaining))
+        if launch["timeout_seconds_effective"] != round(effective, 3):
+            launch["timeout_seconds_effective"] = round(effective, 3)
+            write_json(run_dir / "owned-launch.json", launch)
     failure = None
     interrupt = None
     try:
@@ -244,6 +275,44 @@ def _finish(root, run_dir, launch, record, text, verdict, failure):
     }
 
 
+def _receipt(root, path):
+    """Read a receipt once so the summarized fields and the recorded hash share bytes.
+
+    Re-opening the file to hash it would report a digest for bytes that were never
+    the ones summarized here. The returned record has the shape of file_record.
+    """
+    path = Path(path)
+    try:
+        raw = path.read_bytes()
+        record = json.loads(raw.decode("utf-8"))
+    except (OSError, ValueError) as exc:
+        raise StudioError(f"Cannot read JSON record: {path.name}") from exc
+    if not isinstance(record, dict):
+        raise StudioError(f"Receipt is not a JSON object: {path.name}")
+    return record, {
+        "path": path.resolve().relative_to(Path(root).resolve()).as_posix(),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+    }
+
+
+def _pairing(launch, exit_record):
+    """Refuse to summarize an exit record that does not belong to this launch.
+
+    Reasons name the mismatched field only; foreign receipt values are never echoed.
+    """
+    if launch.get("kind") != "owned-launch":
+        return "mismatched", "launch record is not an owned-launch receipt"
+    if exit_record is None:
+        return "missing_exit", "no exit record beside the launch record"
+    if exit_record.get("kind") != "launch-exit":
+        return "mismatched", "exit record is not a launch-exit receipt"
+    if exit_record.get("label") != launch.get("label"):
+        return "mismatched", "exit record label does not match the launch label"
+    if exit_record.get("scope") != launch.get("scope"):
+        return "mismatched", "exit record scope does not match the launch scope"
+    return "paired", None
+
+
 def inventory(run_root, output=None):
     """Index every owned launch under a run root; counts and hashes only."""
     root = Path(run_root).expanduser().resolve()
@@ -254,48 +323,58 @@ def inventory(run_root, output=None):
         raise StudioError("No owned-launch.json records under the run root")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     if output:
-        target = Path(output).expanduser()
-        target = target if target.is_absolute() else root / target
+        candidate = Path(output).expanduser()
+        # A relative output belongs under the run root; only an absolute one may
+        # leave it, and it still may not land inside the installed toolkit.
+        target = outside_package(candidate) if candidate.is_absolute() else relative(root, str(output))
     else:
-        target = root / f"launch-inventory-{stamp}-{uuid.uuid4().hex[:8]}.json"
-    target = outside_package(target)
+        target = outside_package(root / f"launch-inventory-{stamp}-{uuid.uuid4().hex[:8]}.json")
     if target.exists():
         raise StudioError("Inventory output exists; choose a new filename")
     launches = []
-    totals = {"launches": 0, "completed": 0, "not_ok": 0, "timed_out": 0, "missing_exit": 0}
+    totals = {"launches": 0, "completed": 0, "not_ok": 0, "timed_out": 0, "missing_exit": 0, "mismatched": 0}
     for path in records:
         folder = path.parent
-        launch = read_json(path)
+        launch, launch_file = _receipt(root, path)
         exit_path = folder / "exit.json"
-        exit_record = read_json(exit_path) if exit_path.is_file() else None
+        exit_record, exit_file = _receipt(root, exit_path) if exit_path.is_file() else (None, None)
         process_path = folder / (launch.get("process_record") or "process/process.json")
-        process = read_json(process_path) if process_path.is_file() else None
+        process, process_file = _receipt(root, process_path) if process_path.is_file() else (None, None)
         log_path = process_path.parent / "stdout.log"
-        present = [r["path"] for r in (exit_record or {}).get("result_files", []) if r.get("present")]
-        missing = [r["path"] for r in (exit_record or {}).get("result_files", []) if not r.get("present")]
+        pairing, reason = _pairing(launch, exit_record)
+        # Only a verified pair may lend its verdict, ok flag and result files here.
+        paired = exit_record if pairing == "paired" else None
+        verdict = (paired or {}).get("verdict", "no_exit_record")
+        if pairing == "mismatched":
+            verdict = "mismatched_receipts"
+        present = [r["path"] for r in (paired or {}).get("result_files", []) if r.get("present")]
+        missing = [r["path"] for r in (paired or {}).get("result_files", []) if not r.get("present")]
         entry = {
             "dir": folder.relative_to(root).as_posix() or ".",
-            "launch": file_record(root, path),
-            "exit": file_record(root, exit_path) if exit_record else None,
-            "process": file_record(root, process_path) if process else None,
+            "launch": launch_file,
+            "exit": exit_file,
+            "process": process_file,
+            "pairing": pairing,
+            "pairing_reason": reason,
             "mode": launch.get("mode"),
             "scope": launch.get("scope"),
-            "verdict": (exit_record or {}).get("verdict", "no_exit_record"),
-            "ok": (exit_record or {}).get("ok") is True,
+            "verdict": verdict,
+            "ok": (paired or {}).get("ok") is True,
             "status": (process or {}).get("status", launch.get("status")),
             "returncode": (process or {}).get("returncode"),
             "elapsed_seconds": (process or {}).get("elapsed_seconds"),
             "timed_out": (process or {}).get("status") == "timed_out",
             "cleanup": (process or {}).get("cleanup"),
             "combined_log_bytes": log_path.stat().st_size if log_path.is_file() else 0,
-            "diagnostics": (exit_record or {}).get("diagnostics"),
+            "diagnostics": (paired or {}).get("diagnostics"),
             "result_files": {"present": present, "missing": missing},
         }
         totals["launches"] += 1
         totals["completed"] += entry["ok"]
         totals["not_ok"] += not entry["ok"]
         totals["timed_out"] += entry["timed_out"]
-        totals["missing_exit"] += exit_record is None
+        totals["missing_exit"] += pairing == "missing_exit"
+        totals["mismatched"] += pairing == "mismatched"
         launches.append(entry)
     data = {
         "schema_version": 1,
@@ -305,7 +384,8 @@ def inventory(run_root, output=None):
         "totals": totals,
         "launches": launches,
         "limits": INVENTORY_LIMITS,
-        "ok": True,
+        # An inventory that found receipts which do not belong together is not ok.
+        "ok": totals["mismatched"] == 0,
     }
     write_json(target, data)
     return {**data, "output": str(target)}

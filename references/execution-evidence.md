@@ -85,10 +85,13 @@ valid grant.
 
 `launch` is the one-call form of the runner for a project-owned engine run:
 probes, native captures, unattended production stages. It verifies the engine's
-expected SHA-256 before anything else, refuses to start after `--cutoff-utc`,
-bounds the timeout by that cutoff, isolates the profile under
-`artifacts/launches/<label>/profile`, removes child environment variables that
-match `--scrub-env` prefixes, launches through the runner, waits, and returns
+expected SHA-256 before anything else, refuses a self-contained Godot
+(`_sc_`/`._sc_` beside the executable) because such an install ignores the
+profile environment, refuses to start after `--cutoff-utc`, rechecks that
+cutoff immediately before starting and bounds the wait by what is left of it
+then, isolates the profile under `artifacts/launches/<label>/profile`, removes
+child environment variables that match `--scrub-env` prefixes, launches through
+the runner, waits, and returns
 **one verdict JSON**. The calling agent never polls, sleeps or writes to the
 child's stdin; it reads the verdict when the command returns.
 
@@ -106,17 +109,27 @@ and `exit.json` with the verdict. Verdicts: `completed` (exit zero, no engine
 errors, every `--result` present), `engine_errors`, `results_missing`, `failed`,
 `timed_out`, `start_failed`, `interrupted`, `cutoff_passed`. Only `completed` is
 `ok`; the command exits 1 otherwise and still prints the verdict to stdout.
-Exit zero is not acceptance. Receipts never contain argv values or environment;
-passthrough arguments are counted, not recorded. `--scope <id>` names the scope
-rung the launch is evidence for; it is validated like a label and persisted as
-`scope` in `owned-launch.json`, `exit.json`, the returned verdict and every
-inventory entry (`null` when omitted), so a lower-rung result cannot be cited
-for a higher rung.
+Exit zero is not acceptance. A `--result` must name engine output: a path inside
+this launch's own directory (its receipts, log or profile) is refused before
+anything is written, so a file this launcher wrote is never counted as evidence
+that the engine produced something. Receipts never contain argv values or
+environment; passthrough arguments are counted, not recorded. `--scope <id>`
+names the scope rung the launch is evidence for; it is validated like a label
+and persisted as `scope` in `owned-launch.json`, `exit.json`, the returned
+verdict and every inventory entry (`null` when omitted), so a lower-rung result
+cannot be cited for a higher rung.
 
 `evidence launches <run root>` indexes every `owned-launch.json` under a root,
 pairs it with its `exit.json` and process record, hashes both receipts, counts
-log bytes and result files, and writes a dated `launch-inventory-*.json`. It is
-counts and hashes only; a launch with no exit record is reported as such.
+log bytes and result files, and writes a dated `launch-inventory-*.json`. Each
+receipt is hashed from the same bytes that were summarized. An `exit.json` is
+paired only when both receipts carry the matching kind, `label` and `scope`;
+otherwise the entry reports `pairing: "mismatched"` with a reason, lends no
+verdict or result files, is counted in `totals.mismatched` and makes the
+inventory `ok: false` (the command exits 1). A relative `--output` must stay
+under the run root; only an absolute path may leave it, and never into the
+installed toolkit. It is counts and hashes only; a launch with no exit record is
+reported as `pairing: "missing_exit"`.
 
 `candidate verify --manifest <identity-manifest.json>` hashes every item in an
 [identity manifest](../templates/identity-manifest.json) (engine, helpers,
