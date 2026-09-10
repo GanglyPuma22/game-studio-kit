@@ -7,7 +7,7 @@ These rules apply whenever a prompt names an overnight, unattended, production o
 - After your third context compaction, update `STATE.md` (current commit, selected sources, stage reached, open blockers, next step, budget used) and end the turn asking the user to start a fresh session from it. Do not continue past compaction three.
 - Desktop and visual work only: terrain and modelling GUIs, Blender MCP, inspection of native stills, lifecycle helpers, live playtests. Everything text-only (proof mathematics, test triage, matrices, ledgers, inventories, hashing, patch review) goes to a worker or a script.
 - Never poll a running process with sleeps, waits or empty stdin writes. Launch through `studio launch` and read its single verdict when it returns.
-- Ledgers and heartbeats are appended by script, one line per event. Write `RETURN.md` once, at the end, from `studio evidence launches`. Do not rewrite matrices mid-run.
+- There is no ledger or heartbeat script. The machine ledgers are the receipts the kit commands already write (preflight receipts, `owned-launch.json`, `exit.json`, `cleanroom.json`, identity `verify-*.json`) plus the inventory `studio evidence launches` builds from them. Never hand-write or poll for a ledger or heartbeat; a blocking launch replaces polling. Write `RETURN.md` once, at the end, from `studio evidence launches`. Do not rewrite matrices mid-run.
 
 ## Workers
 - One deliverable per spawn. The brief names the deliverable file, its JSON schema and the budget.

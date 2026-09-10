@@ -148,16 +148,25 @@ $Codex = Join-Path $env:USERPROFILE ".codex"
 New-Item -ItemType Directory -Force -Path $Codex | Out-Null
 Add-Content -Path (Join-Path $Codex "AGENTS.md") -Value ("`n" + (Get-Content -Raw (Join-Path $Kit "references\codex\AGENTS-overnight.md")))
 New-Item -ItemType Directory -Force -Path (Join-Path $Codex "skills\overnight-run") | Out-Null
+$PointerPath = Join-Path $Codex "skills\overnight-run\SKILL.md"
+$Marker = "<!-- game-studio-kit overnight-run pointer -->"
+if ((Test-Path $PointerPath) -and -not (Select-String -Path $PointerPath -Pattern ([regex]::Escape($Marker)) -Quiet)) {
+    throw "Refusing to overwrite $PointerPath: it exists and is not a game-studio-kit pointer. Resolve the conflict by hand, then rerun."
+}
 @"
 ---
 name: overnight-run
 description: Use when handed an overnight, unattended or production-contract run for a game project.
 ---
+$Marker
 Read and follow $Kit\skills\studio-director\references\overnight-run.md. Its commands are run through $Kit\scripts\studio.py.
-"@ | Set-Content -Path (Join-Path $Codex "skills\overnight-run\SKILL.md") -Encoding UTF8
+"@ | Set-Content -Path $PointerPath -Encoding UTF8
 ```
 
-Confirm in a throwaway Codex session by asking which rules apply to an overnight
-run. Update the pointer when the kit checkout moves; the block itself carries no
-host paths.
+The marker line identifies a pointer this kit wrote; the check above refuses
+to overwrite a `SKILL.md` some other skill or a hand-authored file already
+occupies, and replaces it cleanly when the marker shows it is this kit's own
+prior pointer. Confirm in a throwaway Codex session by asking which rules
+apply to an overnight run. Update the pointer when the kit checkout moves;
+the block itself carries no host paths.
 

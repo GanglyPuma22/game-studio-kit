@@ -26,6 +26,6 @@ Updated: <UTC>  Compactions so far: <n>  (refresh the root after the third)
 - Provider spend:
 
 ## Receipts
-- Preflight:
+- Preflight (path of the current, non-superseded attempt):
 - Launch inventory:
 - Cleanroom captures:

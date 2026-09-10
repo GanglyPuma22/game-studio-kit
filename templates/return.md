@@ -10,7 +10,7 @@
 ## Scorecard
 | Stage | Scope rung | Passed | Verdict artifact | Notes |
 |---|---|---|---|---|
-| 1 Host readiness | | | `preflight.json` | |
+| 1 Host readiness | | | `host/preflight-<UTC stamp>.json` | |
 | 2 Source compile | | | | |
 | 3 Native admission | | | `artifacts/launches/<run-id>-<stage>-<n>/exit.json` | |
 | 4 Performance cleanroom | | | `artifacts/bench/<run-id>-<stage>-<n>/cleanroom.json` (`attributable`) | |
@@ -29,7 +29,7 @@
 ## Budget used
 - Wall clock / cutoff:
 - Root compactions / worker spawns:
-- Native launches (stage 3 / 4 / 5):
+- Native launches (stage 3 / 4 / 5 / 6 / 7, total):
 - Provider spend:
 
 ## Next decision for the user

@@ -4,12 +4,13 @@ from pathlib import Path
 import re
 import unittest
 
-from studio_tools.common import read_json
+from studio_tools.common import read_json, safe_id
 
 ROOT = Path(__file__).resolve().parents[1]
 PROCEDURE = ROOT / "skills/studio-director/references/overnight-run.md"
 BLOCK = ROOT / "references/codex/AGENTS-overnight.md"
 TEMPLATES = [ROOT / "templates" / name for name in ("return.md", "worker-brief.md", "state.md")]
+SCOPE_LADDER_IDS = ("macro-terrain", "three-sites", "hero-obstructions", "habitat-chunk")
 
 
 class OvernightRunTests(unittest.TestCase):
@@ -92,6 +93,36 @@ class OvernightRunTests(unittest.TestCase):
             setup.index('New-Item -ItemType Directory -Force -Path $Codex'),
             setup.index("Add-Content"),
         )
+
+    def test_setup_windows_pointer_install_carries_a_recognizable_marker(self):
+        setup = (ROOT / "docs/setup-windows.md").read_text(encoding="utf-8")
+        self.assertIn("game-studio-kit overnight-run pointer", setup)
+        marker_index = setup.index("game-studio-kit overnight-run pointer")
+        # The marker is checked with Test-Path/Select-String before the pointer
+        # file is (re)written with Set-Content.
+        self.assertLess(setup.index("Test-Path $PointerPath"), setup.index("Set-Content -Path $PointerPath"))
+        self.assertLess(marker_index, setup.index("Set-Content -Path $PointerPath"))
+
+    def test_scope_ladder_rung_ids_are_safe_id_valid(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        for rung_id in SCOPE_LADDER_IDS:
+            self.assertIn(f"`{rung_id}`", procedure)
+            self.assertEqual(safe_id(rung_id), rung_id)
+
+    def test_nested_launch_in_benchmark_example_carries_its_own_config(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        section = procedure[procedure.index("## 4. Benchmarks"):procedure.index("## 5. Root refresh")]
+        code_start = section.index("```text")
+        code = section[code_start:section.index("```", code_start + len("```text"))]
+        self.assertEqual(code.count("--config <host config>"), 2)
+        self.assertIn("launch --project <GAME> --config <host config>", code)
+        self.assertIn("does not propagate", section)
+
+    def test_stop_rules_mark_which_stages_are_retryable(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        self.assertEqual(procedure.count("(retryable)"), 3)
+        for stage in ("Native admission", "Performance cleanroom", "Traversal"):
+            self.assertIn(stage, procedure)
 
 
 if __name__ == "__main__":
