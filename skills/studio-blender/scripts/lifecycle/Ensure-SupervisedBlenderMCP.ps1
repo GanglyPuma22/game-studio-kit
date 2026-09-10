@@ -8,7 +8,8 @@ param(
     [Parameter(Mandatory=$true)][string]$OwnerIdentity,
     [string]$ExpectedSourceSha256 = '',
     [int]$StartupTimeoutSeconds = 60,
-    [switch]$PlanOnly
+    [switch]$PlanOnly,
+    [switch]$Probe
 )
 
 $ErrorActionPreference = 'Stop'
@@ -103,7 +104,24 @@ if (Test-Path -LiteralPath $activePath) {
         $active = Get-Content -LiteralPath $activePath -Raw | ConvertFrom-Json
         if (!$active.receipt_path) { throw 'Active lifecycle pointer has no receipt path' }
         $existing = Get-Content -LiteralPath $active.receipt_path -Raw | ConvertFrom-Json
-        & $testScript -OwnershipReceipt $active.receipt_path -WorkingRoot $WorkingRoot -ProbePython $ProbePython -McpServerConfig $McpServerConfig -OwnerIdentity $ownerName -SkipProtocolProbe | Out-Null
+        # Reuse never opens a second MCP bridge: the pinned add-on serves a
+        # single active TCP connection, and the current app client may
+        # already hold it. A full Test-SupervisedBlenderMCP.ps1 protocol
+        # probe launches a competing stdio bridge that would contend for
+        # that same connection and stall for its full read timeout. Validate
+        # reuse only by owned-process identity, receipt fields and a
+        # loopback-listener check (-SkipProtocolProbe) unless -Probe is
+        # explicitly passed to force the full round-trip.
+        $reuseHealthArgs = @{
+            OwnershipReceipt = $active.receipt_path
+            WorkingRoot = $WorkingRoot
+            ProbePython = $ProbePython
+            McpServerConfig = $McpServerConfig
+            OwnerIdentity = $ownerName
+        }
+        if (!$Probe) { $reuseHealthArgs['SkipProtocolProbe'] = $true }
+        $healthJson = & $testScript @reuseHealthArgs
+        if ($LASTEXITCODE -ne 0) { throw 'Existing owned Blender session failed its health check' }
         if ($existing.session_id -ne $SessionId) {
             throw "A healthy supervised Blender session is leased to another agent session: $($existing.session_id)"
         }
@@ -115,8 +133,14 @@ if (Test-Path -LiteralPath $activePath) {
         if (!$sameSourcePath -or $existing.source_sha256 -ne $sourceSha) {
             throw "A healthy supervised Blender session owns port 9876 for another source: $($existing.working_scene)"
         }
-        $healthJson = & $testScript -OwnershipReceipt $active.receipt_path -WorkingRoot $WorkingRoot -ProbePython $ProbePython -McpServerConfig $McpServerConfig -OwnerIdentity $ownerName
-        if ($LASTEXITCODE -ne 0) { throw 'Existing owned Blender session failed its protocol probe' }
+        $sameExecutable = [string]::Equals(
+            [IO.Path]::GetFullPath($existing.executable),
+            [IO.Path]::GetFullPath($BlenderExe),
+            [StringComparison]::OrdinalIgnoreCase
+        )
+        if (!$sameExecutable) {
+            throw "NEEDS_STOP: the active supervised Blender session was started from a different executable ($($existing.executable)); stop it with its ownership receipt before Ensure can start the currently configured Blender ($BlenderExe)"
+        }
         $result = $healthJson | ConvertFrom-Json
         $result | Add-Member -NotePropertyName reused -NotePropertyValue $true
         $result | Add-Member -NotePropertyName native_client_rehandshake_policy -NotePropertyValue $rehandshakePolicy

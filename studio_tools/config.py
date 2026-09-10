@@ -1,6 +1,6 @@
 """No implicit credential files or shell profiles."""
 
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path, PureWindowsPath
 import os
 import re
 import shutil
@@ -23,12 +23,18 @@ BLENDER_MCP_REQUIRED = {
 
 
 def _is_absolute_lifecycle_path(value):
-    # `Path(...).is_absolute()` is host-dependent: it rejects `C:\...` on Linux
-    # and can accept POSIX-looking values on Windows. Lifecycle identity paths
-    # are host config, read on whichever OS runs the tooling, so accept a
-    # value only when it is unambiguously absolute on Windows (drive AND
-    # root; `C:foo` is drive-relative and must be rejected) or on POSIX.
-    return PureWindowsPath(value).is_absolute() or PurePosixPath(value).is_absolute()
+    # The supervised lifecycle only runs on native Windows, so a value is
+    # only ever resolved there: a drive-qualified path (`C:\...`, drive AND
+    # root; `C:foo` is drive-relative and must be rejected) or a UNC path
+    # (`\\server\share\...`). `Path(...).is_absolute()` is host-dependent —
+    # it would also accept a drive-less POSIX-style root such as `/runs`,
+    # which this Windows-only lifecycle cannot use — so check the Windows
+    # form explicitly regardless of which host runs this validator.
+    return PureWindowsPath(value).is_absolute()
+
+
+def _kit_root():
+    return Path(__file__).resolve().parents[1]
 
 
 def _validate_blender_mcp(block):
@@ -80,8 +86,13 @@ def _validate_blender_mcp(block):
             "blender_mcp.server.env must select loopback port 9876 with "
             "telemetry disabled"
         )
-    kit_root = Path(__file__).resolve().parents[1]
-    working_root = Path(block["working_root"]).resolve()
+    # Both sides of this comparison are lifecycle identity paths, so compare
+    # them the same Windows-only way as `_is_absolute_lifecycle_path` above:
+    # plain `Path` would resolve a Windows-style working_root relative to
+    # this process's own (host-dependent) current directory, which can
+    # spuriously collide with the kit's own location on a non-Windows host.
+    kit_root = PureWindowsPath(str(_kit_root()))
+    working_root = PureWindowsPath(block["working_root"])
     if working_root == kit_root or working_root.is_relative_to(kit_root):
         raise StudioError("blender_mcp.working_root must be outside the installed kit")
 

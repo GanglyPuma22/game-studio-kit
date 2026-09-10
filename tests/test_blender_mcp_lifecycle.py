@@ -44,6 +44,7 @@ class BlenderMcpPolicyTests(unittest.TestCase):
             {**CURRENT, "expected_protocol_version": 4},
             {**CURRENT, "telemetry_consent": True},
             {**CURRENT, "up_to_date": False},
+            {**CURRENT, "up_to_date": "false"},
         )
         for status in invalid:
             with self.subTest(status=status):
@@ -129,16 +130,17 @@ class BlenderMcpConfigDoctorTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        root = Path(self.temp.name)
-        for name in ("blender.exe", "python.exe", "blender-mcp.exe"):
-            (root / name).touch()
+        # blender_mcp identity paths are Windows-only (see
+        # _is_absolute_lifecycle_path); these are never resolved against
+        # the real filesystem by config.py, so plain Windows-style strings
+        # are enough to exercise the validator on any host.
         self.block = {
-            "working_root": str(root / "runs"),
-            "blender_executable": str(root / "blender.exe"),
-            "probe_python": str(root / "python.exe"),
+            "working_root": "C:\\StudioHost\\blender-mcp-runs",
+            "blender_executable": "C:\\StudioHost\\blender.exe",
+            "probe_python": "C:\\StudioHost\\blender-mcp-1.9.1\\Scripts\\python.exe",
             "owner": "studio-blender-test",
             "server": {
-                "command": str(root / "blender-mcp.exe"),
+                "command": "C:\\StudioHost\\blender-mcp-1.9.1\\Scripts\\blender-mcp.exe",
                 "args": [],
                 "env": {
                     "BLENDER_HOST": "127.0.0.1",
@@ -190,12 +192,17 @@ class BlenderMcpConfigDoctorTests(unittest.TestCase):
                     load(overrides={"blender_mcp": block})
 
     def test_working_root_cannot_be_inside_installed_kit(self):
-        block = {
-            **self.block,
-            "working_root": str(Path(__file__).resolve().parents[1] / "runs"),
-        }
-        with self.assertRaisesRegex(StudioError, "outside the installed kit"):
-            load(overrides={"blender_mcp": block})
+        # The kit checkout on this test host has a POSIX path, which can
+        # never be a prefix of a Windows-only working_root value; patch the
+        # kit-root lookup to a Windows-style stand-in so this exercises the
+        # same comparison a real Windows install would perform.
+        with patch(
+            "studio_tools.config._kit_root",
+            return_value=Path("C:\\Tools\\game-studio-kit"),
+        ):
+            block = {**self.block, "working_root": "C:\\Tools\\game-studio-kit\\runs"}
+            with self.assertRaisesRegex(StudioError, "outside the installed kit"):
+                load(overrides={"blender_mcp": block})
 
     def test_lifecycle_identity_paths_must_be_absolute(self):
         for field in ("working_root", "blender_executable", "probe_python"):
@@ -214,6 +221,16 @@ class BlenderMcpConfigDoctorTests(unittest.TestCase):
                 with self.assertRaisesRegex(StudioError, f"blender_mcp.{field} must be absolute"):
                     load(overrides={"blender_mcp": block})
 
+    def test_lifecycle_identity_paths_reject_drive_less_posix_style_roots(self):
+        # The supervised lifecycle only runs on native Windows; a drive-less
+        # root such as `/runs` is not a path that host can resolve, even
+        # though `Path(...).is_absolute()` would accept it on a POSIX host.
+        for field in ("working_root", "blender_executable", "probe_python"):
+            block = {**self.block, field: "/x/y"}
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(StudioError, f"blender_mcp.{field} must be absolute"):
+                    load(overrides={"blender_mcp": block})
+
     def test_lifecycle_identity_paths_accept_windows_absolute_form_on_linux(self):
         # `Path(...).is_absolute()` on this Linux test host returns False for
         # `C:\...`, which is a real absolute path on the Windows hosts this
@@ -221,6 +238,12 @@ class BlenderMcpConfigDoctorTests(unittest.TestCase):
         # kit-relative check so this exercises only the absolute-path contract.
         for field in ("blender_executable", "probe_python"):
             block = {**self.block, field: "C:\\x\\y"}
+            with self.subTest(field=field):
+                load(overrides={"blender_mcp": block})  # must not raise
+
+    def test_lifecycle_identity_paths_accept_unc_form(self):
+        for field in ("blender_executable", "probe_python"):
+            block = {**self.block, field: "\\\\srv\\share\\x"}
             with self.subTest(field=field):
                 load(overrides={"blender_mcp": block})  # must not raise
 
@@ -237,11 +260,20 @@ class BlenderMcpConfigDoctorTests(unittest.TestCase):
         with self.assertRaisesRegex(StudioError, "blender_mcp.server.command must be absolute"):
             load(overrides={"blender_mcp": block})
 
+    def test_server_command_rejects_drive_less_posix_style_root(self):
+        block = {**self.block, "server": {**self.block["server"], "command": "/x/y"}}
+        with self.assertRaisesRegex(StudioError, "blender_mcp.server.command must be absolute"):
+            load(overrides={"blender_mcp": block})
+
     def test_server_command_accepts_windows_absolute_form_on_linux(self):
         block = {
             **self.block,
             "server": {**self.block["server"], "command": "C:\\x\\y\\blender-mcp.exe"},
         }
+        load(overrides={"blender_mcp": block})  # must not raise
+
+    def test_server_command_accepts_unc_form(self):
+        block = {**self.block, "server": {**self.block["server"], "command": "\\\\srv\\share\\x"}}
         load(overrides={"blender_mcp": block})  # must not raise
 
     def test_probe_server_config_comes_only_from_explicit_host_file(self):
@@ -306,16 +338,18 @@ class BlenderMcpLifecycleCliTests(unittest.TestCase):
         self.game = root / "game"
         (self.game / "source").mkdir(parents=True)
         (self.game / "source" / "asset.blend").write_bytes(b"blend")
-        for name in ("blender.exe", "python.exe", "blender-mcp.exe"):
-            (root / name).touch()
         self.host = root / "host.json"
+        # blender_mcp identity paths are Windows-only and are never resolved
+        # against the real filesystem by config.py or blender_mcp_lifecycle.py
+        # (they are forwarded to the PowerShell scripts verbatim), so plain
+        # Windows-style strings exercise these tests on any host.
         self.block = {
-            "working_root": str(root / "runs"),
-            "blender_executable": str(root / "blender.exe"),
-            "probe_python": str(root / "python.exe"),
+            "working_root": "C:\\StudioHost\\blender-mcp-runs",
+            "blender_executable": "C:\\StudioHost\\blender.exe",
+            "probe_python": "C:\\StudioHost\\blender-mcp-1.9.1\\Scripts\\python.exe",
             "owner": "studio-blender-test",
             "server": {
-                "command": str(root / "blender-mcp.exe"),
+                "command": "C:\\StudioHost\\blender-mcp-1.9.1\\Scripts\\blender-mcp.exe",
                 "args": [],
                 "env": {
                     "BLENDER_HOST": "127.0.0.1",
@@ -355,7 +389,10 @@ class BlenderMcpLifecycleCliTests(unittest.TestCase):
         self.assertIn(str(ROOT / "skills/studio-blender/scripts/lifecycle/Ensure-SupervisedBlenderMCP.ps1"), command)
         self.assertIn(str((self.game / "source" / "asset.blend").resolve()), command)
         self.assertIn(str(self.host.resolve()), command)
-        self.assertIn(str(Path(self.block["working_root"]).resolve()), command)
+        # working_root is a Windows-only value forwarded verbatim to the
+        # PowerShell script; it is never resolved against this host's
+        # filesystem, unlike the source/host paths asserted above.
+        self.assertIn(self.block["working_root"], command)
 
     def test_entrypoint_routes_stop_through_packaged_lifecycle_script(self):
         from studio_tools.blender_mcp_lifecycle import execute
@@ -499,6 +536,21 @@ class BlenderMcpPowerShellRegressionTests(unittest.TestCase):
         self.assertIn("existing.source_scene", reuse_block)
         self.assertIn("existing.source_sha256", reuse_block)
         self.assertIn("OrdinalIgnoreCase", reuse_block)
+
+    def test_reuse_requires_matching_executable_identity(self):
+        source = self._source("Ensure-SupervisedBlenderMCP.ps1")
+        reuse_block = source[source.index("if (Test-Path -LiteralPath $activePath)") : source.index("$unownedBlender")]
+        self.assertIn("existing.executable", reuse_block)
+        self.assertIn("NEEDS_STOP", reuse_block)
+
+    def test_reuse_never_opens_a_second_protocol_bridge_unless_forced(self):
+        source = self._source("Ensure-SupervisedBlenderMCP.ps1")
+        reuse_block = source[source.index("if (Test-Path -LiteralPath $activePath)") : source.index("$unownedBlender")]
+        # Reuse must default to the lightweight (-SkipProtocolProbe) health
+        # check and only run the full round-trip probe when -Probe is passed.
+        self.assertIn("[switch]$Probe", source)
+        self.assertIn("if (!$Probe) { $reuseHealthArgs['SkipProtocolProbe'] = $true }", reuse_block)
+        self.assertEqual(reuse_block.count("& $testScript"), 1)
 
     def test_startup_failure_closes_in_memory_owned_process_without_stop_preconditions(self):
         source = self._source("Ensure-SupervisedBlenderMCP.ps1")

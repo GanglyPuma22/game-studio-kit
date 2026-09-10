@@ -37,7 +37,7 @@ def require_current_native_status(value):
     status = _status(value)
     if status.get("source") != "native":
         raise StudioError("Blender MCP addon status did not come from the native addon")
-    if not status.get("up_to_date"):
+    if status.get("up_to_date") is not True:
         raise StudioError("Blender MCP addon/server pair is not current")
     if (
         status.get("protocol_version") != EXPECTED_PROTOCOL_VERSION
