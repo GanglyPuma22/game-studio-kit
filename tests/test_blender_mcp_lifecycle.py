@@ -204,6 +204,46 @@ class BlenderMcpConfigDoctorTests(unittest.TestCase):
                 with self.assertRaisesRegex(StudioError, f"blender_mcp.{field} must be absolute"):
                     load(overrides={"blender_mcp": block})
 
+    def test_lifecycle_identity_paths_reject_drive_relative_windows_forms(self):
+        # `C:foo` has a drive but no root, so it is relative to the current
+        # directory on that drive; it must be rejected on every host, not
+        # just on Windows where `Path(...).is_absolute()` would also miss it.
+        for field in ("working_root", "blender_executable", "probe_python"):
+            block = {**self.block, field: "C:foo"}
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(StudioError, f"blender_mcp.{field} must be absolute"):
+                    load(overrides={"blender_mcp": block})
+
+    def test_lifecycle_identity_paths_accept_windows_absolute_form_on_linux(self):
+        # `Path(...).is_absolute()` on this Linux test host returns False for
+        # `C:\...`, which is a real absolute path on the Windows hosts this
+        # config targets. Use fields with no other filesystem-existence or
+        # kit-relative check so this exercises only the absolute-path contract.
+        for field in ("blender_executable", "probe_python"):
+            block = {**self.block, field: "C:\\x\\y"}
+            with self.subTest(field=field):
+                load(overrides={"blender_mcp": block})  # must not raise
+
+    def test_server_command_must_be_absolute(self):
+        block = {
+            **self.block,
+            "server": {**self.block["server"], "command": "relative/blender-mcp.exe"},
+        }
+        with self.assertRaisesRegex(StudioError, "blender_mcp.server.command must be absolute"):
+            load(overrides={"blender_mcp": block})
+
+    def test_server_command_rejects_drive_relative_windows_form(self):
+        block = {**self.block, "server": {**self.block["server"], "command": "C:foo"}}
+        with self.assertRaisesRegex(StudioError, "blender_mcp.server.command must be absolute"):
+            load(overrides={"blender_mcp": block})
+
+    def test_server_command_accepts_windows_absolute_form_on_linux(self):
+        block = {
+            **self.block,
+            "server": {**self.block["server"], "command": "C:\\x\\y\\blender-mcp.exe"},
+        }
+        load(overrides={"blender_mcp": block})  # must not raise
+
     def test_probe_server_config_comes_only_from_explicit_host_file(self):
         host = Path(self.temp.name) / "host.json"
         host.write_text(__import__("json").dumps({"blender_mcp": self.block}))
@@ -427,6 +467,27 @@ class BlenderMcpPowerShellRegressionTests(unittest.TestCase):
         self.assertLess(source.index("WaitOne"), source.index("$receiptPath"))
         self.assertIn("ReleaseMutex", source)
 
+    def test_ensure_and_stop_recover_an_abandoned_lifecycle_mutex(self):
+        for name in ("Ensure-SupervisedBlenderMCP.ps1", "Stop-SupervisedBlenderMCP.ps1"):
+            source = self._source(name)
+            with self.subTest(script=name):
+                wait_block = source[source.index("WaitOne") : source.index("WaitOne") + 400]
+                self.assertIn("AbandonedMutexException", wait_block)
+                self.assertIn("$mutexAcquired = $true", wait_block)
+
+    def test_ensure_and_stop_write_receipts_atomically(self):
+        for name in ("Ensure-SupervisedBlenderMCP.ps1", "Stop-SupervisedBlenderMCP.ps1"):
+            source = self._source(name)
+            with self.subTest(script=name):
+                self.assertIn("function Set-ReceiptContentAtomic", source)
+                self.assertIn("Move-Item -LiteralPath $tempPath -Destination $Path -Force", source)
+                self.assertNotIn(
+                    "ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ownershipReceipt"
+                    if name.startswith("Ensure")
+                    else "ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $receiptPath",
+                    source,
+                )
+
     def test_malformed_active_pointer_is_inside_recovery_guard(self):
         source = self._source("Ensure-SupervisedBlenderMCP.ps1")
         active_block = source[source.index("if (Test-Path -LiteralPath $activePath)") :]
@@ -451,7 +512,17 @@ class BlenderMcpPowerShellRegressionTests(unittest.TestCase):
         recipe = (ROOT / "skills/studio-blender/references/mcp.md").read_text(encoding="utf-8")
         bootstrap = self._source("supervised_bootstrap.py")
         self.assertIn("`blender_mcp.py`", recipe)
-        self.assertIn('addon_utils.enable("blender_mcp"', bootstrap)
+        self.assertIn('module id `addon`', recipe)
+        self.assertIn('DOCUMENTED_ADDON_MODULES = ("blender_mcp", "addon")', bootstrap)
+        self.assertIn('DOCUMENTED_ADDON_NAME = "MCP for Blender"', bootstrap)
+        self.assertIn("DOCUMENTED_ADDON_VERSION = (1, 6)", bootstrap)
+
+    def test_bootstrap_validates_addon_metadata_before_enabling_either_module(self):
+        bootstrap = self._source("supervised_bootstrap.py")
+        discovery = bootstrap[bootstrap.index("def _enable_documented_addon") :]
+        self.assertLess(discovery.index("bl_info"), discovery.index("addon_utils.enable"))
+        self.assertIn("DOCUMENTED_ADDON_NAME", discovery)
+        self.assertIn("DOCUMENTED_ADDON_VERSION", discovery)
 
 
 if __name__ == "__main__":

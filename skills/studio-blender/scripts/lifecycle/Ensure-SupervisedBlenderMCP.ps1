@@ -14,6 +14,21 @@ param(
 $ErrorActionPreference = 'Stop'
 $ownerName = $OwnerIdentity
 $rehandshakePolicy = 'ONE_READ_ONLY_RETRY_ON_10053'
+
+function Set-ReceiptContentAtomic {
+    # Write a receipt to a sibling temporary file and Move-Item -Force it over
+    # the prior record, so a mid-write interruption never leaves a truncated
+    # or partially written receipt behind for a later Ensure/Stop to trip on.
+    param(
+        [Parameter(Mandatory=$true)][string]$Path,
+        [Parameter(Mandatory=$true)]$Value,
+        [int]$Depth = 6
+    )
+    $directory = Split-Path -Parent $Path
+    $tempPath = Join-Path $directory ('.' + (Split-Path -Leaf $Path) + '.tmp-' + [Guid]::NewGuid().ToString('N'))
+    $Value | ConvertTo-Json -Depth $Depth | Set-Content -LiteralPath $tempPath -Encoding utf8
+    Move-Item -LiteralPath $tempPath -Destination $Path -Force
+}
 if ($SessionId -notmatch '^[A-Za-z0-9._-]{1,128}$') { throw 'SessionId must use 1-128 letters, digits, dots, underscores, or hyphens' }
 if ($ownerName -notmatch '^[A-Za-z0-9._-]{1,128}$') { throw 'OwnerIdentity must use 1-128 letters, digits, dots, underscores, or hyphens' }
 $sourcePath = (Resolve-Path -LiteralPath $SourceScene -ErrorAction Stop).Path
@@ -65,7 +80,14 @@ if ($PlanOnly) { $plan | ConvertTo-Json -Depth 5; return }
 $lifecycleMutex = [System.Threading.Mutex]::new($false, 'Global\GameStudioKit-BlenderMCP-127_0_0_1-9876')
 $mutexAcquired = $false
 try {
-    $mutexAcquired = $lifecycleMutex.WaitOne([TimeSpan]::FromSeconds(10))
+    try {
+        $mutexAcquired = $lifecycleMutex.WaitOne([TimeSpan]::FromSeconds(10))
+    } catch [System.Threading.AbandonedMutexException] {
+        # The previous owner terminated while holding the lock. .NET signals this
+        # by throwing rather than returning true, but this wait still granted
+        # ownership; treat the lifecycle mutex as acquired and continue under it.
+        $mutexAcquired = $true
+    }
     if (!$mutexAcquired) { throw 'Another agent is currently changing the supervised Blender MCP lifecycle' }
 
 New-Item -ItemType Directory -Path $WorkingRoot -Force | Out-Null
@@ -153,7 +175,7 @@ try {
         bootstrap_receipt = $bootstrapReceipt
         started_utc = [DateTimeOffset]::UtcNow.ToString('o')
     }
-    $receipt | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ownershipReceipt -Encoding utf8
+    Set-ReceiptContentAtomic -Path $ownershipReceipt -Value $receipt
     $deadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
         $process.Refresh()
@@ -172,8 +194,8 @@ try {
     }
     $receipt.status = 'RUNNING'
     $receipt.listener = '127.0.0.1:9876'
-    $receipt | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ownershipReceipt -Encoding utf8
-    @{receipt_path=[IO.Path]::GetFullPath($ownershipReceipt)} | ConvertTo-Json | Set-Content -LiteralPath $activePath -Encoding utf8
+    Set-ReceiptContentAtomic -Path $ownershipReceipt -Value $receipt
+    Set-ReceiptContentAtomic -Path $activePath -Value @{receipt_path=[IO.Path]::GetFullPath($ownershipReceipt)} -Depth 2
     $healthJson = & $testScript -OwnershipReceipt $ownershipReceipt -WorkingRoot $WorkingRoot -ProbePython $ProbePython -McpServerConfig $McpServerConfig -OwnerIdentity $ownerName
     if ($LASTEXITCODE -ne 0) { throw 'New owned Blender session failed its protocol probe' }
     $result = $healthJson | ConvertFrom-Json
@@ -200,7 +222,7 @@ try {
                         $failedReceipt = Get-Content -LiteralPath $ownershipReceipt -Raw | ConvertFrom-Json
                         $failedReceipt.status = 'NEEDS_USER_CLOSE'
                         $failedReceipt | Add-Member -NotePropertyName cleanup_note -NotePropertyValue $cleanupNote -Force
-                        $failedReceipt | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ownershipReceipt -Encoding utf8
+                        Set-ReceiptContentAtomic -Path $ownershipReceipt -Value $failedReceipt
                     } catch { }
                 }
                 throw $cleanupNote
@@ -212,7 +234,7 @@ try {
             $failedReceipt = Get-Content -LiteralPath $ownershipReceipt -Raw | ConvertFrom-Json
             $failedReceipt.status = 'STARTUP_FAILED_CLOSED'
             $failedReceipt | Add-Member -NotePropertyName closed_utc -NotePropertyValue ([DateTimeOffset]::UtcNow.ToString('o')) -Force
-            $failedReceipt | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ownershipReceipt -Encoding utf8
+            Set-ReceiptContentAtomic -Path $ownershipReceipt -Value $failedReceipt
         } catch { }
     }
     if (Test-Path -LiteralPath $activePath) {

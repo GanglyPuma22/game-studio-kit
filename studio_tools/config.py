@@ -1,6 +1,6 @@
 """No implicit credential files or shell profiles."""
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import os
 import re
 import shutil
@@ -22,6 +22,15 @@ BLENDER_MCP_REQUIRED = {
 }
 
 
+def _is_absolute_lifecycle_path(value):
+    # `Path(...).is_absolute()` is host-dependent: it rejects `C:\...` on Linux
+    # and can accept POSIX-looking values on Windows. Lifecycle identity paths
+    # are host config, read on whichever OS runs the tooling, so accept a
+    # value only when it is unambiguously absolute on Windows (drive AND
+    # root; `C:foo` is drive-relative and must be rejected) or on POSIX.
+    return PureWindowsPath(value).is_absolute() or PurePosixPath(value).is_absolute()
+
+
 def _validate_blender_mcp(block):
     if not isinstance(block, dict):
         raise StudioError("blender_mcp must be an object")
@@ -32,7 +41,7 @@ def _validate_blender_mcp(block):
         if not isinstance(block[key], str) or not block[key].strip():
             raise StudioError(f"blender_mcp.{key} must be a non-empty string")
     for key in ("working_root", "blender_executable", "probe_python"):
-        if not Path(block[key]).is_absolute():
+        if not _is_absolute_lifecycle_path(block[key]):
             raise StudioError(f"blender_mcp.{key} must be absolute")
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", block["owner"]):
         raise StudioError(
@@ -46,6 +55,8 @@ def _validate_blender_mcp(block):
         or not server["command"].strip()
     ):
         raise StudioError("blender_mcp.server.command must be explicit")
+    if not _is_absolute_lifecycle_path(server["command"]):
+        raise StudioError("blender_mcp.server.command must be absolute")
     if not isinstance(server.get("args", []), list) or not all(
         isinstance(item, str) for item in server.get("args", [])
     ):

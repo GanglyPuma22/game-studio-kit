@@ -7,10 +7,33 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ownerName = $OwnerIdentity
+
+function Set-ReceiptContentAtomic {
+    # Write a receipt to a sibling temporary file and Move-Item -Force it over
+    # the prior record, so a mid-write interruption never leaves a truncated
+    # or partially written receipt behind for a later Ensure/Stop to trip on.
+    param(
+        [Parameter(Mandatory=$true)][string]$Path,
+        [Parameter(Mandatory=$true)]$Value,
+        [int]$Depth = 6
+    )
+    $directory = Split-Path -Parent $Path
+    $tempPath = Join-Path $directory ('.' + (Split-Path -Leaf $Path) + '.tmp-' + [Guid]::NewGuid().ToString('N'))
+    $Value | ConvertTo-Json -Depth $Depth | Set-Content -LiteralPath $tempPath -Encoding utf8
+    Move-Item -LiteralPath $tempPath -Destination $Path -Force
+}
+
 $lifecycleMutex = [System.Threading.Mutex]::new($false, 'Global\GameStudioKit-BlenderMCP-127_0_0_1-9876')
 $mutexAcquired = $false
 try {
-    $mutexAcquired = $lifecycleMutex.WaitOne([TimeSpan]::FromSeconds(10))
+    try {
+        $mutexAcquired = $lifecycleMutex.WaitOne([TimeSpan]::FromSeconds(10))
+    } catch [System.Threading.AbandonedMutexException] {
+        # The previous owner terminated while holding the lock. .NET signals this
+        # by throwing rather than returning true, but this wait still granted
+        # ownership; treat the lifecycle mutex as acquired and continue under it.
+        $mutexAcquired = $true
+    }
     if (!$mutexAcquired) { throw 'Another agent is currently changing the supervised Blender MCP lifecycle' }
 
 $receiptPath = [IO.Path]::GetFullPath($OwnershipReceipt)
@@ -32,7 +55,7 @@ if ($process) {
     if (!$process.WaitForExit($CloseTimeoutSeconds * 1000)) {
         $receipt.status = 'NEEDS_USER_CLOSE'
         $receipt | Add-Member -NotePropertyName cleanup_note -NotePropertyValue 'Blender did not close after CloseMainWindow; save or dismiss the visible prompt manually. No force-kill was attempted.' -Force
-        $receipt | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $receiptPath -Encoding utf8
+        Set-ReceiptContentAtomic -Path $receiptPath -Value $receipt
         throw $receipt.cleanup_note
     }
 }
@@ -41,7 +64,7 @@ $remainingListener = @(Get-NetTCPConnection -State Listen -LocalPort 9876 -Error
 if ($remainingListener.Count) { throw 'Owned Blender exited but its listener remains unexpectedly' }
 $receipt.status = 'CLOSED'
 $receipt | Add-Member -NotePropertyName closed_utc -NotePropertyValue ([DateTimeOffset]::UtcNow.ToString('o')) -Force
-$receipt | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $receiptPath -Encoding utf8
+Set-ReceiptContentAtomic -Path $receiptPath -Value $receipt
 
 $activePath = Join-Path $WorkingRoot 'active-receipt.json'
 if (Test-Path -LiteralPath $activePath) {
