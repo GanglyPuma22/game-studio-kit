@@ -145,6 +145,7 @@ existing global instructions, append after them.
 ```powershell
 $Kit = "C:\Tools\game-studio-kit"
 $Codex = Join-Path $env:USERPROFILE ".codex"
+New-Item -ItemType Directory -Force -Path $Codex | Out-Null
 Add-Content -Path (Join-Path $Codex "AGENTS.md") -Value ("`n" + (Get-Content -Raw (Join-Path $Kit "references\codex\AGENTS-overnight.md")))
 New-Item -ItemType Directory -Force -Path (Join-Path $Codex "skills\overnight-run") | Out-Null
 @"

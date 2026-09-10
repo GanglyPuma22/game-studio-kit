@@ -58,6 +58,41 @@ class OvernightRunTests(unittest.TestCase):
         self.assertLess(text.index("Player-facing outcome"), text.index("Scorecard"))
         self.assertLess(text.index("Not demonstrated"), text.index("Evidence index"))
 
+    def test_benchmark_example_scopes_both_commands_and_caps_the_capture_timeout(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        example = procedure[procedure.index("## 4. Benchmarks"):procedure.index("## 5. Root refresh")]
+        self.assertEqual(example.count("--scope <rung>"), 2)
+        self.assertIn("bench cleanroom --project <GAME>", example)
+        self.assertIn("--timeout 2700", example)
+        self.assertIn("persist it in\ntheir receipts", procedure)
+
+    def test_stage_four_and_five_state_their_launch_totals(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        self.assertIn("one capture per rung plus one repeat (five for the four-rung example)", procedure)
+        self.assertIn("3 per hypothesis, 6 in total", procedure)
+        self.assertIn("stop at 6 total launches", procedure)
+
+    def test_run_id_convention_and_evidence_root_are_defined(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        self.assertIn("`<run>` is `<GAME>/artifacts/runs/<run-id>/`", procedure)
+        self.assertIn("must start with `<run-id>-`", procedure)
+        self.assertIn("evidence launches <GAME>/artifacts/launches", procedure)
+        for template in (ROOT / "templates/return.md", ROOT / "templates/state.md"):
+            self.assertIn("<run-id>-<stage>-<n>", template.read_text(encoding="utf-8"))
+
+    def test_worker_brief_schema_uses_status_and_incomplete_fields(self):
+        brief = (ROOT / "templates/worker-brief.md").read_text(encoding="utf-8")
+        self.assertIn('"status": "complete" | "incomplete"', brief)
+        self.assertIn('"incomplete_fields": []', brief)
+        self.assertNotIn("not_run", brief)
+
+    def test_setup_windows_creates_codex_dir_before_first_add_content(self):
+        setup = (ROOT / "docs/setup-windows.md").read_text(encoding="utf-8")
+        self.assertLess(
+            setup.index('New-Item -ItemType Directory -Force -Path $Codex'),
+            setup.index("Add-Content"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

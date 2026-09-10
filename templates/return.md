@@ -12,8 +12,8 @@
 |---|---|---|---|---|
 | 1 Host readiness | | | `preflight.json` | |
 | 2 Source compile | | | | |
-| 3 Native admission | | | `artifacts/launches/<label>/exit.json` | |
-| 4 Performance cleanroom | | | `artifacts/bench/<label>/cleanroom.json` (`attributable`) | |
+| 3 Native admission | | | `artifacts/launches/<run-id>-<stage>-<n>/exit.json` | |
+| 4 Performance cleanroom | | | `artifacts/bench/<run-id>-<stage>-<n>/cleanroom.json` (`attributable`) | |
 | 5 Traversal | | | | |
 | 6 Visual review | | | | |
 | 7 Audiovisual and human acceptance | | | | pending the user |

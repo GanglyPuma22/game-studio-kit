@@ -11,6 +11,7 @@ Updated: <UTC>  Compactions so far: <n>  (refresh the root after the third)
 ## Progress
 | Stage | Scope rung | Verdict | Artifact |
 |---|---|---|---|
+<!-- Artifact paths: artifacts/launches/<run-id>-<stage>-<n>/exit.json, artifacts/bench/<run-id>-<stage>-<n>/cleanroom.json -->
 
 ## Open blockers
 -
