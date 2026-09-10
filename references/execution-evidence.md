@@ -107,7 +107,11 @@ errors, every `--result` present), `engine_errors`, `results_missing`, `failed`,
 `timed_out`, `start_failed`, `interrupted`, `cutoff_passed`. Only `completed` is
 `ok`; the command exits 1 otherwise and still prints the verdict to stdout.
 Exit zero is not acceptance. Receipts never contain argv values or environment;
-passthrough arguments are counted, not recorded.
+passthrough arguments are counted, not recorded. `--scope <id>` names the scope
+rung the launch is evidence for; it is validated like a label and persisted as
+`scope` in `owned-launch.json`, `exit.json`, the returned verdict and every
+inventory entry (`null` when omitted), so a lower-rung result cannot be cited
+for a higher rung.
 
 `evidence launches <run root>` indexes every `owned-launch.json` under a root,
 pairs it with its `exit.json` and process record, hashes both receipts, counts

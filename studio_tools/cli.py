@@ -41,6 +41,7 @@ def parser():
     c.add_argument("--timeout", type=float, help="Seconds; defaults to host timeout, bounded by --cutoff-utc")
     c.add_argument("--cutoff-utc", help="ISO 8601 UTC instant after which no launch may start or run")
     c.add_argument("--label", help="Run identity under artifacts/launches; default is a new UUID")
+    c.add_argument("--scope", help="Scope rung this launch is evidence for; persisted in the receipts")
     c.add_argument("--result", action="append", default=[], help="Project-relative file the run must produce")
     c.add_argument("--scrub-env", action="append", default=[], help="Environment prefix removed from the child")
     c.add_argument("passthrough", nargs=argparse.REMAINDER, help="Arguments after -- go to the engine unchanged")
@@ -231,7 +232,7 @@ def dispatch(a):
         return launch_execute(
             config, root, sha256_expected=a.sha256, engine=a.engine, mode=a.mode,
             script=a.script, timeout=a.timeout, cutoff_utc=a.cutoff_utc, label=a.label,
-            results=a.result, scrub=a.scrub_env, passthrough=passthrough,
+            scope=a.scope, results=a.result, scrub=a.scrub_env, passthrough=passthrough,
         )
     if a.command == "review":
         from . import validation, review_media, review_video

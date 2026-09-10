@@ -75,7 +75,7 @@ def build_args(config, project, engine, mode, script=None, passthrough=()):
 
 def execute(
     config, project, *, sha256_expected, engine=None, mode="import", script=None,
-    timeout=None, cutoff_utc=None, label=None, results=(), scrub=(), passthrough=(),
+    timeout=None, cutoff_utc=None, label=None, scope=None, results=(), scrub=(), passthrough=(),
 ):
     """Verify identity, launch once, wait, and return a verdict with receipts."""
     root = Path(project).resolve()
@@ -102,6 +102,9 @@ def execute(
     if not all(isinstance(p, str) and p for p in prefixes):
         raise StudioError("Environment scrub prefixes must be non-empty strings")
     label = safe_id(label) if label else uuid.uuid4().hex
+    # The scope rung this launch is evidence for; validated like a label so a
+    # receipt can be matched to a ladder rung without free text.
+    scope = safe_id(scope) if scope is not None else None
     run_dir = root / "artifacts" / "launches" / label
     try:
         run_dir.mkdir(parents=True, exist_ok=False)
@@ -120,6 +123,7 @@ def execute(
         "schema_version": 1,
         "kind": "owned-launch",
         "label": label,
+        "scope": scope,
         "mode": mode,
         "engine": {"path": str(engine_path.resolve()), "sha256": actual},
         "project": str(root),
@@ -187,6 +191,7 @@ def _finish(root, run_dir, launch, record, text, verdict, failure):
         "schema_version": 1,
         "kind": "launch-exit",
         "label": launch["label"],
+        "scope": launch.get("scope"),
         "verdict": verdict,
         "ok": verdict == "completed",
         "status": status,
@@ -242,6 +247,7 @@ def inventory(run_root, output=None):
             "launch": file_record(root, path),
             "exit": file_record(root, exit_path) if exit_record else None,
             "mode": launch.get("mode"),
+            "scope": launch.get("scope"),
             "verdict": (exit_record or {}).get("verdict", "no_exit_record"),
             "ok": (exit_record or {}).get("ok") is True,
             "status": (process or {}).get("status", launch.get("status")),

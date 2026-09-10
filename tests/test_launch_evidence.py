@@ -159,23 +159,39 @@ class OwnedLaunchTests(LaunchCase):
                 launch.execute(self.config, self.root, sha256_expected=self.sha, results=["../escape.json"])
             run.assert_not_called()
 
+    def test_scope_is_persisted_in_receipts_and_invalid_scope_is_refused_before_launch(self):
+        result = self.execute("print('scoped')", label="scoped", scope="rung-2")
+        self.assertEqual(result["scope"], "rung-2")
+        run_dir = self.root / "artifacts/launches/scoped"
+        self.assertEqual(read_json(run_dir / "owned-launch.json")["scope"], "rung-2")
+        self.assertEqual(read_json(run_dir / "exit.json")["scope"], "rung-2")
+        unscoped = self.execute("print('plain')", label="plain")
+        self.assertIsNone(unscoped["scope"])
+        self.assertIsNone(read_json(self.root / "artifacts/launches/plain/owned-launch.json")["scope"])
+        with patch("studio_tools.launch.run") as run:
+            with self.assertRaisesRegex(StudioError, "letters, digits"):
+                launch.execute(self.config, self.root, sha256_expected=self.sha, label="bad-scope", scope="rung 2/full")
+            run.assert_not_called()
+        self.assertFalse((self.root / "artifacts/launches/bad-scope").exists())
+
     def test_cli_launch_passthrough_and_native_visibility(self):
         with patch("studio_tools.launch.run", side_effect=self.fake_child("print('cli')")):
             with contextlib.redirect_stdout(io.StringIO()) as out:
                 code = cli.main(["launch", "--project", str(self.root), "--engine", sys.executable, "--sha256", self.sha, "--mode", "native",
-                                 "--script", "res://tests/probe.gd", "--label", "cli", "--", "--regional", "1"])
+                                 "--script", "res://tests/probe.gd", "--label", "cli", "--scope", "rung-1", "--", "--regional", "1"])
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(out.getvalue())["verdict"], "completed")
         self.assertEqual(self.last_args[-2:], ["--regional", "1"])
         self.assertFalse(self.last_kwargs["hide_window"])
         owned = read_json(self.root / "artifacts/launches/cli/owned-launch.json")
         self.assertEqual(owned["passthrough_count"], 2)
+        self.assertEqual(owned["scope"], "rung-1")
         self.assertNotIn("--regional", json.dumps(owned))
 
 
 class LaunchInventoryTests(LaunchCase):
     def test_inventory_pairs_launches_and_flags_missing_exit(self):
-        self.execute("print('ok')", label="good")
+        self.execute("print('ok')", label="good", scope="rung-1")
         self.execute("import time;time.sleep(30)", label="slow", timeout=1)
         launches = self.root / "artifacts/launches"
         shutil.copytree(launches / "good", launches / "orphan")
@@ -186,6 +202,8 @@ class LaunchInventoryTests(LaunchCase):
         self.assertEqual(data["totals"], {"launches": 3, "completed": 1, "not_ok": 2, "timed_out": 1, "missing_exit": 1})
         by_dir = {entry["dir"]: entry for entry in data["launches"]}
         self.assertEqual(by_dir["good"]["verdict"], "completed")
+        self.assertEqual(by_dir["good"]["scope"], "rung-1")
+        self.assertIsNone(by_dir["slow"]["scope"])
         self.assertEqual(by_dir["slow"]["verdict"], "timed_out")
         self.assertEqual(by_dir["slow"]["cleanup"], "owned_tree_stopped")
         self.assertEqual(by_dir["orphan"]["verdict"], "no_exit_record")

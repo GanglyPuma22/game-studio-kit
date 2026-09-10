@@ -38,5 +38,7 @@ Modes: `import` (`--headless --audio-driver Dummy --editor --import`), `test` an
 Arguments after `--` reach the engine unchanged. The expected engine SHA-256 is
 mandatory and is verified before launch; a mismatch refuses to start. Use
 `--cutoff-utc` for an authorized window and `--result` for every file the script
-must produce. Headless modes never establish appearance, audible output or
+must produce. `--scope <id>` records the scope rung the launch is evidence for in
+both receipts and the verdict, so a lower-rung result is never cited for a higher
+one. Headless modes never establish appearance, audible output or
 ordinary controls.
