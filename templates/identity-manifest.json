@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "kind": "identity-manifest",
+  "items": [
+    {
+      "id": "engine",
+      "role": "engine",
+      "path": "C:/Engines/godot-4.7/godot.console.exe",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "id": "terrain-package",
+      "role": "package",
+      "path": "source/terrain/planet-package.bin",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ]
+}
