@@ -289,7 +289,6 @@ try {
     $receipt.status = 'RUNNING'
     $receipt.listener = '127.0.0.1:9876'
     Set-ReceiptContentAtomic -Path $ownershipReceipt -Value $receipt
-    Set-ReceiptContentAtomic -Path $activePath -Value @{receipt_path=[IO.Path]::GetFullPath($ownershipReceipt)} -Depth 2
     $freshHealthArgs = @{
         OwnershipReceipt = $ownershipReceipt
         WorkingRoot = $WorkingRoot
@@ -297,7 +296,13 @@ try {
         McpServerConfig = $McpServerConfig
         OwnerIdentity = $ownerName
     }
+    # Publish the durable active pointer only after the initial protocol
+    # probe has actually passed. The probe is always called with this exact
+    # $ownershipReceipt (never falling back to $activePath), so publishing
+    # it earlier would let a concurrent Ensure's reuse path adopt a session
+    # that has not yet been verified to speak the protocol at all.
     $healthJson = Invoke-LifecycleHealthCheck -Script $testScript -Arguments $freshHealthArgs -FailureMessage 'New owned Blender session failed its protocol probe'
+    Set-ReceiptContentAtomic -Path $activePath -Value @{receipt_path=[IO.Path]::GetFullPath($ownershipReceipt)} -Depth 2
     $result = $healthJson | ConvertFrom-Json
     $result | Add-Member -NotePropertyName reused -NotePropertyValue $false
     $result | Add-Member -NotePropertyName native_client_rehandshake_policy -NotePropertyValue $rehandshakePolicy

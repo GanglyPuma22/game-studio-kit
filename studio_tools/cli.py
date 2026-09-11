@@ -55,6 +55,12 @@ def parser():
     c.add_argument("--session")
     c.add_argument("--receipt")
     c.add_argument("--plan-only", action="store_true")
+    c.add_argument(
+        "--probe",
+        action="store_true",
+        help="Force the full native protocol round-trip (ensure/status only); "
+        "requires no connected app client",
+    )
     c = command("terrain", True)
     c.add_argument("--output", default="source/terrain")
     c.add_argument("--resolution", type=int, default=33)
@@ -166,6 +172,10 @@ def dispatch(a):
     if a.command == "blender-mcp":
         from .blender_mcp_lifecycle import execute
 
+        if a.plan_only and a.operation != "ensure":
+            raise StudioError("--plan-only is supported by blender-mcp ensure only")
+        if a.probe and a.operation not in {"ensure", "status"}:
+            raise StudioError("--probe is supported by blender-mcp ensure and status only")
         return execute(
             config,
             a.config,
@@ -175,6 +185,7 @@ def dispatch(a):
             session=a.session,
             receipt=a.receipt,
             plan_only=a.plan_only,
+            probe=a.probe,
         )
     # Read-only validation does not create the project directory.
     root = (

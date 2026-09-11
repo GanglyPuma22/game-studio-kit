@@ -523,6 +523,125 @@ class BlenderMcpLifecycleCliTests(unittest.TestCase):
         self.assertEqual(args.command, "blender-mcp")
         self.assertEqual(args.operation, "ensure")
 
+    def test_cli_rejects_plan_only_for_non_ensure_operations(self):
+        from studio_tools import cli
+
+        stderr = io.StringIO()
+        with patch(
+            "studio_tools.blender_mcp_lifecycle.subprocess.run"
+        ) as runner, contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(
+            io.StringIO()
+        ):
+            exit_code = cli.main(
+                [
+                    "blender-mcp",
+                    "stop",
+                    "--project",
+                    str(self.game),
+                    "--config",
+                    str(self.host),
+                    "--plan-only",
+                ]
+            )
+        self.assertEqual(exit_code, 1)
+        runner.assert_not_called()
+        self.assertEqual(
+            json.loads(stderr.getvalue())["error"],
+            "--plan-only is supported by blender-mcp ensure only",
+        )
+
+    def test_cli_rejects_probe_for_stop_and_contracts(self):
+        from studio_tools import cli
+
+        for operation in ("stop", "contracts"):
+            stderr = io.StringIO()
+            with self.subTest(operation=operation), patch(
+                "studio_tools.blender_mcp_lifecycle.subprocess.run"
+            ) as runner, contextlib.redirect_stderr(
+                stderr
+            ), contextlib.redirect_stdout(io.StringIO()):
+                exit_code = cli.main(
+                    [
+                        "blender-mcp",
+                        operation,
+                        "--project",
+                        str(self.game),
+                        "--config",
+                        str(self.host),
+                        "--probe",
+                    ]
+                )
+                self.assertEqual(exit_code, 1)
+                runner.assert_not_called()
+                self.assertEqual(
+                    json.loads(stderr.getvalue())["error"],
+                    "--probe is supported by blender-mcp ensure and status only",
+                )
+
+    def test_status_defaults_to_skip_protocol_probe_but_probe_flag_forces_it(self):
+        from studio_tools.blender_mcp_lifecycle import execute
+
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout='{"status":"PASS"}', stderr=""
+        )
+        with patch(
+            "studio_tools.blender_mcp_lifecycle._powershell", return_value="pwsh.exe"
+        ), patch(
+            "studio_tools.blender_mcp_lifecycle.subprocess.run", return_value=completed
+        ) as runner:
+            execute(load(path=self.host), self.host, self.game, "status")
+        self.assertIn("-SkipProtocolProbe", runner.call_args.args[0])
+
+        with patch(
+            "studio_tools.blender_mcp_lifecycle._powershell", return_value="pwsh.exe"
+        ), patch(
+            "studio_tools.blender_mcp_lifecycle.subprocess.run", return_value=completed
+        ) as runner:
+            execute(load(path=self.host), self.host, self.game, "status", probe=True)
+        self.assertNotIn("-SkipProtocolProbe", runner.call_args.args[0])
+
+    def test_ensure_probe_flag_forwards_probe_switch(self):
+        from studio_tools.blender_mcp_lifecycle import execute
+
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout='{"status":"PLAN_VALID"}', stderr=""
+        )
+        with patch(
+            "studio_tools.blender_mcp_lifecycle._powershell", return_value="pwsh.exe"
+        ), patch(
+            "studio_tools.blender_mcp_lifecycle.subprocess.run", return_value=completed
+        ) as runner:
+            execute(
+                load(path=self.host),
+                self.host,
+                self.game,
+                "ensure",
+                source="source/asset.blend",
+                session="review-fix",
+                probe=True,
+            )
+        self.assertIn("-Probe", runner.call_args.args[0])
+
+    def test_status_and_stop_reject_a_receipt_path_inside_the_kit(self):
+        from studio_tools.blender_mcp_lifecycle import execute
+
+        receipt_inside_kit = ROOT / "runs" / "ownership.json"
+        for operation in ("status", "stop"):
+            with self.subTest(operation=operation), patch(
+                "studio_tools.blender_mcp_lifecycle.subprocess.run"
+            ) as runner:
+                with self.assertRaisesRegex(
+                    StudioError, "must be outside the installed kit"
+                ):
+                    execute(
+                        load(path=self.host),
+                        self.host,
+                        self.game,
+                        operation,
+                        receipt=receipt_inside_kit,
+                    )
+                runner.assert_not_called()
+
 
 class BlenderMcpPowerShellRegressionTests(unittest.TestCase):
     @staticmethod
@@ -618,6 +737,17 @@ class BlenderMcpPowerShellRegressionTests(unittest.TestCase):
         self.assertIn("$workingRootFull = Resolve-ReparseTarget", source)
         self.assertNotIn("$kitRoot = [IO.Path]::GetFullPath", source)
         self.assertNotIn("$workingRootFull = [IO.Path]::GetFullPath", source)
+
+    def test_active_pointer_is_published_only_after_the_initial_probe(self):
+        source = self._source("Ensure-SupervisedBlenderMCP.ps1")
+        cold_start = source[source.index("$freshHealthArgs = @{") : source.index("\n} catch {")]
+        probe_index = cold_start.index(
+            "Invoke-LifecycleHealthCheck -Script $testScript -Arguments $freshHealthArgs"
+        )
+        pointer_index = cold_start.index("Set-ReceiptContentAtomic -Path $activePath")
+        # A concurrent Ensure's reuse path must never be able to adopt a
+        # fresh session before its own protocol probe has actually passed.
+        self.assertLess(probe_index, pointer_index)
 
     def test_health_check_helper_judges_outcome_not_a_bare_exit_code(self):
         source = self._source("Ensure-SupervisedBlenderMCP.ps1")

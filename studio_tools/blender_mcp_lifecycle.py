@@ -5,7 +5,7 @@ from pathlib import Path
 import shutil
 import subprocess
 
-from .common import StudioError, relative
+from .common import StudioError, outside_package, relative
 
 
 LIFECYCLE_ROOT = (
@@ -60,6 +60,7 @@ def execute(
     session=None,
     receipt=None,
     plan_only=False,
+    probe=False,
 ):
     """Run a packaged lifecycle helper using one host file and project root."""
     if not config_path:
@@ -101,6 +102,8 @@ def execute(
         ]
         if plan_only:
             arguments.append("-PlanOnly")
+        if probe:
+            arguments.append("-Probe")
         return _run("Ensure-SupervisedBlenderMCP.ps1", arguments)
     if operation == "status":
         arguments = [
@@ -111,13 +114,26 @@ def execute(
             host_path,
         ]
         if receipt:
-            arguments.extend(("-OwnershipReceipt", Path(receipt).resolve()))
+            arguments.extend(
+                ("-OwnershipReceipt", outside_package(receipt, "Blender MCP receipt"))
+            )
+        # A full protocol probe opens a second MCP bridge that can contend
+        # with an already-connected app client for the add-on's single
+        # active connection; default to the lightweight, non-probing check
+        # and only pay for the round-trip when --probe is explicitly asked
+        # for (which requires no connected app client).
+        if not probe:
+            arguments.append("-SkipProtocolProbe")
         return _run("Test-SupervisedBlenderMCP.ps1", arguments)
     if operation == "stop":
         if not receipt:
             raise StudioError("Blender MCP stop requires --receipt")
         return _run(
             "Stop-SupervisedBlenderMCP.ps1",
-            ["-OwnershipReceipt", Path(receipt).resolve(), *common],
+            [
+                "-OwnershipReceipt",
+                outside_package(receipt, "Blender MCP receipt"),
+                *common,
+            ],
         )
     raise StudioError("Unknown Blender MCP lifecycle operation")

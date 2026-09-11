@@ -56,6 +56,7 @@ $contracts = @(
     @{Name='ensure checks dollar-question as a defense-in-depth failure signal'; Text=$ensure; Pattern='if \(!\$\? -or'},
     @{Name='ensure routes reuse health through the shared check helper'; Text=$ensure; Pattern='Invoke-LifecycleHealthCheck -Script \$testScript -Arguments \$reuseHealthArgs'},
     @{Name='ensure routes fresh-start health through the shared check helper'; Text=$ensure; Pattern='Invoke-LifecycleHealthCheck -Script \$testScript -Arguments \$freshHealthArgs'},
+    @{Name='ensure publishes the active pointer only after the initial probe passes'; Text=$ensure; Pattern='Invoke-LifecycleHealthCheck -Script \$testScript -Arguments \$freshHealthArgs.*\r?\n\s*Set-ReceiptContentAtomic -Path \$activePath'},
     @{Name='ensure guards active pointer parsing'; Text=$ensure; Pattern='if \(Test-Path -LiteralPath \$activePath\) \{\s*try \{\s*\$active = .+ConvertFrom-Json'},
     @{Name='ensure verifies working copy hash'; Text=$ensure; Pattern='workingCopySha'},
     @{Name='ensure closes owned startup failures without force'; Text=$ensure; Pattern='STARTUP_FAILED_CLOSED'},

@@ -69,13 +69,20 @@ def relative(root, name):
     return target
 
 
-def output_root(path):
-    root = Path(path).expanduser().resolve()
+def outside_package(path, subject="Path"):
+    """Resolve `path` and reject it if it is, or lies inside, the installed
+    toolkit/package cache. Does not touch the filesystem otherwise, so it is
+    safe to use on a file (e.g. a receipt) as well as a directory.
+    """
+    resolved = Path(path).expanduser().resolve()
     package = Path(__file__).resolve().parents[1]
-    if root == package or root.is_relative_to(package):
-        raise StudioError(
-            "Output must be outside the toolkit/package cache; choose a game project directory"
-        )
+    if resolved == package or resolved.is_relative_to(package):
+        raise StudioError(f"{subject} must be outside the installed kit")
+    return resolved
+
+
+def output_root(path):
+    root = outside_package(path, "Output")
     root.mkdir(parents=True, exist_ok=True)
     return root
 
