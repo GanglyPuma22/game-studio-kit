@@ -146,13 +146,18 @@ existing global instructions, append after them.
 $Kit = "C:\Tools\game-studio-kit"
 $Codex = Join-Path $env:USERPROFILE ".codex"
 New-Item -ItemType Directory -Force -Path $Codex | Out-Null
-Add-Content -Path (Join-Path $Codex "AGENTS.md") -Value ("`n" + (Get-Content -Raw (Join-Path $Kit "references\codex\AGENTS-overnight.md")))
-New-Item -ItemType Directory -Force -Path (Join-Path $Codex "skills\overnight-run") | Out-Null
 $PointerPath = Join-Path $Codex "skills\overnight-run\SKILL.md"
 $Marker = "<!-- game-studio-kit overnight-run pointer -->"
 if ((Test-Path $PointerPath) -and -not (Select-String -Path $PointerPath -Pattern ([regex]::Escape($Marker)) -Quiet)) {
     throw "Refusing to overwrite $PointerPath: it exists and is not a game-studio-kit pointer. Resolve the conflict by hand, then rerun."
 }
+$AgentsPath = Join-Path $Codex "AGENTS.md"
+$BlockHeading = "# Overnight and production runs"
+$AlreadyInstalled = (Test-Path $AgentsPath) -and (Select-String -Path $AgentsPath -Pattern $BlockHeading -SimpleMatch -Quiet)
+if (-not $AlreadyInstalled) {
+    Add-Content -Path $AgentsPath -Value ("`n" + (Get-Content -Raw (Join-Path $Kit "references\codex\AGENTS-overnight.md")))
+}
+New-Item -ItemType Directory -Force -Path (Join-Path $Codex "skills\overnight-run") | Out-Null
 @"
 ---
 name: overnight-run
@@ -163,10 +168,13 @@ Read and follow $Kit\skills\studio-director\references\overnight-run.md. Its com
 "@ | Set-Content -Path $PointerPath -Encoding UTF8
 ```
 
-The marker line identifies a pointer this kit wrote; the check above refuses
-to overwrite a `SKILL.md` some other skill or a hand-authored file already
-occupies, and replaces it cleanly when the marker shows it is this kit's own
-prior pointer. Confirm in a throwaway Codex session by asking which rules
-apply to an overnight run. Update the pointer when the kit checkout moves;
-the block itself carries no host paths.
+The pointer-collision check runs before anything is written, including the
+`AGENTS.md` append: it refuses to overwrite a `SKILL.md` some other skill or
+a hand-authored file already occupies, and replaces it cleanly when the
+marker shows it is this kit's own prior pointer. The `AGENTS.md` append is
+idempotent: it only runs when the file does not already contain the block's
+heading, so rerunning this snippet never duplicates the block. Confirm in a
+throwaway Codex session by asking which rules apply to an overnight run.
+Update the pointer when the kit checkout moves; the block itself carries no
+host paths.
 

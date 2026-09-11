@@ -124,6 +124,46 @@ class OvernightRunTests(unittest.TestCase):
         for stage in ("Native admission", "Performance cleanroom", "Traversal"):
             self.assertIn(stage, procedure)
 
+    def test_setup_windows_checks_pointer_conflict_before_appending_global_rules(self):
+        setup = (ROOT / "docs/setup-windows.md").read_text(encoding="utf-8")
+        self.assertLess(
+            setup.index("Refusing to overwrite $PointerPath"),
+            setup.index("Add-Content"),
+        )
+        self.assertIn("# Overnight and production runs", setup)
+        self.assertIn("-SimpleMatch", setup)
+
+    def test_worktree_precedes_verification_in_preflight(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        preflight = procedure[procedure.index("## 1. Preflight"):procedure.index("## 2. Stage gates")]
+        self.assertLess(preflight.index("Fresh worktree"), preflight.index("candidate verify"))
+        self.assertIn("records identities at the moment it runs", preflight)
+
+    def test_preflight_stop_rule_is_scoped_to_windows(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        block = BLOCK.read_text(encoding="utf-8")
+        for text in (procedure, block):
+            self.assertIn("host_kind: unsupported", text)
+            self.assertIn("Windows", text)
+
+    def test_launch_inventory_root_is_the_run_worktree(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        self.assertIn("never reuses a worktree", procedure)
+        self.assertIn("There is no\nflag to filter by run", procedure)
+
+    def test_worker_brief_omits_incomplete_fields_instead_of_using_null(self):
+        brief = (ROOT / "templates/worker-brief.md").read_text(encoding="utf-8")
+        self.assertNotIn("use `null`", brief)
+        self.assertIn("omit any field not produced", brief)
+        self.assertIn("incomplete_fields", brief)
+
+    def test_state_md_checkpoints_are_enumerated(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        self.assertIn("is write-once", procedure)
+        self.assertIn("rewritten atomically", procedure)
+        for checkpoint in ("after each preflight attempt", "at each stage transition", "after the third compaction", "at handback"):
+            self.assertIn(checkpoint, procedure)
+
 
 if __name__ == "__main__":
     unittest.main()

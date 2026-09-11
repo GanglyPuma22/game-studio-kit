@@ -21,7 +21,7 @@ These rules apply whenever a prompt names an overnight, unattended, production o
 - Harness bugs are fixed and re-tested in a headless fixture, never by relaunching a multi-minute native run.
 
 ## Host and benchmarks
-- Run `studio host preflight` for the window before the first launch; stop with NEEDS-USER if it is not ready.
+- Run `studio host preflight` for the window before the first launch. On Windows, stop with NEEDS-USER if it is not ready. On other hosts it reports `host_kind: unsupported`; record that and continue, the stop rule does not apply there.
 - Before and after every timed capture the cleanroom snapshot pair must exist and the capture must be attributable. No tool calls of any kind during the window. Close only run-owned processes; record everything else.
 
 ## Handback

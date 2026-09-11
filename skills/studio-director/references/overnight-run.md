@@ -17,17 +17,17 @@ attempt, under `<run>/host/`) live there. Every launch and bench label
 must start with `<run-id>-` so receipts from different runs are never
 confused with each other.
 
-1. `python <KIT>/scripts/studio.py host preflight --window-start <UTC> --window-end <UTC> --output <run>/host/preflight-<UTC stamp>.json`, a fresh stamped path per attempt so a failed receipt is never overwritten or deleted; record which one is current in `STATE.md`. Stop with NEEDS-USER if it is not ready; `host apply` may run only after the user has validated the script by hand once.
-2. Copy [identity-manifest](../../../templates/identity-manifest.json) to `<run>/identity-manifest.json` and fill it from the production contract (engine path and sha256, project sources), or use the manifest path the contract already provides. Do this before verification: `candidate verify` needs the manifest file to exist.
-3. `python <KIT>/scripts/studio.py candidate verify --project <GAME> --manifest <run>/identity-manifest.json` for the engine, helpers, sources and packages the contract names. A mismatch stops the run.
-4. Fresh worktree at the pinned revision; never the preserved candidate.
-5. Create `<run>/STATE.md` from [state](../../../templates/state.md). There is no ledger script: the machine ledgers are the receipts the kit commands already write (preflight receipts, `owned-launch.json`, `exit.json`, `cleanroom.json`, identity `verify-*.json`) plus the inventory `evidence launches` builds from them. Never hand-write or poll for a ledger or heartbeat; a blocking launch replaces polling. `STATE.md` and `RETURN.md` are the only hand-maintained run records, each written once from its template.
+1. `python <KIT>/scripts/studio.py host preflight --window-start <UTC> --window-end <UTC> --output <run>/host/preflight-<UTC stamp>.json`, a fresh stamped path per attempt so a failed receipt is never overwritten or deleted; record which one is current in `STATE.md`. This gate applies only on Windows hosts: `host preflight` reports `host_kind: unsupported` elsewhere. On Windows, stop with NEEDS-USER if it is not ready; `host apply` may run only after the user has validated the script by hand once. On any other host, record `host preflight: unsupported on this host` in `STATE.md` and continue; the cleanroom snapshot pair (stage 4) stays mandatory everywhere for performance evidence regardless of preflight support.
+2. Fresh worktree at the pinned revision; never the preserved candidate. This worktree is `<GAME>` for the rest of the run: every later stage's `--project` points at it, and it is never recreated or swapped mid-run.
+3. Copy [identity-manifest](../../../templates/identity-manifest.json) to `<run>/identity-manifest.json` and fill it from the production contract (engine path and sha256, project sources in the worktree from step 2), or use the manifest path the contract already provides.
+4. `python <KIT>/scripts/studio.py candidate verify --project <GAME> --manifest <run>/identity-manifest.json` for the engine, helpers, sources and packages the contract names, hashed from the worktree created in step 2. A mismatch stops the run. Verification records identities at the moment it runs; it must be run against the same worktree every later stage uses, never a worktree created or swapped afterward.
+5. Create `<run>/STATE.md` from [state](../../../templates/state.md). There is no ledger script: the machine ledgers are the receipts the kit commands already write (preflight receipts, `owned-launch.json`, `exit.json`, `cleanroom.json`, identity `verify-*.json`) plus the inventory `evidence launches` builds from them. Never hand-write or poll for a ledger or heartbeat; a blocking launch replaces polling. `STATE.md` and `RETURN.md` are the only hand-maintained run records: `RETURN.md` is write-once, at the end (Section 6). `STATE.md` is rewritten atomically from its template only at defined checkpoints — after each preflight attempt, at each stage transition, after the third compaction (Section 5, root refresh), and at handback — and gets no other edits.
 
 ## 2. Stage gates
 
 | Stage | Owner | Kit command / artifact | Max launches | Max minutes | Stop rule |
 |---|---|---|---|---|---|
-| 1 Host readiness | root | `host preflight` receipt | 0 | 20 | not ready → NEEDS-USER |
+| 1 Host readiness | root | `host preflight` receipt | 0 | 20 | not ready (Windows) → NEEDS-USER; unsupported elsewhere → continue |
 | 2 Source compile | root (script), via kit commands; worker analyzes | terrain/composition build owned and written by the root; worker report JSON | 0 | 60, one compaction | report missing → stop stage |
 | 3 Native admission | root | `launch --mode native` verdict JSON | 2 | 30 | second verdict not `completed` → stop (retryable) |
 | 4 Performance cleanroom | root, idle | `bench cleanroom -- launch ...` with `attributable: true` | one capture per rung plus one repeat (five for the four-rung example) | 45 | fails the frame budget → one attribution pass, no new scope (retryable) |
@@ -97,7 +97,11 @@ player-facing metrics first (minutes of ordinary-control play, distance
 travelled, landings, encounters), then the scorecard by stage and scope, then
 what was not demonstrated, then the evidence index produced by
 `python <KIT>/scripts/studio.py evidence launches <GAME>/artifacts/launches`.
-If the run stopped before any launch was owned (at preflight or stage 2, so
+A run never reuses a worktree: the pinned worktree from Preflight step 2 is
+`--project` for every launch this run makes, so `<GAME>/artifacts/launches`
+is this run's own inventory root and holds only its launches. There is no
+flag to filter by run; never place another run's launches under this
+worktree. If the run stopped before any launch was owned (at preflight or stage 2, so
 no `owned-launch.json` exists yet), skip that command — it raises when the
 run root has no launches — and write `launch inventory: none (no launches)`
 under Evidence index together with the stop reason. Preserve failures.
