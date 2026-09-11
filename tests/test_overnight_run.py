@@ -167,7 +167,8 @@ class OvernightRunTests(unittest.TestCase):
 
     def test_stage5_launch_uses_explicit_native_mode(self):
         procedure = PROCEDURE.read_text(encoding="utf-8")
-        self.assertIn("| 5 Traversal | root | `launch --mode native` with the game's route probe", procedure)
+        self.assertIn("| 5 Traversal | root | `launch --mode native", procedure)
+        self.assertIn("with the game's route probe and synthetic input", procedure)
         self.assertIn("default mode is `import`", procedure)
 
     def test_preflight_stop_rule_is_scoped_to_windows(self):
@@ -194,6 +195,49 @@ class OvernightRunTests(unittest.TestCase):
         self.assertIn("rewritten atomically", procedure)
         for checkpoint in ("after each preflight attempt", "at each stage transition", "after the third compaction", "at handback"):
             self.assertIn(checkpoint, procedure)
+
+    def test_corrections_invalidate_all_stage_evidence(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        self.assertIn("every stage 3-7 receipt recorded under the previous digest is invalid", procedure)
+        self.assertIn("no exception for a correction that only touched a renderer, LOD or scope setting", procedure)
+        self.assertIn("stages 3 through 7 are repeated in order under the new digest", procedure)
+        self.assertEqual(procedure.count("may cite only receipts produced under the final"), 2)
+        self.assertNotIn("Stage 4 runs immediately after any renderer, LOD or scope change and blocks", procedure)
+        state = (ROOT / "templates/state.md").read_text(encoding="utf-8")
+        self.assertIn("Candidate digest", state)
+
+    def test_worker_paths_live_under_artifacts_run(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        brief = (ROOT / "templates/worker-brief.md").read_text(encoding="utf-8")
+        for text in (procedure, brief):
+            self.assertIn("<run>/artifacts/run/workers/", text)
+            self.assertNotIn("<run>/workers/", text)
+
+    def test_launch_rows_bound_by_stage_deadline(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        # 4 stage-table rows (3, 5, 6, 7) plus the cleanroom-wrapped launch in Section 4.
+        self.assertEqual(
+            procedure.count("--timeout <remaining, max 3600> --cutoff-utc <stage deadline>"), 5
+        )
+        section = procedure[procedure.index("## 4. Benchmarks"):procedure.index("## 5. Root refresh")]
+        self.assertIn("--timeout <remaining, max 3600> --cutoff-utc <stage deadline>", section)
+        self.assertIn("host config's default timeout is not a stage bound", procedure)
+
+    def test_scorecard_has_five_separate_review_dimensions(self):
+        text = (ROOT / "templates/return.md").read_text(encoding="utf-8")
+        for dimension in ("Visual", "Interaction", "Motion", "Audio", "Performance"):
+            self.assertIn(f"6/7 {dimension} | pass / fail / not_run", text)
+        self.assertNotIn("| 6 Visual review |", text)
+        self.assertNotIn("| 7 Audiovisual and human acceptance |", text)
+
+    def test_setup_linux_has_global_rules_install_with_markers(self):
+        setup = (ROOT / "docs/setup-linux.md").read_text(encoding="utf-8")
+        self.assertIn("game-studio-kit overnight-rules begin", setup)
+        self.assertIn("game-studio-kit overnight-rules end", setup)
+        self.assertIn("game-studio-kit overnight-run pointer", setup)
+        self.assertLess(setup.index("Refusing to overwrite"), setup.index("python3 -"))
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        self.assertIn("setup-linux.md#install-global-codex-rules-for-unattended-runs", procedure)
 
 
 if __name__ == "__main__":

@@ -15,8 +15,14 @@
 | 3 Native admission | | | `artifacts/launches/<run-id>-<stage>-<n>/exit.json` | |
 | 4 Performance cleanroom | | | `artifacts/bench/<run-id>-<stage>-<n>/cleanroom.json` (`attributable`) | |
 | 5 Traversal | | | | |
-| 6 Visual review | | | | |
-| 7 Audiovisual and human acceptance | | | | pending the user |
+| 6/7 Visual | pass / fail / not_run | | `artifacts/candidate.json` (`verdicts.visual`) | |
+| 6/7 Interaction | pass / fail / not_run | | `artifacts/candidate.json` (`verdicts.interaction`) | |
+| 6/7 Motion | pass / fail / not_run | | `artifacts/candidate.json` (`verdicts.motion`) | |
+| 6/7 Audio | pass / fail / not_run | | `artifacts/candidate.json` (`verdicts.audio`) | |
+| 6/7 Performance | pass / fail / not_run | | `artifacts/candidate.json` (`verdicts.performance`) | |
+
+Overall acceptance (`artifacts/candidate.json`'s `acceptance.decision`) stays
+pending the user until every mandatory dimension above is `pass`.
 
 ## Not demonstrated
 - (every contract goal without a passing artifact, with the reason)

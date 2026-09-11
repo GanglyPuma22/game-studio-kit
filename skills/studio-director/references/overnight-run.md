@@ -7,7 +7,9 @@ benchmarking a contaminated host, then lost four hours to a planned operating
 system restart, and delivered no playable minutes. Every stage below names the
 kit command that owns its evidence; the text is the part the model must respect
 on its own. Install the matching global rules from
-[AGENTS-overnight](../../../references/codex/AGENTS-overnight.md).
+[AGENTS-overnight](../../../references/codex/AGENTS-overnight.md) using the
+install snippet in [Windows setup](../../../docs/setup-windows.md#install-global-codex-rules-for-unattended-runs)
+or [Linux setup](../../../docs/setup-linux.md#install-global-codex-rules-for-unattended-runs).
 
 ## 1. Preflight (under 20 minutes, no launches)
 
@@ -45,11 +47,11 @@ gets no other edits.
 |---|---|---|---|---|---|
 | 1 Host readiness | root | `host preflight` receipt | 0 | 20 | not ready (Windows) → NEEDS-USER; unsupported elsewhere → continue |
 | 2 Source compile | root (script), via kit commands; worker analyzes | terrain/composition build owned and written by the root; worker report JSON, then `candidate new` + `validate-record` | 0 | 60, one compaction | missing report or `compile_verdict: fail` → stop stage |
-| 3 Native admission | root | `launch --mode native` verdict JSON | 2 | 30 | second verdict not `completed` → stop (retryable) |
+| 3 Native admission | root | `launch --mode native --timeout <remaining, max 3600> --cutoff-utc <stage deadline>` verdict JSON | 2 | 30 | second verdict not `completed` → stop (retryable) |
 | 4 Performance cleanroom | root, idle | `bench cleanroom -- launch ...` with `attributable: true` | one capture per rung plus one repeat (five for the four-rung example) | 45 | fails the frame budget → one attribution pass, no new scope (retryable) |
-| 5 Traversal | root | `launch --mode native` with the game's route probe and synthetic input | 3 per hypothesis, 6 in total | 60 | harness bug → headless fixture, never a native relaunch; stop at 6 total launches (retryable) |
-| 6 Visual review | root, desktop | native stills against the style reference | 2 | 45 | no defect list → stop |
-| 7 Audiovisual and human acceptance | operator, then user | recorded route, listening notes | 1 | 30 | never claimed by the root |
+| 5 Traversal | root | `launch --mode native --timeout <remaining, max 3600> --cutoff-utc <stage deadline>` with the game's route probe and synthetic input | 3 per hypothesis, 6 in total | 60 | harness bug → headless fixture, never a native relaunch; stop at 6 total launches (retryable) |
+| 6 Visual review | root, desktop | `launch --mode native --timeout <remaining, max 3600> --cutoff-utc <stage deadline>` native stills against the style reference | 2 | 45 | no defect list → stop |
+| 7 Audiovisual and human acceptance | operator, then user | `launch --mode native --timeout <remaining, max 3600> --cutoff-utc <stage deadline>` recorded route, listening notes | 1 | 30 | never claimed by the root |
 
 **Stage 2 completion.** The compile report must carry `compile_verdict: pass`
 or `compile_verdict: fail`; `fail` or a missing report stops the run at
@@ -57,18 +59,31 @@ stage 2. On a `pass` — and again after any later content correction — the
 root runs `python <KIT>/scripts/studio.py candidate new --project <run> --id
 <run-id> --engine-version <version>` then `python <KIT>/scripts/studio.py
 validate-record --project <run> --record artifacts/candidate.json` before
-stage 3 starts. `STATE.md` records the resulting `artifacts/candidate.json`
-digest; stage 6 and 7 review evidence binds to that digest, so regenerating
-the candidate after a correction invalidates any review evidence recorded
-against the earlier one.
+stage 3 starts.
 
-Stage 4 runs immediately after any renderer, LOD or scope change and blocks
-stages 5 to 7 on failure. No geometry refinement to satisfy a tolerance proof
-until stage 4 passes at the scope the refinement will create.
+**Corrections invalidate evidence.** Every gate's evidence is bound to the
+candidate digest it was produced under: `STATE.md` records the current
+`artifacts/candidate.json` sha256, and every stage 3-7 receipt logged in
+`STATE.md` is recorded together with the digest it was produced under.
+Whenever `candidate new` is re-run after a content correction, every stage 3-7 receipt recorded under the previous digest is invalid
+— there is no exception for a correction that only touched a renderer, LOD or scope setting —
+and stages 3 through 7 are repeated in order under the new digest.
+The final scorecard may cite only receipts produced under the final digest.
+
+A stage 4 failure blocks stages 5 to 7. No geometry refinement to satisfy a
+tolerance proof until stage 4 passes at the scope the refinement will create.
 
 **Stage 5 mode.** Traversal launches use `--mode native` explicitly;
 `launch`'s default mode is `import`, and no headless mode can establish
 traversal.
+
+**Launch deadlines.** Every `launch` invocation — stages 3, 5, 6 and 7 above,
+and the cleanroom-wrapped launch in Section 4 — passes `--timeout <seconds
+remaining in the stage, max 3600>` and `--cutoff-utc <stage deadline UTC>`
+explicitly. The host config's default timeout is not a stage bound. The
+stage deadline is the stage's start time, recorded in `STATE.md` at its
+stage-transition checkpoint, plus that stage's budget from the Max minutes
+column above.
 
 **Scope ladder.** Define the rungs from smallest to full scope before the run,
 each with a `safe_id`-valid ID (letters, digits, hyphens, underscores) and a
@@ -90,9 +105,14 @@ access. The root (or a script the root runs) owns stage 2 builds through kit
 commands and writes the build outputs; a worker only analyzes those outputs
 and reports on them. Use [worker-brief](../../../templates/worker-brief.md):
 one deliverable file with a JSON schema, its inputs by path and hash, and one
-budget line (90 minutes, 8M tokens, two compactions, whichever first). Where a
-worker must write anything beyond its JSON deliverable, the brief's "Allowed
-outputs" list enumerates the exact paths; it is empty by default. The worker
+budget line (90 minutes, 8M tokens, two compactions, whichever first). Worker
+deliverables and summaries live at `<run>/artifacts/run/workers/<worker-id>/`
+— never as a top-level `workers` folder outside `artifacts/`:
+`studio_tools.evidence.inventory` hashes everything outside `artifacts/` as
+project content, so a worker return outside it would stale the candidate
+digest. Where a worker must write anything beyond its
+JSON deliverable, the brief's "Allowed outputs" list enumerates the exact
+paths; it is empty by default. The worker
 returns the JSON record plus a summary under 400 words and terminates; it
 takes no follow-up task. The root spawns a new worker that reads state from
 files and never re-reads a source a previous worker already summarized.
@@ -103,7 +123,7 @@ files and never re-reads a source a previous worker already summarized.
 python <KIT>/scripts/studio.py bench cleanroom --project <run> --config <host config> --label <run-id>-<stage>-<n> \
   --scope <rung> --timeout 2700 --agent-log <agent activity log> -- \
   python <KIT>/scripts/studio.py launch --project <run> --config <host config> --sha256 <engine> --mode native \
-  --script <probe> --cutoff-utc <window end> --label <run-id>-<stage>-<n> --scope <rung> --result <summary json>
+  --script <probe> --timeout <remaining, max 3600> --cutoff-utc <stage deadline> --label <run-id>-<stage>-<n> --scope <rung> --result <summary json>
 ```
 
 The nested `launch` runs as its own process; the outer command's `--config`
@@ -135,8 +155,12 @@ flag to filter by run; never place another run's launches under this
 worktree. If the run stopped before any launch was owned (at preflight or stage 2, so
 no `owned-launch.json` exists yet), skip that command — it raises when the
 run root has no launches — and write `launch inventory: none (no launches)`
-under Evidence index together with the stop reason. Preserve failures.
-Never claim acceptance from exit codes, unit tests or source coverage.
+under Evidence index together with the stop reason.
+
+The scorecard may cite only receipts produced under the final candidate
+digest (Section 2); a receipt left over from an earlier digest is not
+evidence. Preserve failures. Never claim acceptance from exit codes, unit
+tests or source coverage.
 
 ## 7. Stop rules
 

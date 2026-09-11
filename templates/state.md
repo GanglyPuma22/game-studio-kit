@@ -9,9 +9,10 @@ Updated: <UTC>  Compactions so far: <n>  (refresh the root after the third)
 - Selected sources (path, sha256):
 
 ## Progress
-| Stage | Scope rung | Verdict | Artifact |
-|---|---|---|---|
+| Stage | Scope rung | Candidate digest | Verdict | Artifact |
+|---|---|---|---|---|
 <!-- Artifact paths: artifacts/launches/<run-id>-<stage>-<n>/exit.json, artifacts/bench/<run-id>-<stage>-<n>/cleanroom.json -->
+<!-- Every stage 3-7 row's candidate digest must equal the current one above; a stale digest invalidates the row (see overnight-run.md, Corrections invalidate evidence). -->
 
 ## Open blockers
 -
