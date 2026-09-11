@@ -79,8 +79,9 @@ Two independent strategies exist, and they solve different halves of the problem
   regardless of build precision, but it adds real complexity: every system that caches a
   `global_position`, every raycast target, every serialized coordinate has to account for the
   shift, and a shift performed mid-physics-tick can produce a one-frame glitch if not
-  sequenced carefully (perform the shift outside `_physics_process`, or at its very start,
-  never mid-step). With physics interpolation enabled a shift is a teleport across the cached
+  sequenced carefully (perform the atomic shift at the very start of `_physics_process`,
+  never mid-step and never on the variable render cadence, since shifted physics bodies must
+  move on the fixed tick). With physics interpolation enabled a shift is a teleport across the cached
   physics transforms, so after updating the transforms call `reset_physics_interpolation()` on
   the shifted hierarchy; otherwise the renderer interpolates between the pre-shift and
   post-shift locations for one frame, the exact streak the sequencing is meant to avoid.

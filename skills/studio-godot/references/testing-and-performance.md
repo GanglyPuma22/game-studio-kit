@@ -24,7 +24,9 @@ report format into one. Note the wiring: `godot smoke` launches the project's ma
 never passes `--script`, so a standalone runner only executes if the main scene delegates to
 it (or it is the main scene). A runner that is not wired that way is run instead with
 `python <KIT>/scripts/studio.py launch --project <GAME> --mode test --script res://tests/test_runner.gd ...`
-and its own result files declared with `--result`.
+and its own result files declared with `--result`. A script passed through `--script` must
+extend `SceneTree` or `MainLoop`; an ordinary `Node` runner needs a small `SceneTree`
+bootstrap that instantiates it, or Godot exits before any test runs.
 
 ## Decision tree: unit, scene, snapshot
 
@@ -54,8 +56,10 @@ and its own result files declared with `--result`.
 Run every headless test through the kit's owned process model, not a bare shell command:
 
 - For a project that has declared the `studio-smoke-v1` capability in its `project.json`, use
-  `python <KIT>/scripts/studio.py godot smoke --project <GAME> --config <HOST> --output artifacts/smoke-<stamp>.json`
-  with a fresh output path every time (the default `artifacts/runtime-smoke.json` is refused
+  `python <KIT>/scripts/studio.py godot smoke --project <GAME> --config <HOST> --output <GAME>/artifacts/smoke-<stamp>.json`
+  with an absolute, project-rooted, fresh output path every time (the adapter takes the
+  output as given, not relative to the project, so a bare relative path lands in the caller's
+  working directory) (the default `artifacts/runtime-smoke.json` is refused
   once it exists, so a repeated recipe fails before Godot starts) (see
   [execution.md](execution.md)) — it launches the main scene headlessly with
   `--studio-smoke=<path>`, and requires the project's own script to write a report with
@@ -95,9 +99,13 @@ the Godot 3-era `VisualServer`) over ad hoc frame-time guessing:
   is rendered and draw-call/primitive counters are zero or unrepresentative (headless runs
   remain right for non-rendering probes), the same way a material or geometry claim needs a measured number rather than an
   assumption.
-- Use the engine's built-in profiler (Debugger → Profiler and Monitors in the editor, or a
-  `Performance.get_monitor()` sample written by the probe in a native run) for a first pass on frame-time breakdown by category (physics,
-  rendering, script, idle) before micro-profiling a specific function; a native profiler run is
+- Use the editor profiler (Debugger → Profiler and Monitors) for a first pass on the
+  frame-time breakdown by category (physics, rendering, script, idle) before micro-profiling a
+  specific function. A native probe cannot reproduce that breakdown: `Performance.get_monitor()`
+  exposes whole-frame process and physics-process times only, and rendering time comes from
+  `RenderingServer.viewport_get_measured_render_time_cpu/gpu` after
+  `viewport_set_measure_render_time`; anything finer needs explicit `Time.get_ticks_usec()`
+  instrumentation around the code in question; a native profiler run is
   native-review evidence and headless timing is smoke-level evidence — do not present one as
   the other.
 - `Time.get_ticks_usec()` is the right primitive for both: microsecond resolution, monotonic,
@@ -130,8 +138,11 @@ everything else in this kit:
   discipline.
 - A performance number is evidence only with its measurement method attached: which build
   (single/double precision — see [physics-and-precision.md](physics-and-precision.md)), which
-  scene/scenario, sample count, and percentile. A single stopwatch run is not a budget
-  certification.
+  scene/scenario, sample count, and percentile, plus the target environment: CPU and GPU,
+  rendering method, resolution, graphics settings and VSync/frame limiting. The kit's
+  `launch --mode native` fixes `forward_plus` at 1920x1080, which may differ from the
+  project's shipping configuration, so a result is budget evidence only against the
+  configuration it names. A single stopwatch run is not a budget certification.
 - Headless results — smoke, probes, unit/scene tests — never establish appearance, audible
   mix, or ordinary-input feel; those still require the native review step in
   [studio-godot](../SKILL.md) and [studio-review](../../studio-review/SKILL.md). Keep the two
