@@ -21,6 +21,8 @@ The `run` helper owns a bounded process (host timeout); a longer manual editor/p
 
 Prefer explicit GLB interchange and retain `.blend` under ignored source. Inspect mesh/skin/clip identity after import. Map Principled base color to StandardMaterial3D albedo, roughness/metallic to matching properties, baked normal with correct orientation and alpha to intentional transparency/cutout. Blender node networks require bake/recreation; compare runtime lighting visually. See [material notes](references/materials.md).
 
+For scene/script organization, autoload discipline and signal direction on a large project, see [architecture](references/architecture.md). For body-type choice, physics tick discipline, Jolt status and large-world/planetary-scale precision, see [physics and precision](references/physics-and-precision.md). For headless test runners, frame-stamped probes and performance budgets, see [testing and performance](references/testing-and-performance.md).
+
 Set imported idle looping and response non-looping explicitly. Make one gameplay action own state; transition animation with a bounded blend and trigger its cue once. Verify repeated input/cooldown, walk-away/reset and collision at player scale. The fixture's technical smoke shares action names and verifies movement, pose changes, response count, audio-player start and return to idle. It uses injected actions and headless audio; it is not ordinary-input or listening evidence.
 
 Create the content-identified candidate after final changes, then pass the ordinary route, settings and captures to [review](../studio-review/SKILL.md). Inspect appearance, motion, sound and frame behavior independently. A headless launch alone does not pass any artistic or target-native acceptance claim.
