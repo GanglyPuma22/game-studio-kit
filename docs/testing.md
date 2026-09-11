@@ -57,8 +57,13 @@ child processes standing in for the engine: engine SHA-256 refusal before launch
 receipts without argv values or environment, timeout returned as a verdict with
 owned cleanup, exit-zero engine errors and missing result files reported as not
 ok, cutoff refusal and timeout bounding, environment scrubbing and profile
-isolation, launcher mode flags, scope persistence and refusal, launch inventory
-pairing, and identity manifest match/mismatch/missing receipts. No engine, provider or desktop is involved.
+isolation, launcher mode flags, scope persistence and refusal, engine bytes
+replaced before or during a launch, descendants left running by the engine,
+containment of the launch directory, refusal of a project that does not exist,
+launch inventory pairing of exit and process receipts, and identity manifest
+match/mismatch/missing receipts including host-config engine items. The
+descendant test needs POSIX `/proc` and skips elsewhere; the Windows parent walk
+is unexercised. No engine, provider or desktop is involved.
 
 ```text
 python -m unittest discover -s tests -p test_launch_evidence.py -v

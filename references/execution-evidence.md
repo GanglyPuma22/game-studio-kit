@@ -89,9 +89,11 @@ expected SHA-256 before anything else, refuses a self-contained Godot
 (`_sc_`/`._sc_` beside the executable) because such an install ignores the
 profile environment, refuses to start after `--cutoff-utc`, rechecks that
 cutoff immediately before starting and bounds the wait by what is left of it
-then, isolates the profile under `artifacts/launches/<label>/profile`, removes
-child environment variables that match `--scrub-env` prefixes, launches through
-the runner, waits, and returns
+then, refuses a project that does not already exist (a mistyped `--project` is
+never created), isolates the profile under `artifacts/launches/<label>/profile`,
+re-reads the engine's bytes at the launch instant so only the verified identity
+starts, removes child environment variables that match `--scrub-env` prefixes,
+launches through the runner, waits, and returns
 **one verdict JSON**. The calling agent never polls, sleeps or writes to the
 child's stdin; it reads the verdict when the command returns.
 
@@ -102,14 +104,33 @@ python <KIT>/scripts/studio.py launch --project <GAME> --config <HOST> \
   --result artifacts/foundation/summary.json -- --regional-site coast
 ```
 
-Each run directory holds `owned-launch.json` (engine identity, mode, script,
-passthrough count, profile, cutoff, effective timeout, PID), `process/` with the
-runner's `stdout.log` and `process.json`, `diagnostics.json` from the complete log,
-and `exit.json` with the verdict. Verdicts: `completed` (exit zero, no engine
-errors, every `--result` present), `engine_errors`, `results_missing`, `failed`,
-`timed_out`, `start_failed`, `interrupted`, `cutoff_passed`. Only `completed` is
-`ok`; the command exits 1 otherwise and still prints the verdict to stdout.
-Exit zero is not acceptance. A `--result` must name engine output: a path inside
+The run directory itself is contained like a declared result: a symlinked
+`artifacts/` that would put the receipts outside the project, or inside the
+installed toolkit, is refused before anything is written.
+
+Each run directory holds `owned-launch.json` (engine identity before and after
+the run, mode, script, passthrough count, profile, cutoff, effective timeout,
+PID, surviving descendants), `process/` with the runner's `stdout.log` and
+`process.json`, `diagnostics.json` from the complete log, and `exit.json` with
+the verdict. Verdicts: `completed` (exit zero, no engine errors, every
+`--result` present), `engine_errors`, `results_missing`, `failed`, `timed_out`,
+`start_failed`, `interrupted`, `cutoff_passed`, `engine_replaced`,
+`descendants_survived`, `descendants_unverified`. Only `completed` is `ok`; the
+command exits 1 otherwise and still prints the verdict to stdout. Exit zero is
+not acceptance.
+
+The engine is hashed again at the launch instant and once more after the run.
+Bytes that changed before the launch refuse it (`engine_replaced`, nothing
+started); bytes that changed during it make the run `engine_replaced` too, and
+`engine.sha256_after_exit` records what the file held at exit. After an engine
+that was not interrupted and did not time out exits, anything still running in
+its process group (POSIX) or its parent tree (Windows) is stopped and recorded
+in `survivors`: found processes are `descendants_survived`, an enumeration this
+host could not perform is `descendants_unverified`. A process that re-parented
+out of both is not seen. Priority, highest first: `interrupted`,
+`engine_replaced`, then the descendant verdicts.
+
+A `--result` must name engine output: a path inside
 this launch's own directory (its receipts, log or profile) is refused before
 anything is written, so a file this launcher wrote is never counted as evidence
 that the engine produced something. Receipts never contain argv values or
@@ -123,9 +144,11 @@ cannot be cited for a higher rung.
 pairs it with its `exit.json` and process record, hashes both receipts, counts
 log bytes and result files, and writes a dated `launch-inventory-*.json`. Each
 receipt is hashed from the same bytes that were summarized. An `exit.json` is
-paired only when both receipts carry the matching kind, `label` and `scope`;
-otherwise the entry reports `pairing: "mismatched"` with a reason, lends no
-verdict or result files, is counted in `totals.mismatched` and makes the
+paired only when both receipts carry the matching kind, `label` and `scope`, and
+a `process.json` beside them only when it is `schema_version` 1 and carries this
+launch's PID; otherwise the entry reports `pairing: "mismatched"` with a reason,
+lends no verdict, result files or process lifecycle summary (status, return
+code, elapsed time, cleanup), is counted in `totals.mismatched` and makes the
 inventory `ok: false` (the command exits 1). A relative `--output` must stay
 under the run root; only an absolute path may leave it, and never into the
 installed toolkit. It is counts and hashes only; a launch with no exit record is
@@ -135,5 +158,11 @@ reported as `pairing: "missing_exit"`.
 [identity manifest](../templates/identity-manifest.json) (engine, helpers,
 sources, packages, assets; absolute paths allowed for files outside GAME) and
 writes a dated receipt under `artifacts/identity/` with per-item
-match/mismatch/missing and one verdict. A matching hash is byte identity, not
-acceptance or entitlement.
+match/mismatch/missing and one verdict. An `engine` item may omit `path` and
+carry `"source": "host-config"` instead: it is resolved through
+`executables.godot` from the host config given with `--config`, so a host path
+stays in ignored host configuration and the receipt reports `path: null` with
+`source: "host-config"`, never the resolved location. No configured engine, or a
+configured one that is absent, is `missing`. Every other item still requires
+`path`, and `source` is rejected anywhere else. A matching hash is byte
+identity, not acceptance or entitlement.

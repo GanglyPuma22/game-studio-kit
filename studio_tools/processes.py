@@ -3,6 +3,7 @@
 from __future__ import annotations
 from contextlib import ExitStack
 from datetime import datetime, timezone
+import json
 import os
 from pathlib import Path
 import signal
@@ -42,6 +43,128 @@ def _stop_owned(process, hide_window):
             pass
     process.wait(timeout=5)
     return True
+
+
+def _proc_state(pid):
+    """Read (state, process group) from /proc/<pid>/stat, or None when unreadable.
+
+    A process name may contain spaces and parentheses, so the fixed-width fields
+    start after the last ')': state, ppid, then the process group.
+    """
+    try:
+        stat = Path("/proc") / str(pid) / "stat"
+        fields = stat.read_text(encoding="utf-8", errors="replace").rpartition(")")[2].split()
+    except (OSError, ValueError):
+        return None
+    if len(fields) < 3:
+        return None
+    try:
+        return fields[0], int(fields[2])
+    except ValueError:
+        return None
+
+
+def _windows_survivors(pid, hide_window):
+    """Walk the parent/child table; Windows has no process group to enumerate."""
+    shell = shutil.which("pwsh") or shutil.which("powershell")
+    if not shell:
+        return {"status": "unavailable", "pids": [], "note": "no PowerShell to enumerate processes"}
+    query = (
+        "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId "
+        "| ConvertTo-Json -Compress"
+    )
+    try:
+        done = subprocess.run(
+            [shell, "-NoProfile", "-NonInteractive", "-Command", query],
+            capture_output=True, text=True, timeout=30, check=False,
+            **_creation_options(hide_window),
+        )
+        rows = json.loads(done.stdout) if not done.returncode and done.stdout.strip() else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        rows = None
+    if rows is None:
+        return {"status": "unavailable", "pids": [], "note": "process enumeration failed"}
+    children = {}
+    for row in [rows] if isinstance(rows, dict) else rows:
+        try:
+            child, parent = int(row["ProcessId"]), int(row["ParentProcessId"])
+        except (AttributeError, KeyError, TypeError, ValueError):
+            continue
+        children.setdefault(parent, []).append(child)
+    found, seen, queue = [], {pid}, [pid]
+    while queue:
+        for child in children.get(queue.pop(), ()):
+            if child not in seen:
+                seen.add(child)
+                found.append(child)
+                queue.append(child)
+    return {"status": "ok", "pids": sorted(found), "note": None}
+
+
+def survivors(pid, hide_window=False):
+    """List processes of this job that are still running after its leader exited.
+
+    POSIX jobs start in a new session, so the leader's PID is the process group
+    every descendant inherits; a zombie holds no resources and is not listed.
+    """
+    if os.name == "nt":
+        return _windows_survivors(pid, hide_window)
+    folder = Path("/proc")
+    if folder.is_dir():
+        found = []
+        for entry in folder.iterdir():
+            if not entry.name.isdigit() or int(entry.name) == pid:
+                continue
+            state = _proc_state(entry.name)
+            if state is not None and state[1] == pid and state[0] != "Z":
+                found.append(int(entry.name))
+        return {"status": "ok", "pids": sorted(found), "note": None}
+    try:
+        os.killpg(pid, 0)
+    except ProcessLookupError:
+        return {"status": "unavailable", "pids": [], "note": None}
+    except OSError:
+        pass
+    return {
+        "status": "unavailable", "pids": [],
+        "note": "process group members cannot be enumerated without /proc",
+    }
+
+
+def stop_survivors(pid, hide_window=False):
+    """Stop what outlived this job's leader, then re-enumerate to prove it.
+
+    `pids` are the survivors found before stopping. The leader has already been
+    reaped by its own waiter, so a reused PID is an accepted, bounded risk here.
+    """
+    before = survivors(pid, hide_window)
+    if before["pids"] or before["note"]:
+        if os.name == "nt":
+            for member in before["pids"]:
+                try:
+                    subprocess.run(
+                        ["taskkill", "/PID", str(member), "/T", "/F"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        check=False, timeout=5, **_creation_options(hide_window),
+                    )
+                except (OSError, subprocess.SubprocessError):
+                    pass
+        else:
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except OSError:
+                pass
+    # Signal delivery is asynchronous; give the group a bounded moment to go.
+    deadline = time.monotonic() + 5
+    after = survivors(pid, hide_window)
+    while after["status"] == "ok" and after["pids"] and time.monotonic() < deadline:
+        time.sleep(0.025)
+        after = survivors(pid, hide_window)
+    return {
+        "status": before["status"],
+        "pids": before["pids"],
+        "stopped": after["status"] == "ok" and not after["pids"],
+    }
 
 
 def run(

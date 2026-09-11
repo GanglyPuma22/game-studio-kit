@@ -17,7 +17,7 @@ import uuid
 from .adapters.godot import classify_log, self_contained
 from .common import StudioError, outside_package, read_json, relative, safe_id, sha256, write_json
 from .config import app_path, require_executable
-from .processes import run
+from .processes import run, stop_survivors
 
 MODES = ("import", "test", "check", "native")
 MAX_TIMEOUT = 3600
@@ -25,6 +25,8 @@ LIMITS = [
     "exit zero is not acceptance",
     "stdout and stderr are combined in one log; the child may print private data",
     "headless modes never establish appearance, audible output or ordinary controls",
+    "descendants are enumerated by process group (POSIX) or parent walk (Windows); "
+    "a process that re-parented out of both is not seen",
 ]
 PROFILE_KEYS = ("XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "APPDATA", "LOCALAPPDATA")
 INVENTORY_LIMITS = [
@@ -75,6 +77,14 @@ def build_args(config, project, engine, mode, script=None, passthrough=()):
     return args + list(passthrough)
 
 
+def _engine_digest(path):
+    """Hash the engine again; bytes that cannot be read are not the verified ones."""
+    try:
+        return sha256(path)
+    except OSError:
+        return None
+
+
 def execute(
     config, project, *, sha256_expected, mode="import", script=None,
     timeout=None, cutoff_utc=None, label=None, scope=None, results=(), scrub=(), passthrough=(),
@@ -110,8 +120,9 @@ def execute(
     # The scope rung this launch is evidence for; validated like a label so a
     # receipt can be matched to a ladder rung without free text.
     scope = safe_id(scope) if scope is not None else None
-    run_dir = root / "artifacts" / "launches" / label
-    owned = run_dir.resolve()
+    # The launch directory is contained like a declared result: a symlinked
+    # artifacts/ must not move these receipts out of the project or into the kit.
+    run_dir = owned = outside_package(relative(root, f"artifacts/launches/{label}"))
     expected = []
     results_before = []
     for item in results:
@@ -144,7 +155,7 @@ def execute(
         "label": label,
         "scope": scope,
         "mode": mode,
-        "engine": {"name": engine_path.name, "sha256": actual},
+        "engine": {"name": engine_path.name, "sha256": actual, "sha256_after_exit": None},
         "project": str(root),
         "profile": "profile",
         "script": script,
@@ -185,6 +196,16 @@ def execute(
         if launch["timeout_seconds_effective"] != round(effective, 3):
             launch["timeout_seconds_effective"] = round(effective, 3)
             write_json(run_dir / "owned-launch.json", launch)
+    # The digest verified above described bytes that could have been replaced
+    # while this launch was prepared, so the engine is re-read at the launch
+    # instant: only the verified identity may start.
+    if _engine_digest(engine_path) != actual:
+        launch.update(status="refused", timeout_seconds_effective=None, process_record=None)
+        write_json(run_dir / "owned-launch.json", launch)
+        return _finish(
+            root, run_dir, launch, None, "", "engine_replaced",
+            "Engine bytes changed before the launch; the verified identity did not start",
+        )
     failure = None
     interrupt = None
     try:
@@ -202,20 +223,42 @@ def execute(
     record = read_json(record_path) if record_path.is_file() else {"status": "start_failed"}
     log_path = run_dir / "process" / "stdout.log"
     text = log_path.read_bytes().decode("utf-8", errors="replace") if log_path.is_file() else ""
+    launch["engine"]["sha256_after_exit"] = _engine_digest(engine_path)
     if interrupt is not None:
         # A caller interruption is reported honestly, not folded into launched/start_failed.
         launch.update(status="interrupted", pid=record.get("pid"))
     else:
         # Only a process record with a PID proves the engine was launched.
         launch.update(status="launched" if record.get("pid") else "start_failed", pid=record.get("pid"))
+    left = None
+    if interrupt is None and record.get("pid") and record.get("status") != "timed_out":
+        # The runner already stopped the tree on timeout; otherwise the engine
+        # exited on its own and whatever it left running is still this launch's.
+        left = stop_survivors(record["pid"], hide_window=mode != "native")
+        launch["survivors"] = left
+    verdict = None
+    if interrupt is not None:
+        verdict = "interrupted"
+    elif launch["engine"]["sha256_after_exit"] != actual:
+        verdict = "engine_replaced"
+        failure = "Engine bytes changed during the launch; the receipts describe bytes it no longer has"
+    elif left and left["pids"]:
+        verdict = "descendants_survived"
+        failure = failure or (
+            "Processes from this launch outlived the engine; "
+            + ("they were stopped" if left["stopped"] else "stopping them could not be verified")
+        )
+    elif left and left["status"] != "ok":
+        verdict = "descendants_unverified"
+        failure = failure or "Processes from this launch could not be enumerated on this host"
     write_json(run_dir / "owned-launch.json", launch)
-    result = _finish(root, run_dir, launch, record, text, "interrupted" if interrupt is not None else None, failure)
+    result = _finish(root, run_dir, launch, record, text, verdict, failure, survivors=left)
     if interrupt is not None:
         raise interrupt
     return result
 
 
-def _finish(root, run_dir, launch, record, text, verdict, failure):
+def _finish(root, run_dir, launch, record, text, verdict, failure, survivors=None):
     diagnostics = classify_log(text)
     write_json(run_dir / "diagnostics.json", diagnostics)
     before = {entry["path"]: entry for entry in launch.get("results_before", [])}
@@ -256,6 +299,7 @@ def _finish(root, run_dir, launch, record, text, verdict, failure):
         "elapsed_seconds": (record or {}).get("elapsed_seconds"),
         "timed_out": status == "timed_out",
         "cleanup": (record or {}).get("cleanup"),
+        "survivors": survivors,
         "combined_log_bytes": log_path.stat().st_size if log_path.is_file() else 0,
         "diagnostics": diagnostics,
         "result_files": result_files,
@@ -295,8 +339,8 @@ def _receipt(root, path):
     }
 
 
-def _pairing(launch, exit_record):
-    """Refuse to summarize an exit record that does not belong to this launch.
+def _pairing(launch, exit_record, process_owned=True):
+    """Refuse to summarize receipts that do not belong to this launch.
 
     Reasons name the mismatched field only; foreign receipt values are never echoed.
     """
@@ -310,6 +354,10 @@ def _pairing(launch, exit_record):
         return "mismatched", "exit record label does not match the launch label"
     if exit_record.get("scope") != launch.get("scope"):
         return "mismatched", "exit record scope does not match the launch scope"
+    if not process_owned:
+        # A process record carried over from another run would otherwise lend
+        # this launch its status, return code and elapsed time.
+        return "mismatched", "process record does not belong to this launch"
     return "paired", None
 
 
@@ -341,9 +389,16 @@ def inventory(run_root, output=None):
         process_path = folder / (launch.get("process_record") or "process/process.json")
         process, process_file = _receipt(root, process_path) if process_path.is_file() else (None, None)
         log_path = process_path.parent / "stdout.log"
-        pairing, reason = _pairing(launch, exit_record)
+        # A process record proves it belongs to this launch by its own schema
+        # version and PID, whatever the exit record beside it says.
+        owned_process = process is None or (
+            process.get("schema_version") == 1 and process.get("pid") == launch.get("pid")
+        )
+        pairing, reason = _pairing(launch, exit_record, owned_process)
         # Only a verified pair may lend its verdict, ok flag and result files here.
         paired = exit_record if pairing == "paired" else None
+        # Nor may a foreign process record lend its lifecycle summary.
+        summary = process if owned_process else None
         verdict = (paired or {}).get("verdict", "no_exit_record")
         if pairing == "mismatched":
             verdict = "mismatched_receipts"
@@ -360,11 +415,13 @@ def inventory(run_root, output=None):
             "scope": launch.get("scope"),
             "verdict": verdict,
             "ok": (paired or {}).get("ok") is True,
-            "status": (process or {}).get("status", launch.get("status")),
-            "returncode": (process or {}).get("returncode"),
-            "elapsed_seconds": (process or {}).get("elapsed_seconds"),
-            "timed_out": (process or {}).get("status") == "timed_out",
-            "cleanup": (process or {}).get("cleanup"),
+            "status": (summary or {}).get(
+                "status", None if pairing == "mismatched" else launch.get("status")
+            ),
+            "returncode": (summary or {}).get("returncode"),
+            "elapsed_seconds": (summary or {}).get("elapsed_seconds"),
+            "timed_out": (summary or {}).get("status") == "timed_out",
+            "cleanup": (summary or {}).get("cleanup"),
             "combined_log_bytes": log_path.stat().st_size if log_path.is_file() else 0,
             "diagnostics": (paired or {}).get("diagnostics"),
             "result_files": {"present": present, "missing": missing},

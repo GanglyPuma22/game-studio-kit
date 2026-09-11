@@ -204,6 +204,18 @@ def dispatch(a):
             plan_only=a.plan_only,
             probe=a.probe,
         )
+    if a.command == "launch":
+        from .launch import execute as launch_execute
+
+        # A launch needs a game project that already exists, so the project is
+        # not created here: a mistyped --project must fail, not be built empty.
+        # Godot exposes only arguments after `--` through OS.get_cmdline_user_args(),
+        # so the separator itself must reach the engine.
+        return launch_execute(
+            config, Path(a.project).resolve(), sha256_expected=a.sha256, mode=a.mode,
+            script=a.script, timeout=a.timeout, cutoff_utc=a.cutoff_utc, label=a.label,
+            scope=a.scope, results=a.result, scrub=a.scrub_env, passthrough=list(a.passthrough),
+        )
     if a.command == "evidence":
         from .launch import inventory
 
@@ -222,16 +234,6 @@ def dispatch(a):
         from .records import validate
 
         return validate(read_json(path(a.record)), root)
-    if a.command == "launch":
-        from .launch import execute as launch_execute
-
-        # Godot exposes only arguments after `--` through OS.get_cmdline_user_args(),
-        # so the separator itself must reach the engine.
-        return launch_execute(
-            config, root, sha256_expected=a.sha256, mode=a.mode,
-            script=a.script, timeout=a.timeout, cutoff_utc=a.cutoff_utc, label=a.label,
-            scope=a.scope, results=a.result, scrub=a.scrub_env, passthrough=list(a.passthrough),
-        )
     if a.command == "review":
         from . import validation, review_media, review_video
         def needed(field):
@@ -373,7 +375,7 @@ def dispatch(a):
 
             if not a.manifest:
                 raise StudioError("candidate verify needs --manifest")
-            return verify(root, a.manifest, output=path(output) if output else None)
+            return verify(root, a.manifest, output=path(output) if output else None, config=config)
         from .evidence import new_candidate
         from . import __version__
 

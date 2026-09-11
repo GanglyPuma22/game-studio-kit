@@ -37,10 +37,17 @@ Modes: `import` (`--headless --audio-driver Dummy --editor --import`), `test` an
 (`--resolution 1920x1080 --rendering-method forward_plus`, visible window, `--script`).
 Arguments after `--` reach the engine unchanged. The expected engine SHA-256 is
 mandatory and is verified before launch; a mismatch refuses to start, as does a
-self-contained `_sc_`/`._sc_` Godot whose profile cannot be isolated. Use
-`--cutoff-utc` for an authorized window, which is rechecked at the moment the
-engine starts, and `--result` for every file the script must produce; a result
-inside the launch's own directory is refused, since the launcher writes those.
+self-contained `_sc_`/`._sc_` Godot whose profile cannot be isolated, and as does
+a `--project` directory that does not already exist. The engine is hashed again
+at the launch instant and after exit: bytes replaced around the run give
+`engine_replaced`, never `completed`. Use `--cutoff-utc` for an authorized
+window, which is rechecked at the moment the engine starts, and `--result` for
+every file the script must produce; a result inside the launch's own directory is
+refused, since the launcher writes those, and the launch directory itself must
+resolve inside the project. When the engine exits on its own, anything still
+running in its group or tree is stopped and reported, giving
+`descendants_survived` (or `descendants_unverified` where this host cannot
+enumerate), so a launch that left a process behind is never `ok`.
 `--scope <id>` records the scope rung the launch is evidence for in
 both receipts and the verdict, so a lower-rung result is never cited for a higher
 one. Headless modes never establish appearance, audible output or

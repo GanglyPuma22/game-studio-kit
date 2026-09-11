@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import sys
 import tempfile
 import unittest
@@ -82,7 +83,8 @@ class OwnedLaunchTests(LaunchCase):
         owned = read_json(run_dir / "owned-launch.json")
         exit_record = read_json(run_dir / "exit.json")
         self.assertGreater(owned["pid"], 0)
-        self.assertEqual(owned["engine"], {"name": Path(sys.executable).resolve().name, "sha256": self.sha})
+        self.assertEqual(owned["engine"], {"name": Path(sys.executable).resolve().name,
+                                           "sha256": self.sha, "sha256_after_exit": self.sha})
         self.assertEqual(owned["status"], "launched")
         self.assertEqual(exit_record["status"], "completed")
         self.assertGreater(exit_record["combined_log_bytes"], 0)
@@ -208,7 +210,8 @@ class OwnedLaunchTests(LaunchCase):
         owned = read_json(self.root / "artifacts/launches/cli/owned-launch.json")
         self.assertEqual(owned["passthrough_count"], 2)
         self.assertEqual(owned["scope"], "rung-1")
-        self.assertEqual(owned["engine"], {"name": Path(sys.executable).resolve().name, "sha256": self.sha})
+        self.assertEqual(owned["engine"], {"name": Path(sys.executable).resolve().name,
+                                           "sha256": self.sha, "sha256_after_exit": self.sha})
         self.assertNotIn("--regional", json.dumps(owned))
 
     def test_stale_result_file_is_not_counted_as_produced(self):
@@ -361,6 +364,132 @@ class OwnedLaunchTests(LaunchCase):
         owned = read_json(self.root / "artifacts/launches/narrowed/owned-launch.json")
         self.assertEqual(owned["timeout_seconds_effective"], round(self.last_kwargs["timeout"], 3))
 
+    @staticmethod
+    def _reap(pid):
+        """Never leave a sleeper behind when an assertion fails first."""
+        with contextlib.suppress(OSError):
+            os.kill(pid, signal.SIGKILL)
+
+    @staticmethod
+    def _running(pid):
+        """True only while a PID is a live process; a zombie holds nothing."""
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        try:
+            state = Path("/proc", str(pid), "stat").read_text().rpartition(")")[2].split()[0]
+        except OSError:
+            return False
+        return state != "Z"
+
+    def _swappable_engine(self, replace_on):
+        """A fake engine whose bytes are replaced right after its Nth hashing."""
+        engine = Path(self.tmp.name) / "swappable engine"
+        engine.write_bytes(b"verified engine bytes")
+        engine.chmod(0o755)
+        config = load(overrides={"executables": {"godot": str(engine)}, "timeout": 5})
+        expected = sha256(engine)
+        hashed = []
+
+        def racing_sha256(path):
+            digest = sha256(path)
+            if Path(path).resolve() == engine.resolve():
+                hashed.append(1)
+                if len(hashed) == replace_on:
+                    engine.write_bytes(b"replaced engine bytes")
+            return digest
+
+        return engine, config, expected, racing_sha256
+
+    def test_engine_replaced_after_verification_refuses_to_start(self):
+        # The verified digest describes bytes that can be swapped while the
+        # launch is prepared, so the engine is re-read at the launch instant.
+        engine, config, expected, racing = self._swappable_engine(1)
+        with patch("studio_tools.launch.sha256", racing), patch("studio_tools.launch.run") as run:
+            result = launch.execute(config, self.root, sha256_expected=expected, label="swapped")
+            run.assert_not_called()
+        self.assertEqual(result["verdict"], "engine_replaced")
+        self.assertFalse(result["ok"])
+        self.assertIn("changed", result["failure"])
+        run_dir = self.root / "artifacts/launches/swapped"
+        owned = read_json(run_dir / "owned-launch.json")
+        self.assertEqual(owned["status"], "refused")
+        self.assertIsNone(owned["timeout_seconds_effective"])
+        self.assertIsNone(owned["process_record"])
+        self.assertEqual(owned["engine"]["sha256"], expected)
+        self.assertIsNone(owned["engine"]["sha256_after_exit"])
+        self.assertFalse((run_dir / "process").exists())
+        self.assertEqual(read_json(run_dir / "exit.json")["verdict"], "engine_replaced")
+
+    def test_engine_replaced_during_the_launch_is_not_completed(self):
+        engine, config, expected, racing = self._swappable_engine(2)
+        with patch("studio_tools.launch.sha256", racing), \
+                patch("studio_tools.launch.run", side_effect=self.fake_child("print('running')")):
+            result = launch.execute(config, self.root, sha256_expected=expected, label="swapped-late")
+        self.assertEqual(result["verdict"], "engine_replaced")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], "completed")
+        self.assertIn("changed", result["failure"])
+        owned = read_json(self.root / "artifacts/launches/swapped-late/owned-launch.json")
+        self.assertEqual(owned["status"], "launched")
+        self.assertEqual(owned["engine"]["sha256"], expected)
+        self.assertEqual(owned["engine"]["sha256_after_exit"], sha256(engine))
+        self.assertNotEqual(owned["engine"]["sha256_after_exit"], expected)
+
+    @unittest.skipUnless(os.name != "nt" and Path("/proc").is_dir(),
+                         "descendant enumeration needs POSIX /proc")
+    def test_surviving_descendants_are_stopped_and_reported(self):
+        code = (
+            "import subprocess,sys;"
+            "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']);"
+            "print(child.pid)"
+        )
+        result = self.execute(code, label="left-behind")
+        pid = int(Path(result["log"]).read_text().split()[0])
+        self.addCleanup(self._reap, pid)
+        self.assertEqual(result["verdict"], "descendants_survived")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["survivors"]["status"], "ok")
+        self.assertIn(pid, result["survivors"]["pids"])
+        self.assertTrue(result["survivors"]["stopped"])
+        run_dir = self.root / "artifacts/launches/left-behind"
+        self.assertEqual(read_json(run_dir / "owned-launch.json")["survivors"]["pids"], [pid])
+        self.assertEqual(read_json(run_dir / "exit.json")["survivors"]["pids"], [pid])
+        self.assertFalse(self._running(pid))
+        # An engine that leaves nothing behind still completes.
+        alone = self.execute("print('alone')", label="alone")
+        self.assertEqual(alone["verdict"], "completed")
+        self.assertEqual(alone["survivors"], {"status": "ok", "pids": [], "stopped": True})
+
+    def test_launch_directory_must_stay_inside_the_project(self):
+        external = Path(self.tmp.name) / "outside"
+        external.mkdir()
+        try:
+            (self.root / "artifacts").symlink_to(external, target_is_directory=True)
+        except OSError:
+            self.skipTest("Host cannot create directory symlinks")
+        with patch("studio_tools.launch.run") as run:
+            with self.assertRaises(StudioError):
+                launch.execute(self.config, self.root, sha256_expected=self.sha, label="escaping")
+            run.assert_not_called()
+        self.assertEqual(list(external.iterdir()), [])
+
+    def test_cli_launch_refuses_a_project_that_does_not_exist(self):
+        missing = Path(self.tmp.name) / "typo-project"
+        with patch("studio_tools.launch.run") as run:
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                code = cli.main(["launch", "--project", str(missing), "--config", str(self.host_config),
+                                 "--sha256", self.sha, "--label", "typo"])
+            run.assert_not_called()
+        self.assertEqual(code, 1)
+        self.assertIn("existing game project", json.loads(err.getvalue())["error"])
+        # A mistyped project must never be created and launched into.
+        self.assertFalse(missing.exists())
+
 
 class LaunchInventoryTests(LaunchCase):
     def test_inventory_pairs_launches_and_flags_missing_exit(self):
@@ -503,6 +632,33 @@ class LaunchInventoryTests(LaunchCase):
         result = launch.inventory(launches, "nested/inventory.json")
         self.assertEqual(Path(result["output"]), (launches / "nested/inventory.json").resolve())
 
+    def test_inventory_flags_a_process_record_from_another_launch(self):
+        self.execute("print('ok')", label="good")
+        self.execute("print('ok')", label="other")
+        launches = self.root / "artifacts/launches"
+        # A process record copied from another run cannot describe this one.
+        shutil.copy(launches / "other/process/process.json", launches / "good/process/process.json")
+        data = launch.inventory(launches)
+        entry = {e["dir"]: e for e in data["launches"]}["good"]
+        self.assertEqual(entry["pairing"], "mismatched")
+        self.assertIn("process record", entry["pairing_reason"])
+        self.assertEqual(entry["verdict"], "mismatched_receipts")
+        self.assertFalse(entry["ok"])
+        for field in ("status", "returncode", "elapsed_seconds", "cleanup"):
+            self.assertIsNone(entry[field])
+        self.assertFalse(entry["timed_out"])
+        self.assertIsNotNone(entry["process"])
+        self.assertEqual(data["totals"]["mismatched"], 1)
+        self.assertFalse(data["ok"])
+        # A process record of another schema version is not summarized either.
+        record = read_json(launches / "other/process/process.json")
+        record["schema_version"] = 2
+        write_json(launches / "other/process/process.json", record)
+        second = {e["dir"]: e for e in launch.inventory(launches)["launches"]}["other"]
+        self.assertEqual(second["verdict"], "mismatched_receipts")
+        self.assertIn("process record", second["pairing_reason"])
+        self.assertIsNone(second["status"])
+
 
 class IdentityManifestTests(LaunchCase):
     def test_verify_reports_match_mismatch_and_missing_with_receipt(self):
@@ -619,10 +775,62 @@ class IdentityManifestTests(LaunchCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(read_json(result["receipt"])["manifest"]["sha256"], sha256(path))
 
+    def test_engine_item_resolves_through_the_host_config_without_recording_the_path(self):
+        record = {"schema_version": 1, "kind": "identity-manifest", "items": [
+            {"id": "engine", "role": "engine", "source": "host-config", "sha256": self.sha}]}
+        path = self.root / "manifest.json"
+        write_json(path, record)
+        result = manifest.verify(self.root, path, config=self.config)
+        self.assertTrue(result["ok"])
+        item = result["items"][0]
+        self.assertEqual(item["status"], "match")
+        self.assertIsNone(item["path"])
+        self.assertEqual(item["source"], "host-config")
+        # The resolved host path belongs to ignored host config, never a receipt.
+        self.assertNotIn(str(Path(sys.executable).resolve()),
+                         Path(result["receipt"]).read_text(encoding="utf-8"))
+        # An engine that is configured but absent, or not configured at all, is missing.
+        bogus = load(overrides={"executables": {"godot": "no-such-engine-for-this-test"}})
+        self.assertEqual(manifest.verify(self.root, path, config=bogus)["verdict"], "missing")
+        self.assertEqual(manifest.verify(self.root, path)["verdict"], "missing")
+        record["items"][0]["sha256"] = "0" * 64
+        write_json(path, record)
+        self.assertEqual(manifest.verify(self.root, path, config=self.config)["verdict"], "mismatch")
+
+    def test_manifest_rejects_misplaced_sources_and_missing_paths(self):
+        path = self.root / "manifest.json"
+        cases = [
+            ({"id": "engine", "role": "engine", "source": "somewhere-else", "sha256": self.sha}, "source"),
+            ({"id": "helper", "role": "helper", "source": "host-config", "sha256": self.sha}, "engine item"),
+            ({"id": "helper", "role": "helper", "sha256": self.sha}, "path"),
+            ({"id": "engine", "role": "engine", "source": "host-config",
+              "path": sys.executable, "sha256": self.sha}, "must not also carry a path"),
+        ]
+        for item, pattern in cases:
+            with self.subTest(id=item["id"], source=item.get("source")):
+                write_json(path, {"schema_version": 1, "kind": "identity-manifest", "items": [item]})
+                with self.assertRaisesRegex(StudioError, pattern):
+                    manifest.verify(self.root, path, config=self.config)
+
+    def test_cli_candidate_verify_gives_the_host_config_to_a_host_config_engine(self):
+        path = self.root / "manifest.json"
+        write_json(path, {"schema_version": 1, "kind": "identity-manifest", "items": [
+            {"id": "engine", "role": "engine", "source": "host-config", "sha256": self.sha}]})
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            code = cli.main(["candidate", "verify", "--project", str(self.root),
+                             "--config", str(self.host_config), "--manifest", str(path)])
+        self.assertEqual(code, 0)
+        result = json.loads(out.getvalue())
+        self.assertEqual(result["verdict"], "match")
+        self.assertIsNone(result["items"][0]["path"])
+
     def test_template_manifest_loads(self):
         kit = Path(__file__).resolve().parents[1]
         loaded = manifest.load(kit / "templates/identity-manifest.json")
         self.assertEqual(loaded["kind"], "identity-manifest")
+        engine = [item for item in loaded["items"] if item["role"] == "engine"][0]
+        self.assertEqual(engine["source"], "host-config")
+        self.assertNotIn("path", engine)
 
 
 if __name__ == "__main__":

@@ -8,9 +8,13 @@ from pathlib import Path, PureWindowsPath
 import re
 import uuid
 from .common import StudioError, relative, safe_id, sha256, write_json
+from .config import executable
 from .records import required
 
 ROLES = ("engine", "helper", "source", "package", "asset", "other")
+# An engine lives at a host path that must stay in ignored host config, so an
+# engine item may name the configured executable instead of a path.
+SOURCES = ("host-config",)
 
 
 def _read(path):
@@ -31,14 +35,22 @@ def _read(path):
     for item in items:
         if not isinstance(item, dict):
             raise StudioError("Identity manifest items must be objects")
-        required(item, ["id", "role", "path", "sha256"])
+        required(item, ["id", "role", "sha256"])
         safe_id(item["id"])
         if item["id"] in seen:
             raise StudioError("Duplicate identity manifest id: " + item["id"])
         seen.add(item["id"])
         if item["role"] not in ROLES:
             raise StudioError("Identity manifest role must be one of: " + ", ".join(ROLES))
-        if not isinstance(item["path"], str) or not item["path"]:
+        source = item.get("source")
+        if source is not None:
+            if source not in SOURCES:
+                raise StudioError("Identity manifest source must be one of: " + ", ".join(SOURCES))
+            if item["role"] != "engine":
+                raise StudioError("Only an engine item may take its location from the host config")
+            if item.get("path") is not None:
+                raise StudioError("A host-config engine item must not also carry a path")
+        elif not isinstance(item.get("path"), str) or not item["path"]:
             raise StudioError("Identity manifest path must be a non-empty string")
         if not isinstance(item["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", item["sha256"]):
             raise StudioError("Identity manifest sha256 must be 64 lowercase hex characters")
@@ -58,22 +70,30 @@ def _target(root, path):
     return Path(path) if absolute else relative(root, path)
 
 
-def verify(project, manifest_path, output=None):
+def verify(project, manifest_path, output=None, config=None):
     root = Path(project).resolve()
     manifest_path = Path(manifest_path).expanduser().resolve()
     manifest, manifest_digest = _read(manifest_path)
     items = []
     totals = {"match": 0, "mismatch": 0, "missing": 0}
     for item in manifest["items"]:
-        target = _target(root, item["path"])
-        if not target.is_file():
+        source = item.get("source")
+        if source == "host-config":
+            # The resolved host path never reaches the receipt: an unconfigured
+            # or absent engine is reported as missing, like any other item.
+            found = executable(config, "godot") if config else None
+            target = Path(found) if found else None
+        else:
+            target = _target(root, item["path"])
+        if target is None or not target.is_file():
             status, actual = "missing", None
         else:
             actual = sha256(target)
             status = "match" if actual == item["sha256"] else "mismatch"
         totals[status] += 1
         items.append({
-            "id": item["id"], "role": item["role"], "path": item["path"],
+            "id": item["id"], "role": item["role"],
+            "path": None if source else item["path"], "source": source,
             "expected": item["sha256"], "actual": actual, "status": status,
         })
     verdict = "match" if totals["mismatch"] == 0 and totals["missing"] == 0 else (
