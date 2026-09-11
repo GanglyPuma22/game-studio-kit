@@ -17,11 +17,14 @@
   -WhatIf run itself is evidence. A failure part-way through the changes is
   recorded in the receipt as `failure` with `partial` true and is never
   rethrown before the receipt is written, because the host may already be
-  half-changed by then. Exit codes: 2 refused, 3 failed, 0 otherwise. The
-  receipt is UTF-8 without a byte-order mark under both PowerShell 7 and
-  Windows PowerShell 5.1, because the caller reads it as strict UTF-8.
-  Registry writes require an elevated PowerShell. The receipt object is also
-  printed as JSON on stdout.
+  half-changed by then. The receipt destination is resolved and proven
+  writable, with a `status: starting` receipt written to it, before any host
+  change is attempted; if that initial write fails, nothing on the host is
+  touched. Exit codes: 2 refused, 3 failed, 4 receipt destination unwritable
+  (no host changes made), 0 otherwise. The receipt is UTF-8 without a
+  byte-order mark under both PowerShell 7 and Windows PowerShell 5.1, because
+  the caller reads it as strict UTF-8. Registry writes require an elevated
+  PowerShell. The receipt object is also printed as JSON on stdout.
 
 .NOTES
   Run once by hand with -WhatIf before any agent is allowed to call it through
@@ -76,6 +79,32 @@ if ($ActiveStart -eq $ActiveEnd) { throw 'ActiveStart and ActiveEnd must differ.
 $span = ($ActiveEnd - $ActiveStart + 24) % 24
 if ($span -gt 18) { throw "Active hours span $span h exceeds the 18 h Windows maximum." }
 if (-not $WhatIfPreference -and -not (Test-Admin)) { throw 'Run from an elevated PowerShell; registry writes under HKLM require it.' }
+
+# Prove the receipt destination is writable before touching the host at all:
+# a run that changes the host and then cannot report what it did is worse
+# than one that never started. This initial write goes through the same
+# BOM-less .NET route as the final one, and like it is exempt from -WhatIf,
+# because -WhatIf must still prove the destination works.
+if (-not [System.IO.Path]::IsPathRooted($ReceiptPath)) {
+  $ReceiptPath = Join-Path (Get-Location).ProviderPath $ReceiptPath
+}
+$receiptDir = [System.IO.Path]::GetDirectoryName($ReceiptPath)
+try {
+  if ($receiptDir) { [System.IO.Directory]::CreateDirectory($receiptDir) | Out-Null }
+  $starting = [ordered]@{ schema_version = 1; kind = 'overnight-host-preparation'; status = 'starting' }
+  $startingJson = $starting | ConvertTo-Json -Depth 6
+  [System.IO.File]::WriteAllText($ReceiptPath, $startingJson, [System.Text.UTF8Encoding]::new($false))
+} catch {
+  $errorReceipt = [ordered]@{
+    schema_version = 1
+    kind = 'overnight-host-preparation'
+    status = 'error'
+    error = 'receipt destination unwritable; no host changes were made'
+    detail = $_.Exception.Message
+  }
+  Write-Output ($errorReceipt | ConvertTo-Json -Depth 6)
+  exit 4
+}
 
 $before = Get-HostState
 $refused = $null
@@ -151,12 +180,8 @@ $receipt = [ordered]@{
 # apply --what-if` reporting a receipt path that does not exist. WriteAllText
 # with a BOM-less UTF8Encoding also keeps Windows PowerShell 5.1 from prefixing
 # the JSON with a byte-order mark, which the caller reads as strict UTF-8 only
-# after the host has already been changed.
-if (-not [System.IO.Path]::IsPathRooted($ReceiptPath)) {
-  $ReceiptPath = Join-Path (Get-Location).ProviderPath $ReceiptPath
-}
-$receiptDir = [System.IO.Path]::GetDirectoryName($ReceiptPath)
-if ($receiptDir) { [System.IO.Directory]::CreateDirectory($receiptDir) | Out-Null }
+# after the host has already been changed. $ReceiptPath is already resolved
+# and its directory already created by the starting-receipt write above.
 $json = $receipt | ConvertTo-Json -Depth 6
 [System.IO.File]::WriteAllText($ReceiptPath, $json, [System.Text.UTF8Encoding]::new($false))
 Write-Output $json

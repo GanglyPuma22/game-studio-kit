@@ -121,6 +121,13 @@ half-applied state is visible; it raises only when the script left no receipt
 at all. Read `refused`, `failure` and `partial` before treating a host as
 prepared.
 
+Before any of that, the script proves its `-ReceiptPath` destination is
+writable: it resolves the path, creates its parent directory and writes a
+`status: starting` receipt, all before touching the host. If that write fails
+— a bad drive letter, a directory it cannot create — it exits 4 with no host
+change attempted, and `host apply` raises "receipt destination unwritable; no
+host changes were made" instead of reading a receipt that was never written.
+
 The `--what-if` run writes its receipt too: the receipt is the evidence that
 the run happened, so it is written through .NET calls that `-WhatIf` does not
 suppress, as UTF-8 without a byte-order mark. Give `--output` and `--receipt`

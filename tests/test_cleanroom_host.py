@@ -131,6 +131,52 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(result["contamination"]["agent_log"]["naive_timestamps"], 1)
         self.assertNotIn("secret", json.dumps(result))
 
+    def test_agent_log_is_recorded_with_a_hash_of_the_bytes_actually_parsed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "game"
+            project.mkdir()
+            log = project / "agent.log"
+            log.write_text("2026-09-10T09:59:00Z outside the window\n")
+            expected_sha256 = sha256(log)
+            expected_bytes = log.stat().st_size
+            before = snap([proc(1, "idle")])
+            after = snap([proc(1, "idle")])
+            result = cleanroom.compare(before, after, WINDOW, busy_cpu_seconds=1.0, heavy_working_set_bytes=200 * MB,
+                                       agent_log=log, project_root=project)
+            agent = result["contamination"]["agent_log"]
+            self.assertEqual(agent["path"], str(log))
+            self.assertEqual(agent["sha256"], expected_sha256)
+            self.assertEqual(agent["bytes"], expected_bytes)
+            # Inside the declared project root, the receipt also carries a
+            # portable project-relative record with the same hash.
+            self.assertEqual(agent["file_record"], {"path": "agent.log", "sha256": expected_sha256})
+            self.assertNotIn("unreadable", agent)
+
+    def test_agent_log_outside_the_project_has_no_file_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "game"
+            project.mkdir()
+            log = Path(tmp) / "outside.log"
+            log.write_text("2026-09-10T09:59:00Z outside the window\n")
+            result = cleanroom.compare(snap([proc(1, "idle")]), snap([proc(1, "idle")]), WINDOW,
+                                       busy_cpu_seconds=1.0, heavy_working_set_bytes=200 * MB,
+                                       agent_log=log, project_root=project)
+        self.assertNotIn("file_record", result["contamination"]["agent_log"])
+
+    def test_an_unreadable_agent_log_is_flagged_and_never_attributable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "agent.log"
+            log.write_text("2026-09-10T09:59:00Z will be deleted\n")
+            log.unlink()  # readable when the bench started, gone before compare() reads it
+            result = cleanroom.compare(snap([proc(1, "idle")]), snap([proc(1, "idle")]), WINDOW,
+                                       busy_cpu_seconds=1.0, heavy_working_set_bytes=200 * MB, agent_log=log)
+        agent = result["contamination"]["agent_log"]
+        self.assertTrue(agent["unreadable"])
+        self.assertEqual(agent["status"], "unavailable")
+        self.assertNotIn("sha256", agent)
+        self.assertFalse(result["attributable"])
+        self.assertIn("agent log became unreadable inside the window", result["reasons"])
+
     def test_gpu_power_battery_and_recorder_reasons(self):
         gpu_before = {"status": "ok", "devices": [], "compute_apps": [{"pid": 7, "name": "godot", "used_memory_mib": "1"}]}
         gpu_after = {"status": "ok", "devices": [], "compute_apps": [{"pid": 7, "name": "godot", "used_memory_mib": "1"}, {"pid": 8, "name": "blender", "used_memory_mib": "9"}]}
@@ -427,6 +473,33 @@ class SamplerTests(unittest.TestCase):
         with self.assertRaisesRegex(StudioError, "already running"):
             sampler.start()
 
+    def test_a_reused_helper_pid_is_not_excluded_forever(self):
+        # The enumeration helper (PowerShell on Windows, simulated here) is
+        # excluded by identity, not by raw pid, and only while its identity is
+        # still present in the process table. Once it is gone, a genuinely new
+        # process that lands on the same pid must still be seen as a newcomer.
+        tables = [
+            [proc(1, "idle"), proc(500, "helper-proc")],
+            [proc(1, "idle")],
+            [proc(1, "idle"), proc(500, "unrelated-newcomer", ws=900 * MB)],
+        ]
+        readings = iter(tables)
+        calls = {"n": 0}
+
+        def reader(on_pid=None):
+            calls["n"] += 1
+            if calls["n"] == 1 and on_pid is not None:
+                on_pid(500)
+            return next(readings)
+
+        stamps = iter([f"2026-09-10T10:00:{2 + 10 * n:02d}+00:00" for n in range(len(tables))])
+        sampler = cleanroom.Sampler(interval=1, reader=reader, clock=lambda: next(stamps))
+        for _ in tables:
+            sampler.sample()
+        during = sampler.observation()
+        self.assertEqual([n["name"] for n in during["newcomers"]], ["unrelated-newcomer"])
+        self.assertEqual(during["sampler"]["helper_pids"], [500])
+
 
 class ExecuteTests(unittest.TestCase):
     def setUp(self):
@@ -521,6 +594,21 @@ class ExecuteTests(unittest.TestCase):
                                       sampler_factory=stub_sampler(), self_pid=os.getpid(), **kwargs)
             run.assert_not_called()
         self.assertFalse((self.root / "artifacts").exists())
+
+    def test_a_symlinked_artifacts_directory_is_refused_before_anything_runs(self):
+        # `artifacts` inside the project could be a symlink pointing anywhere,
+        # the installed kit included; the bench directory must be refused
+        # before it is created and before the capture runs.
+        outside = self.root.parent / "outside-artifacts"
+        outside.mkdir()
+        (self.root / "artifacts").symlink_to(outside, target_is_directory=True)
+        with patch("studio_tools.cleanroom.run") as run:
+            with self.assertRaisesRegex(StudioError, "escapes the declared project root"):
+                cleanroom.execute(self.config, self.root, [sys.executable, "-c", "pass"], label="escape",
+                                  snapshot_reader=lambda: snap([proc(1, "idle")]),
+                                  sampler_factory=stub_sampler(), self_pid=os.getpid())
+            run.assert_not_called()
+        self.assertEqual(list(outside.iterdir()), [])
 
     def test_an_agent_log_that_becomes_unreadable_inside_the_window_keeps_the_receipt(self):
         # It existed when the bench started; a rotation or deletion during the
@@ -736,6 +824,39 @@ class ExecuteTests(unittest.TestCase):
                          (None, None, 0, 0.0))
         for field in ("Win32_Process", "ParentProcessId", "CreationDate", "KernelModeTime", "UserModeTime"):
             self.assertIn(field, calls[0], field)
+
+    def test_recorder_matching_is_an_explicit_set_not_a_prefix(self):
+        # "obs" is also the start of Obsidian's executable name; a prefix
+        # match would wrongly flag a note-taking app as a screen recorder.
+        for name in ("obs64", "obs64.exe", "obs32", "obs32.exe", "obs", "obs.exe", "ffmpeg", "OBS64"):
+            self.assertTrue(cleanroom._is_recorder(name), name)
+        for name in ("obsidian", "obsidian.exe", "Obsidian", "observer", "obstacle"):
+            self.assertFalse(cleanroom._is_recorder(name), name)
+
+    def test_on_ac_is_true_when_any_mains_supply_is_online(self):
+        # A host can enumerate more than one Mains supply; the AC state is
+        # whichever entry reports online, not whichever the loop reads last.
+        def make_supply(tmp, entries):
+            supply = Path(tmp) / "power_supply"
+            supply.mkdir()
+            for name, kind, online in entries:
+                item = supply / name
+                item.mkdir()
+                (item / "type").write_text(kind)
+                if kind == "Mains":
+                    (item / "online").write_text("1" if online else "0")
+            return supply
+
+        for order in (
+            (("AC0", "Mains", False), ("AC1", "Mains", True)),
+            (("AC0", "Mains", True), ("AC1", "Mains", False)),
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                supply = make_supply(tmp, order)
+                with patch("studio_tools.cleanroom.os.name", "posix"), \
+                        patch("studio_tools.cleanroom.Path", side_effect=lambda p: supply if p == "/sys/class/power_supply" else Path(p)):
+                    result = cleanroom.read_battery()
+            self.assertEqual(result, {"status": "ok", "on_ac": True, "percent": None}, order)
 
     def test_gpu_query_asks_for_used_gpu_memory_and_reports_compute_apps(self):
         calls = []
@@ -1038,6 +1159,21 @@ class HostPreflightTests(unittest.TestCase):
                 with self.assertRaisesRegex(StudioError, "invalid JSON"):
                     host.apply(load(), receipt=Path(tmp) / "apply2.json", what_if=True)
 
+    def test_apply_maps_exit_4_to_a_distinct_unwritable_receipt_message(self):
+        # Exit 4 means the script's own destination-writability check failed
+        # before it touched the host at all: there is no receipt at `target`
+        # to read back, and the message must say plainly that nothing changed.
+        with tempfile.TemporaryDirectory() as tmp:
+            completed = subprocess.CompletedProcess(
+                [], 4, stdout=json.dumps({"kind": "overnight-host-preparation", "status": "error",
+                                          "error": "receipt destination unwritable; no host changes were made"}),
+                stderr="",
+            )
+            with patch("studio_tools.host.IS_WINDOWS", True), patch("studio_tools.host._powershell", return_value="C:/pwsh.exe"), \
+                    patch("studio_tools.host.subprocess.run", return_value=completed):
+                with self.assertRaisesRegex(StudioError, "receipt destination unwritable; no host changes were made"):
+                    host.apply(load(), receipt=Path(tmp) / "unwritable" / "apply.json")
+
 
 class PrepareScriptContractTests(unittest.TestCase):
     SCRIPT = ROOT / "skills/studio-review/scripts/host/Prepare-OvernightHost.ps1"
@@ -1066,10 +1202,12 @@ class PrepareScriptContractTests(unittest.TestCase):
         self.assertIn("$highPerf", source[source.index("powercfg /list"):source.index("Set-ItemProperty")])
         # Every mutation sits inside one try/catch: the host can already be
         # half-changed when something fails, so the failure is recorded in the
-        # receipt and never rethrown before it is written.
-        self.assertLess(source.index("try {"), source.index("Set-ItemProperty"))
-        self.assertLess(source.index("Set-ItemProperty"), source.index("catch {"))
-        self.assertLess(source.index("catch {"), source.index("[System.IO.File]::WriteAllText"))
+        # receipt and never rethrown before it is written. (An earlier,
+        # separate try/catch only proves the receipt destination is writable,
+        # before any of this runs.)
+        self.assertLess(source.rindex("try {"), source.index("Set-ItemProperty"))
+        self.assertLess(source.index("Set-ItemProperty"), source.rindex("catch {"))
+        self.assertLess(source.rindex("catch {"), source.rindex("[System.IO.File]::WriteAllText"))
         self.assertIn("$failure = $_.Exception.Message", source)
         self.assertIn("$partial = $true", source)
         self.assertIn("failure = $failure", source)
@@ -1082,8 +1220,22 @@ class PrepareScriptContractTests(unittest.TestCase):
         self.assertLess(source.index("Get-ItemProperty -Path $ux -Name $n"), source.index("Remove-ItemProperty -Path $ux -Name $n"))
         self.assertIn("if ($refused) { exit 2 }", source)
         self.assertIn("if ($failure) { exit 3 }", source)
-        self.assertLess(source.index("[System.IO.File]::WriteAllText"), source.index("if ($refused) { exit 2 }"))
+        # The final receipt write (after the host has actually been changed,
+        # or not) is the last WriteAllText call in the script.
+        self.assertLess(source.rindex("[System.IO.File]::WriteAllText"), source.index("if ($refused) { exit 2 }"))
         self.assertLess(source.index("if ($refused) { exit 2 }"), source.index("if ($failure) { exit 3 }"))
+        # The receipt destination is proven writable, with a starting receipt,
+        # before any host change: before the elevation-gated mutation try/catch
+        # and before the first host-state read that precedes it.
+        self.assertIn("status = 'starting'", source)
+        self.assertIn("receipt destination unwritable; no host changes were made", source)
+        self.assertIn("exit 4", source)
+        self.assertLess(source.index("exit 4"), source.index("$before = Get-HostState"))
+        self.assertLess(source.index("$before = Get-HostState"), source.rindex("try {"))
+        # The starting-receipt write is not gated by -WhatIf: a -WhatIf run
+        # must still prove the destination is writable.
+        self.assertLess(source.index("[System.IO.File]::WriteAllText"), source.index("exit 4"))
+        self.assertNotIn("ShouldProcess(", source[:source.index("exit 4")])
         # Every powercfg /setactive call (apply and -Restore) must check $LASTEXITCODE
         # and refuse to continue silently if Windows rejected the scheme change.
         contract = re.findall(
@@ -1100,7 +1252,7 @@ class PrepareScriptContractTests(unittest.TestCase):
         self.assertNotIn("Set-Content", source)
         self.assertNotIn("-Encoding UTF8", source)
         self.assertNotIn("New-Item -ItemType Directory", source)
-        self.assertGreater(source.index("[System.IO.File]::WriteAllText"), source.rindex("ShouldProcess("))
+        self.assertGreater(source.rindex("[System.IO.File]::WriteAllText"), source.rindex("ShouldProcess("))
 
     @unittest.skipUnless(shutil.which("pwsh"), "PowerShell parser not installed")
     def test_script_parses(self):

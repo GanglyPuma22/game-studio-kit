@@ -11,6 +11,7 @@ ever stopped.
 from __future__ import annotations
 import csv
 from datetime import datetime, timezone
+import hashlib
 import json
 import math
 import os
@@ -21,14 +22,17 @@ import subprocess
 import threading
 import time
 import uuid
-from .common import StudioError, file_record, outside_package, read_json, safe_id, write_json
+from .common import StudioError, file_record, outside_package, read_json, relative, safe_id, write_json
 from .processes import run
 
 MAX_CAPTURE_TIMEOUT = 3600
 DEFAULT_SAMPLE_INTERVAL = 10.0
 MIN_SAMPLE_INTERVAL = 1.0
 MAX_SAMPLE_INTERVAL = 60.0
-RECORDER_NAMES = ("ffmpeg", "obs64", "obs32", "gamebar", "gamebarftserver", "sharex", "nvidia share")
+RECORDER_NAMES = (
+    "ffmpeg", "obs64", "obs64.exe", "obs32", "obs32.exe", "obs", "obs.exe",
+    "gamebar", "gamebarftserver", "sharex", "nvidia share",
+)
 LIMITS = [
     "process names only; command lines and environments are never recorded",
     "GPU, power and battery fields are unavailable where the host does not expose them",
@@ -39,8 +43,9 @@ LIMITS = [
 
 
 def _is_recorder(name):
-    lowered = str(name).lower()
-    return lowered in RECORDER_NAMES or lowered.startswith("obs")
+    # An explicit set, never a prefix match: "obs" is also the start of
+    # Obsidian's executable name, which is not a recorder.
+    return str(name).lower() in RECORDER_NAMES
 
 
 def _identity(entry):
@@ -270,7 +275,10 @@ def read_battery():
         try:
             kind = (item / "type").read_text().strip()
             if kind == "Mains":
-                on_ac = (item / "online").read_text().strip() == "1"
+                # A host can report several Mains supplies; it is on AC power
+                # when any one of them is online, not only the last one read.
+                online = (item / "online").read_text().strip() == "1"
+                on_ac = online or bool(on_ac)
             elif kind == "Battery":
                 percent = int((item / "capacity").read_text().strip())
         except (OSError, ValueError):
@@ -332,6 +340,11 @@ class Sampler:
         self._owned_record = Path(owned_record) if owned_record is not None else None
         self._owned = set()
         self._helpers = set()
+        # Keyed by identity, not by raw pid: a short-lived enumeration helper
+        # (PowerShell on Windows, one per query) is excluded only while its
+        # identity is still present in the process table, so a pid the OS
+        # later hands to a genuinely new process is never excluded forever.
+        self._helper_identities = set()
         self._baseline = None if baseline is None else set(baseline)
         self._recorders = {}
         self._newcomers = {}
@@ -343,10 +356,6 @@ class Sampler:
         self._stop = threading.Event()
         self._thread = None
         self._started = False
-
-    def _note_helper(self, pid):
-        with self._lock:
-            self._helpers.add(pid)
 
     def _read_owned(self):
         """Learn the owned capture's pid from the job receipt the runner writes."""
@@ -395,7 +404,17 @@ class Sampler:
 
     def sample(self):
         """Take one observation; callable directly so tests need no threads."""
-        status, _reason, processes = _enumeration(self._reader(on_pid=self._note_helper))
+        # Pids reported this call only: the helper's identity is resolved
+        # below, from the listing it itself produced, not trusted as a raw
+        # pid that would keep excluding whatever the OS later hands that pid to.
+        pending_helper_pids = []
+
+        def note_helper(pid):
+            with self._lock:
+                self._helpers.add(pid)
+            pending_helper_pids.append(pid)
+
+        status, _reason, processes = _enumeration(self._reader(on_pid=note_helper))
         # Read the owned pid after enumerating: a capture that started between
         # the two reads is then still recognised as the capture, not a newcomer.
         self._read_owned()
@@ -408,6 +427,14 @@ class Sampler:
             if self._first is None:
                 self._first = at
             self._last = at
+            present = {_identity(entry) for entry in processes}
+            for entry in processes:
+                if entry["pid"] in pending_helper_pids:
+                    self._helper_identities.add(_identity(entry))
+            # Drop any previously tracked helper identity no longer present:
+            # once it is gone, its pid is free for the OS to reuse for a
+            # genuinely new process, which must be seen as a newcomer.
+            self._helper_identities &= present
             if self._baseline is None:
                 # No seed: this first reading is the baseline.
                 self._baseline = {_identity(entry) for entry in processes}
@@ -415,7 +442,8 @@ class Sampler:
             owned = self._owned_tree(processes)
             for entry in processes:
                 pid = entry["pid"]
-                if pid in self._ignore or pid in self._helpers:
+                identity = _identity(entry)
+                if pid in self._ignore or identity in self._helper_identities:
                     continue
                 # A recorder is contamination wherever it came from, the owned
                 # capture's own tree included: a capture that starts ffmpeg is
@@ -424,7 +452,7 @@ class Sampler:
                     self._observe(self._recorders, entry, at)
                 if pid in owned:
                     continue
-                if _identity(entry) not in self._baseline:
+                if identity not in self._baseline:
                     self._observe(self._newcomers, entry, at)
 
     def _safe_sample(self):
@@ -482,22 +510,41 @@ class Sampler:
             }
 
 
-def _timestamps_in_window(path, started, finished):
+def _timestamps_in_window(path, started, finished, *, root=None):
     """Status-bearing like the process readers. The capture has already run by
     the time this is read, so a log that was rotated or deleted inside the
-    window must cost the attribution, not the whole receipt."""
+    window must cost the attribution, not the whole receipt.
+
+    The log's bytes are read exactly once; the hash recorded for attribution
+    is of those same bytes, not of a path that could point at something else
+    by the time anyone checks it. When the log lives inside the project, a
+    project-relative `file_record` is added too, built from that one read
+    rather than hashing the file a second time.
+    """
+    path = Path(path)
+    result = {"path": str(path)}
+    try:
+        data = path.read_bytes()
+    except OSError:
+        result.update(unreadable=True, status="unavailable", timestamps_in_window=None, naive_timestamps=None)
+        return result
+    result.update(sha256=hashlib.sha256(data).hexdigest(), bytes=len(data))
+    if root is not None:
+        try:
+            rel = path.resolve().relative_to(Path(root).resolve())
+        except ValueError:
+            pass
+        else:
+            result["file_record"] = {"path": rel.as_posix(), "sha256": result["sha256"]}
     inside = naive = 0
     pattern = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?")
-    try:
-        text = Path(path).read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return {"path": str(path), "status": "unavailable", "timestamps_in_window": None, "naive_timestamps": None}
+    text = data.decode("utf-8", errors="replace")
     for match in pattern.finditer(text):
-        raw = match.group(0).replace(" ", "T")
-        if raw.endswith("Z"):
-            raw = raw[:-1] + "+00:00"
+        stamp_text = match.group(0).replace(" ", "T")
+        if stamp_text.endswith("Z"):
+            stamp_text = stamp_text[:-1] + "+00:00"
         try:
-            stamp = datetime.fromisoformat(raw)
+            stamp = datetime.fromisoformat(stamp_text)
         except ValueError:
             continue
         if stamp.tzinfo is None:
@@ -505,10 +552,11 @@ def _timestamps_in_window(path, started, finished):
             # No offset: treat it as host local time rather than discarding it.
         if started <= stamp.astimezone(timezone.utc) <= finished:
             inside += 1
-    return {"path": str(path), "status": "ok", "timestamps_in_window": inside, "naive_timestamps": naive}
+    result.update(status="ok", timestamps_in_window=inside, naive_timestamps=naive)
+    return result
 
 
-def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes, agent_log=None, self_pid=None, during=None):
+def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes, agent_log=None, self_pid=None, during=None, project_root=None):
     """Pure comparison of two snapshots around a window; returns reasons, never log text."""
     reasons = []
     limits = list(LIMITS)
@@ -588,7 +636,7 @@ def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes,
     if agent_log is not None:
         started = datetime.fromisoformat(window["started_utc"])
         finished = datetime.fromisoformat(window["finished_utc"])
-        agent = _timestamps_in_window(agent_log, started, finished)
+        agent = _timestamps_in_window(agent_log, started, finished, root=project_root)
         if agent.get("status") == "unavailable":
             # It was readable when the bench started; something removed or
             # locked it mid-window, so nothing can be said about the agent.
@@ -682,7 +730,10 @@ def execute(
     # The scope rung this bench is evidence for; validated like a label so a
     # capture cannot be silently cited for the wrong rung.
     scope = safe_id(scope) if scope is not None else None
-    bench = root / "artifacts" / "bench" / label
+    # `relative` follows every symlink on the way (an `artifacts` directory
+    # that escapes the project, the kit included) and refuses one that lands
+    # outside the project root, before anything is created or the capture runs.
+    bench = outside_package(relative(root, f"artifacts/bench/{label}"))
     try:
         bench.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
@@ -735,7 +786,7 @@ def execute(
     comparison = compare(
         before, after, window, busy_cpu_seconds=busy_seconds,
         heavy_working_set_bytes=heavy_working_set_bytes,
-        agent_log=agent_log, self_pid=owner, during=during,
+        agent_log=agent_log, self_pid=owner, during=during, project_root=root,
     )
     # Every artifact this bench wrote is now final, so the receipt cites each
     # one as a portable project-relative path with the hash of what was read.

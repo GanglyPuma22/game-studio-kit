@@ -254,6 +254,12 @@ def apply(config, *, receipt, pause_days=3, active_start=18, active_end=12, what
         completed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=120)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise StudioError("Could not run the host preparation script") from exc
+    if completed.returncode == 4:
+        # The script proves its receipt destination is writable, with a
+        # `status: starting` receipt, before it touches the host at all; exit
+        # 4 means that initial write failed, so no host change was attempted
+        # and there is nothing at `target` to read back.
+        raise StudioError("receipt destination unwritable; no host changes were made")
     if completed.returncode:
         # The script refuses (2) and fails (3) after writing its receipt, so a
         # non-zero exit with a receipt on disk is a report, not a lost run: a
