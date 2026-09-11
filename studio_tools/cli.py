@@ -255,6 +255,21 @@ def dispatch(a):
             config, receipt=a.receipt, pause_days=a.pause_days, active_start=a.active_start,
             active_end=a.active_end, what_if=a.what_if, restore=a.restore,
         )
+    if a.command == "bench":
+        from .cleanroom import execute as bench_execute
+
+        capture = list(a.capture)
+        if capture[:1] == ["--"]:
+            capture = capture[1:]
+        # A bench measures a project that already exists; creating the root here
+        # would turn a mistyped --project into a new empty directory instead of
+        # the refusal `cleanroom.execute` is written to give.
+        return bench_execute(
+            config, Path(a.project).resolve(), capture, label=a.label, scope=a.scope, settle=a.settle,
+            agent_log=a.agent_log, timeout=a.timeout, busy_fraction=a.busy_fraction,
+            busy_floor_seconds=a.busy_floor_seconds, heavy_working_set_mb=a.heavy_working_set_mb,
+            sample_interval=a.sample_interval,
+        )
     # Read-only validation does not create the project directory.
     root = (
         Path(a.project).resolve()
@@ -269,17 +284,6 @@ def dispatch(a):
         from .records import validate
 
         return validate(read_json(path(a.record)), root)
-    if a.command == "bench":
-        from .cleanroom import execute as bench_execute
-
-        capture = list(a.capture)
-        if capture[:1] == ["--"]:
-            capture = capture[1:]
-        return bench_execute(
-            config, root, capture, label=a.label, scope=a.scope, settle=a.settle, agent_log=a.agent_log,
-            timeout=a.timeout, busy_fraction=a.busy_fraction, busy_floor_seconds=a.busy_floor_seconds,
-            heavy_working_set_mb=a.heavy_working_set_mb, sample_interval=a.sample_interval,
-        )
     if a.command == "review":
         from . import validation, review_media, review_video
         def needed(field):

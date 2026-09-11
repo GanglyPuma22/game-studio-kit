@@ -182,11 +182,16 @@ identity, not acceptance or entitlement.
 ## Cleanroom windows and host readiness
 
 A performance number is citable only with a cleanroom pair around it. `bench
-cleanroom` takes a host snapshot (process names with CPU seconds and working
-set, `nvidia-smi` devices and compute apps, active power scheme, battery,
-recorder processes), runs the capture command once through the owned runner,
-snapshots again, and writes `before.json`, `after.json`, `during.json`, the
-capture's job receipts and `cleanroom.json` under `artifacts/bench/<label>/`:
+cleanroom` takes a host snapshot (process names with parent pid, creation time,
+CPU seconds and working set, `nvidia-smi` devices and compute apps, active
+power scheme, battery, recorder processes), runs the capture command once
+through the owned runner, snapshots again, and writes `before.json`,
+`after.json`, `during.json`, the capture's job receipts and `cleanroom.json`
+under `artifacts/bench/<label>/`. The project must already exist: a mistyped
+`--project` is refused, never created. Contamination thresholds
+(`--busy-fraction`, `--busy-floor-seconds`, `--heavy-working-set-mb`) are
+validated before the capture, so a non-finite or out-of-range threshold cannot
+quietly label a dirty window clean:
 
 ```text
 python <KIT>/scripts/studio.py bench cleanroom --project <GAME> --label settled-01 \
@@ -199,8 +204,11 @@ python <KIT>/scripts/studio.py bench cleanroom --project <GAME> --label settled-
 heavy process appeared or exited, no other process consumed CPU beyond the busy
 threshold, no GPU compute process appeared or exited, the power scheme did not
 change, the host was on AC power in both snapshots, no recorder process was
-present, and the agent log (when supplied) has no timestamps inside the window
-and none without a UTC offset. Each violation is a named reason. Missing GPU or
+present, and the agent log (when supplied) stayed readable, with no timestamps
+inside the window and none without a UTC offset. A log that was readable when
+the bench started and cannot be read at the comparison is its own reason
+("agent log became unreadable inside the window"); the receipt is still
+written. Each violation is a named reason. Missing GPU or
 battery counters are limits, not reasons. The command never stops any process
 other than its own capture. An agent must make no tool calls while the command
 runs; the command owns the wait.
@@ -215,6 +223,11 @@ only reads; its own enumeration helpers and the owned capture's process tree
 are excluded, and it never signals anything. Anything shorter-lived than the
 interval can still be missed, which is a stated limit rather than a clean
 result.
+
+A process is identified by pid, name and creation time, not by pid alone. A pid
+the OS hands to another program inside the window is therefore a newcomer to
+the sampler and an exit plus an appearance to the before/after diff, rather
+than one long-running process with a CPU delta.
 
 If either snapshot's process query fails, `process_enumeration` says so and the
 window is not attributable: an empty process table is a failed query, not a
@@ -231,6 +244,11 @@ hours, power scheme and battery without changing anything, and judges them
 against an optional `--window-start/--window-end` (UTC). `host apply` runs the
 packaged [Prepare-OvernightHost.ps1](../skills/studio-review/scripts/host/Prepare-OvernightHost.ps1)
 with a mandatory receipt path; use `--what-if` first, which still writes a real
-receipt because the `--what-if` run is itself the evidence. `--output` and
-`--receipt` must be outside the installed toolkit, like every other output. On
-non-Windows hosts preflight reports `host_kind: unsupported` and apply refuses.
+receipt because the `--what-if` run is itself the evidence. The script exits 2
+when it refuses and 3 when a change failed part-way through, and writes its
+receipt (with `refused`, `failure` and `partial`) before either; `host apply`
+returns that receipt with `ok: false` rather than raising, so a half-applied
+change is reported instead of lost. A window is judged only when it is between
+one minute and eighteen hours long. `--output` and `--receipt` must be outside
+the installed toolkit, like every other output. On non-Windows hosts preflight
+reports `host_kind: unsupported` and apply refuses.

@@ -10,13 +10,18 @@
        (the same values the Settings app writes), for -PauseDays.
     2. Active hours (-ActiveStart/-ActiveEnd, local hours, maximum 18-hour span).
     3. The active power scheme (High performance; -Restore returns to Balanced).
-  It refuses to continue when a reboot is already pending. It never stops a
-  process. -WhatIf prints intended changes without writing; the receipt is
-  still written, through .NET calls that ShouldProcess does not suppress, so
-  the -WhatIf run itself is evidence. The receipt is UTF-8 without a byte-order
-  mark under both PowerShell 7 and Windows PowerShell 5.1, because the caller
-  reads it as strict UTF-8. Registry writes require an elevated PowerShell. The
-  receipt object is also printed as JSON on stdout.
+  It refuses to continue when a reboot is already pending, or when the High
+  performance scheme is not present on the host. It never stops a process.
+  -WhatIf prints intended changes without writing; the receipt is still
+  written, through .NET calls that ShouldProcess does not suppress, so the
+  -WhatIf run itself is evidence. A failure part-way through the changes is
+  recorded in the receipt as `failure` with `partial` true and is never
+  rethrown before the receipt is written, because the host may already be
+  half-changed by then. Exit codes: 2 refused, 3 failed, 0 otherwise. The
+  receipt is UTF-8 without a byte-order mark under both PowerShell 7 and
+  Windows PowerShell 5.1, because the caller reads it as strict UTF-8.
+  Registry writes require an elevated PowerShell. The receipt object is also
+  printed as JSON on stdout.
 
 .NOTES
   Run once by hand with -WhatIf before any agent is allowed to call it through
@@ -74,36 +79,50 @@ if (-not $WhatIfPreference -and -not (Test-Admin)) { throw 'Run from an elevated
 
 $before = Get-HostState
 $refused = $null
+$failure = $null
+$partial = $false
 
-if ($Restore) {
-  if ($PSCmdlet.ShouldProcess('Windows Update pause and power scheme', 'restore defaults')) {
-    foreach ($n in $pauseNames) { Remove-ItemProperty -Path $ux -Name $n -ErrorAction SilentlyContinue }
-    powercfg /setactive $balanced | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'powercfg rejected the scheme change' }
-  }
-} else {
-  $pending = Get-PendingReboot
-  if ($pending.cbs -or $pending.wu -or $pending.pending_file_rename) {
-    $refused = 'A reboot is already pending; restart before the window, then re-run.'
-  } else {
-    $start = (Get-Date).ToUniversalTime()
-    $end = $start.AddDays($PauseDays)
-    if ($PSCmdlet.ShouldProcess('Windows Update', "pause until $($end.ToString('o')) and set active hours $ActiveStart-$ActiveEnd")) {
-      New-Item -Path $ux -Force | Out-Null
-      Set-ItemProperty -Path $ux -Name PauseUpdatesStartTime -Value $start.ToString('yyyy-MM-ddTHH:mm:ssZ')
-      Set-ItemProperty -Path $ux -Name PauseUpdatesExpiryTime -Value $end.ToString('yyyy-MM-ddTHH:mm:ssZ')
-      Set-ItemProperty -Path $ux -Name PauseFeatureUpdatesStartTime -Value $start.ToString('yyyy-MM-ddTHH:mm:ssZ')
-      Set-ItemProperty -Path $ux -Name PauseFeatureUpdatesEndTime -Value $end.ToString('yyyy-MM-ddTHH:mm:ssZ')
-      Set-ItemProperty -Path $ux -Name PauseQualityUpdatesStartTime -Value $start.ToString('yyyy-MM-ddTHH:mm:ssZ')
-      Set-ItemProperty -Path $ux -Name PauseQualityUpdatesEndTime -Value $end.ToString('yyyy-MM-ddTHH:mm:ssZ')
-      Set-ItemProperty -Path $ux -Name ActiveHoursStart -Value $ActiveStart -Type DWord
-      Set-ItemProperty -Path $ux -Name ActiveHoursEnd -Value $ActiveEnd -Type DWord
-    }
-    if ($PSCmdlet.ShouldProcess('Power scheme', 'set High performance')) {
-      powercfg /setactive $highPerf | Out-Null
+# Every change below is wrapped: once the first registry value is written the
+# host is already altered, so a later failure must be recorded in the receipt
+# rather than thrown away with it. Nothing is rethrown before the write.
+try {
+  if ($Restore) {
+    if ($PSCmdlet.ShouldProcess('Windows Update pause and power scheme', 'restore defaults')) {
+      foreach ($n in $pauseNames) { Remove-ItemProperty -Path $ux -Name $n -ErrorAction SilentlyContinue }
+      powercfg /setactive $balanced | Out-Null
       if ($LASTEXITCODE -ne 0) { throw 'powercfg rejected the scheme change' }
     }
+  } else {
+    $pending = Get-PendingReboot
+    if ($pending.cbs -or $pending.wu -or $pending.pending_file_rename) {
+      $refused = 'A reboot is already pending; restart before the window, then re-run.'
+    } elseif ((powercfg /list | Out-String) -notmatch [regex]::Escape($highPerf)) {
+      # Refuse before writing anything: pausing updates and then failing to
+      # raise the power scheme would leave a host nobody asked for.
+      $refused = "The High performance scheme $highPerf is not present; no changes were made."
+    } else {
+      $start = (Get-Date).ToUniversalTime()
+      $end = $start.AddDays($PauseDays)
+      if ($PSCmdlet.ShouldProcess('Windows Update', "pause until $($end.ToString('o')) and set active hours $ActiveStart-$ActiveEnd")) {
+        New-Item -Path $ux -Force | Out-Null
+        Set-ItemProperty -Path $ux -Name PauseUpdatesStartTime -Value $start.ToString('yyyy-MM-ddTHH:mm:ssZ')
+        Set-ItemProperty -Path $ux -Name PauseUpdatesExpiryTime -Value $end.ToString('yyyy-MM-ddTHH:mm:ssZ')
+        Set-ItemProperty -Path $ux -Name PauseFeatureUpdatesStartTime -Value $start.ToString('yyyy-MM-ddTHH:mm:ssZ')
+        Set-ItemProperty -Path $ux -Name PauseFeatureUpdatesEndTime -Value $end.ToString('yyyy-MM-ddTHH:mm:ssZ')
+        Set-ItemProperty -Path $ux -Name PauseQualityUpdatesStartTime -Value $start.ToString('yyyy-MM-ddTHH:mm:ssZ')
+        Set-ItemProperty -Path $ux -Name PauseQualityUpdatesEndTime -Value $end.ToString('yyyy-MM-ddTHH:mm:ssZ')
+        Set-ItemProperty -Path $ux -Name ActiveHoursStart -Value $ActiveStart -Type DWord
+        Set-ItemProperty -Path $ux -Name ActiveHoursEnd -Value $ActiveEnd -Type DWord
+      }
+      if ($PSCmdlet.ShouldProcess('Power scheme', 'set High performance')) {
+        powercfg /setactive $highPerf | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'powercfg rejected the scheme change' }
+      }
+    }
   }
+} catch {
+  $failure = $_.Exception.Message
+  $partial = $true
 }
 
 $after = Get-HostState
@@ -113,6 +132,8 @@ $receipt = [ordered]@{
   what_if = [bool]$WhatIfPreference
   restore = [bool]$Restore
   refused = $refused
+  failure = $failure
+  partial = [bool]$partial
   requested = [ordered]@{ pause_days = $PauseDays; active_start = $ActiveStart; active_end = $ActiveEnd }
   before = $before
   after = $after
@@ -133,3 +154,5 @@ $json = $receipt | ConvertTo-Json -Depth 6
 [System.IO.File]::WriteAllText($ReceiptPath, $json, [System.Text.UTF8Encoding]::new($false))
 Write-Output $json
 if ($refused) { exit 2 }
+if ($failure) { exit 3 }
+exit 0

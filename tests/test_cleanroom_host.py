@@ -32,8 +32,9 @@ def snap(processes_, at="2026-09-10T10:00:00+00:00", gpu=None, power=None, batte
     }
 
 
-def proc(pid, name, cpu=0.0, ws=10 * MB, ppid=None):
-    return {"pid": pid, "ppid": ppid, "name": name, "cpu_seconds": cpu, "working_set_bytes": ws}
+def proc(pid, name, cpu=0.0, ws=10 * MB, ppid=None, created=None):
+    return {"pid": pid, "ppid": ppid, "name": name, "cpu_seconds": cpu, "working_set_bytes": ws,
+            "created": created}
 
 
 WINDOW = {"started_utc": "2026-09-10T10:00:01+00:00", "finished_utc": "2026-09-10T10:05:01+00:00", "elapsed_seconds": 300.0}
@@ -175,6 +176,24 @@ class CompareTests(unittest.TestCase):
         self.assertEqual([p["name"] for p in result["contamination"]["exited_heavy"]], ["helper"])
         self.assertEqual(result["contamination"]["busy"], [])
 
+    def test_a_pid_whose_creation_time_changed_is_an_exit_plus_an_appearance(self):
+        # Same pid, same name, same counter direction: only the creation time
+        # says the second process is not the first one still running.
+        before = snap([proc(30, "worker", cpu=9.0, ws=300 * MB, created="100")])
+        after = snap([proc(30, "worker", cpu=12.0, ws=300 * MB, created="900")], at="2026-09-10T10:05:02+00:00")
+        result = cleanroom.compare(before, after, WINDOW, busy_cpu_seconds=1.0, heavy_working_set_bytes=200 * MB)
+        self.assertEqual([p["name"] for p in result["contamination"]["new_heavy"]], ["worker"])
+        self.assertEqual([p["name"] for p in result["contamination"]["exited_heavy"]], ["worker"])
+        self.assertEqual(result["contamination"]["busy"], [])
+        # A host that does not report a creation time on both sides keeps the
+        # old behaviour: the pid is one continuously-running process.
+        continuous = cleanroom.compare(
+            snap([proc(30, "worker", cpu=9.0, ws=300 * MB, created="100")]),
+            snap([proc(30, "worker", cpu=9.2, ws=300 * MB)]), WINDOW,
+            busy_cpu_seconds=1.0, heavy_working_set_bytes=200 * MB)
+        self.assertEqual(continuous["contamination"]["new_heavy"], [])
+        self.assertEqual(continuous["contamination"]["exited_heavy"], [])
+
     def test_a_cpu_heavy_process_that_exits_is_contamination_even_when_it_is_small(self):
         # A shader compiler or asset importer can burn a core inside the window
         # and quit before the after snapshot while never holding much memory.
@@ -246,6 +265,29 @@ class SamplerTests(unittest.TestCase):
         self.assertIn("heavy processes ran and exited inside the window", result["reasons"])
         self.assertEqual([n["name"] for n in result["during"]["heavy_newcomers"]], ["blender", "obs64"])
         self.assertFalse(any(n["present_after"] for n in result["during"]["heavy_newcomers"]))
+
+    def test_a_baseline_pid_reused_by_a_new_process_is_still_a_newcomer(self):
+        # The OS hands pid 77 on to a second, heavy program of the same name
+        # after the baseline sample; only the creation time separates them, and
+        # the second one quits before the after snapshot ever sees it.
+        tables = [
+            [proc(1, "idle"), proc(77, "worker", created="100")],
+            [proc(1, "idle"), proc(77, "worker", created="900", ws=900 * MB)],
+            [proc(1, "idle")],
+        ]
+        sampler = self.sampler(tables)
+        for _ in tables:
+            sampler.sample()
+        during = sampler.observation()
+        self.assertEqual([(n["pid"], n["created"]) for n in during["newcomers"]], [(77, "900")])
+        before = snap([proc(1, "idle"), proc(77, "worker", created="100")])
+        after = snap([proc(1, "idle")])
+        result = cleanroom.compare(before, after, WINDOW, busy_cpu_seconds=1.0,
+                                   heavy_working_set_bytes=200 * MB, during=during)
+        self.assertFalse(result["attributable"])
+        self.assertIn("heavy processes ran and exited inside the window", result["reasons"])
+        self.assertEqual([n["pid"] for n in result["during"]["heavy_newcomers"]], [77])
+        self.assertFalse(result["during"]["heavy_newcomers"][0]["present_after"])
 
     def test_the_sampler_excludes_its_own_helper_and_the_owned_capture_tree(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -360,6 +402,60 @@ class ExecuteTests(unittest.TestCase):
             self.assertEqual(cli.main(["bench", "cleanroom", "--project", str(self.root)]), 1)
         self.assertIn("capture command", err.getvalue())
 
+    def test_contamination_thresholds_are_validated_before_anything_is_created(self):
+        # A NaN or negative threshold would quietly call a dirty window clean,
+        # so it is refused before the capture runs and before the bench exists.
+        with patch("studio_tools.cleanroom.run") as run:
+            for kwargs in ({"busy_fraction": float("inf")}, {"busy_fraction": float("nan")},
+                           {"busy_fraction": -0.1}, {"busy_fraction": 1.5},
+                           {"busy_floor_seconds": float("nan")}, {"busy_floor_seconds": -1},
+                           {"heavy_working_set_mb": float("inf")}, {"heavy_working_set_mb": float("nan")},
+                           {"heavy_working_set_mb": -5}, {"heavy_working_set_mb": 1e9},
+                           {"heavy_working_set_mb": "200"}):
+                with self.assertRaises(StudioError, msg=str(kwargs)):
+                    cleanroom.execute(self.config, self.root, [sys.executable, "-c", "pass"], label="thresholds",
+                                      snapshot_reader=lambda: snap([proc(1, "idle")]),
+                                      sampler_factory=stub_sampler(), self_pid=os.getpid(), **kwargs)
+            run.assert_not_called()
+        self.assertFalse((self.root / "artifacts").exists())
+
+    def test_an_agent_log_that_becomes_unreadable_inside_the_window_keeps_the_receipt(self):
+        # It existed when the bench started; a rotation or deletion during the
+        # capture must cost the attribution, not the whole benchmark record.
+        log = self.root / "agent.log"
+        log.write_text("2026-09-10T09:00:00Z started\n", encoding="utf-8")
+        calls = []
+
+        def reader():
+            calls.append(len(calls))
+            if len(calls) == 2:
+                log.unlink()
+            return snap([proc(1, "idle")])
+
+        result = cleanroom.execute(self.config, self.root, [sys.executable, "-c", "print('{}')"], label="gone",
+                                   agent_log=str(log), snapshot_reader=reader,
+                                   sampler_factory=stub_sampler(), self_pid=os.getpid())
+        self.assertFalse(result["attributable"])
+        self.assertIn("agent log became unreadable inside the window", result["reasons"])
+        agent = result["contamination"]["agent_log"]
+        self.assertEqual(agent["status"], "unavailable")
+        self.assertIsNone(agent["timestamps_in_window"])
+        self.assertIsNone(agent["naive_timestamps"])
+        self.assertTrue((self.root / "artifacts/bench/gone/cleanroom.json").is_file())
+        self.assertEqual(read_json(self.root / "artifacts/bench/gone/cleanroom.json")["capture"]["status"], "completed")
+
+    def test_cli_bench_refuses_a_missing_project_instead_of_creating_it(self):
+        missing = Path(self.tmp.name) / "typo-project"
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            code = cli.main(["bench", "cleanroom", "--project", str(missing), "--", sys.executable, "-c", "pass"])
+        self.assertEqual(code, 1)
+        self.assertIn("existing game project directory", err.getvalue())
+        self.assertFalse(missing.exists())
+        # A bench root inside the installed toolkit is still refused outright.
+        with self.assertRaisesRegex(StudioError, "outside the toolkit"):
+            cleanroom.execute(self.config, ROOT / "examples", [sys.executable, "-c", "pass"],
+                              snapshot_reader=lambda: snap([proc(1, "idle")]))
+
     def test_cli_route_strips_separator(self):
         with patch("studio_tools.cleanroom.Sampler", stub_sampler()), \
                 patch("studio_tools.cleanroom.snapshot", side_effect=[snap([proc(1, "idle")]), snap([proc(1, "idle")])]):
@@ -373,6 +469,10 @@ class ExecuteTests(unittest.TestCase):
         result = cleanroom.snapshot()
         self.assertEqual(result["process_status"], "ok")
         self.assertIn(os.getpid(), {p["pid"] for p in result["processes"]})
+        # Every reading carries the identity fields the reuse rules depend on.
+        mine = next(p for p in result["processes"] if p["pid"] == os.getpid())
+        self.assertTrue(mine["created"])
+        self.assertIsInstance(mine["ppid"], int)
         self.assertIn(result["gpu"]["status"], {"ok", "partial", "unavailable"})
         self.assertIn(result["power_scheme"]["status"], {"ok", "unavailable"})
         self.assertIn(result["battery"]["status"], {"ok", "unavailable"})
@@ -489,6 +589,35 @@ class ExecuteTests(unittest.TestCase):
                                    power_reader=lambda: {"status": "unavailable"}, battery_reader=lambda: {"status": "unavailable"})
         self.assertEqual(empty["process_status"], "unavailable")
 
+    def test_windows_reader_carries_parent_pids_and_process_identity(self):
+        # Get-Process exposes no parent pid, so the owned capture's descendants
+        # could not be excluded; Win32_Process carries both ppid and a creation
+        # time, and its Name keeps the extension the recorder list does not use.
+        rows = json.dumps([
+            {"ProcessId": 4242, "ParentProcessId": 4000, "Name": "obs64.exe", "WorkingSetSize": 400 * MB,
+             "KernelModeTime": 20000000, "UserModeTime": 30000000, "CreationDate": "2026-09-10T09:59:00+00:00"},
+            {"ProcessId": 4, "ParentProcessId": None, "Name": "System", "WorkingSetSize": None,
+             "KernelModeTime": None, "UserModeTime": None, "CreationDate": None},
+        ])
+        calls = []
+
+        def fake_query(args, timeout=15, on_pid=None):
+            calls.append(" ".join(str(a) for a in args))
+            return rows
+
+        with patch("studio_tools.cleanroom._powershell", return_value="pwsh"), \
+                patch("studio_tools.cleanroom._query", side_effect=fake_query):
+            result = cleanroom.read_processes_windows()
+        self.assertEqual(result["status"], "ok")
+        recorder, system = result["processes"]
+        self.assertEqual(recorder, {"pid": 4242, "ppid": 4000, "name": "obs64", "cpu_seconds": 5.0,
+                                    "working_set_bytes": 400 * MB, "created": "2026-09-10T09:59:00+00:00"})
+        self.assertTrue(cleanroom._is_recorder(recorder["name"]))
+        self.assertEqual((system["ppid"], system["created"], system["working_set_bytes"], system["cpu_seconds"]),
+                         (None, None, 0, 0.0))
+        for field in ("Win32_Process", "ParentProcessId", "CreationDate", "KernelModeTime", "UserModeTime"):
+            self.assertIn(field, calls[0], field)
+
     def test_gpu_query_asks_for_used_gpu_memory_and_reports_compute_apps(self):
         calls = []
 
@@ -552,6 +681,12 @@ class HostPreflightTests(unittest.TestCase):
         self.assertIn("host is on battery power", battery["reasons"])
         too_long = self.evaluate(self.state(), "2026-09-15T00:00:00+00:00", "2026-09-15T20:00:00+00:00")
         self.assertIn("window must be between 1 minute and 18 hours long", too_long["reasons"])
+        # The stated minimum is enforced too: a one-second window is not a window.
+        too_short = self.evaluate(self.state(), "2026-09-15T02:00:00+00:00", "2026-09-15T02:00:01+00:00")
+        self.assertFalse(too_short["ready"])
+        self.assertIn("window must be between 1 minute and 18 hours long", too_short["reasons"])
+        exactly_a_minute = self.evaluate(self.state(), "2026-09-15T02:00:00+00:00", "2026-09-15T02:01:00+00:00")
+        self.assertNotIn("window must be between 1 minute and 18 hours long", exactly_a_minute["reasons"])
 
     def test_power_scheme_unreadable_is_not_ready(self):
         result = self.evaluate(self.state(power_scheme={"status": "unavailable"}))
@@ -681,6 +816,48 @@ class HostPreflightTests(unittest.TestCase):
             with self.assertRaises(StudioError):
                 read_json(receipt)
 
+    def test_apply_reports_a_partial_failure_receipt_instead_of_raising(self):
+        # The script exits 3 after a failure part-way through the changes, and
+        # writes its receipt first: the host may already be half-changed, so the
+        # receipt has to reach the caller rather than be raised away.
+        with tempfile.TemporaryDirectory() as tmp:
+            receipt = Path(tmp) / "apply.json"
+            body = {"kind": "overnight-host-preparation", "refused": None, "partial": True,
+                    "failure": "powercfg rejected the scheme change"}
+
+            def fake_run(command, **kwargs):
+                receipt.write_text(json.dumps(body), encoding="utf-8")
+                return subprocess.CompletedProcess(command, 3, stdout=json.dumps(body), stderr="")
+
+            with patch("studio_tools.host.IS_WINDOWS", True), patch("studio_tools.host._powershell", return_value="C:/pwsh.exe"), \
+                    patch("studio_tools.host.subprocess.run", side_effect=fake_run):
+                result = host.apply(load(), receipt=receipt)
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["partial"])
+            self.assertEqual(result["failure"], "powercfg rejected the scheme change")
+            self.assertTrue(result["receipt_written"])
+            self.assertEqual(result["receipt"], str(receipt))
+            # A refusal (exit 2) is reported the same way, with its reason intact.
+            refused_path = Path(tmp) / "refused.json"
+            refused_body = {"kind": "overnight-host-preparation", "partial": False, "failure": None,
+                            "refused": "A reboot is already pending; restart before the window, then re-run."}
+
+            def fake_refusal(command, **kwargs):
+                refused_path.write_text(json.dumps(refused_body), encoding="utf-8")
+                return subprocess.CompletedProcess(command, 2, stdout="", stderr="")
+
+            with patch("studio_tools.host.IS_WINDOWS", True), patch("studio_tools.host._powershell", return_value="C:/pwsh.exe"), \
+                    patch("studio_tools.host.subprocess.run", side_effect=fake_refusal):
+                refusal = host.apply(load(), receipt=refused_path)
+            self.assertFalse(refusal["ok"])
+            self.assertIn("reboot is already pending", refusal["refused"])
+            # Without a receipt there is nothing to report, so the call still raises.
+            with patch("studio_tools.host.IS_WINDOWS", True), patch("studio_tools.host._powershell", return_value="C:/pwsh.exe"), \
+                    patch("studio_tools.host.subprocess.run",
+                          return_value=subprocess.CompletedProcess([], 3, stdout="", stderr="")):
+                with self.assertRaisesRegex(StudioError, "wrote no receipt"):
+                    host.apply(load(), receipt=Path(tmp) / "never.json")
+
     def test_apply_falls_back_to_stdout_json_only_when_receipt_is_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
             receipt = Path(tmp) / "apply.json"
@@ -713,10 +890,31 @@ class PrepareScriptContractTests(unittest.TestCase):
             self.assertIn(needle, source, needle)
         for forbidden in ("Stop-Process", "taskkill", "Remove-Item -Recurse", "Restart-Computer", "shutdown"):
             self.assertNotIn(forbidden, source, forbidden)
-        self.assertLess(source.index("Get-PendingReboot\n  if ($pending.cbs"), source.index("Set-ItemProperty"))
+        self.assertRegex(source, r"\$pending = Get-PendingReboot\n\s*if \(\$pending\.cbs")
+        self.assertLess(source.index("$pending = Get-PendingReboot"), source.index("Set-ItemProperty"))
         self.assertEqual(host.HOST_ROOT / host.SCRIPT, self.SCRIPT)
         # The apply refusal must also cover a pending file-rename operation.
         self.assertIn("if ($pending.cbs -or $pending.wu -or $pending.pending_file_rename)", source)
+        # A host without the High performance scheme is refused before the first
+        # registry write; pausing updates and then failing to raise the scheme
+        # would leave a half-prepared host behind.
+        self.assertLess(source.index("powercfg /list"), source.index("Set-ItemProperty"))
+        self.assertIn("$highPerf", source[source.index("powercfg /list"):source.index("Set-ItemProperty")])
+        # Every mutation sits inside one try/catch: the host can already be
+        # half-changed when something fails, so the failure is recorded in the
+        # receipt and never rethrown before it is written.
+        self.assertLess(source.index("try {"), source.index("Set-ItemProperty"))
+        self.assertLess(source.index("Set-ItemProperty"), source.index("catch {"))
+        self.assertLess(source.index("catch {"), source.index("[System.IO.File]::WriteAllText"))
+        self.assertIn("$failure = $_.Exception.Message", source)
+        self.assertIn("$partial = $true", source)
+        self.assertIn("failure = $failure", source)
+        self.assertIn("partial = [bool]$partial", source)
+        # Refusal and failure are distinguishable exit codes, both after the write.
+        self.assertIn("if ($refused) { exit 2 }", source)
+        self.assertIn("if ($failure) { exit 3 }", source)
+        self.assertLess(source.index("[System.IO.File]::WriteAllText"), source.index("if ($refused) { exit 2 }"))
+        self.assertLess(source.index("if ($refused) { exit 2 }"), source.index("if ($failure) { exit 3 }"))
         # Every powercfg /setactive call (apply and -Restore) must check $LASTEXITCODE
         # and refuse to continue silently if Windows rejected the scheme change.
         contract = re.findall(

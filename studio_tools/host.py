@@ -135,7 +135,7 @@ def evaluate(state, window=None, *, now=None, tz=None):
     checks["active_hours"] = {"start": start, "end": end}
     if window is not None:
         span = window[1] - window[0]
-        sane = timedelta(0) < span <= timedelta(hours=18)
+        sane = timedelta(minutes=1) <= span <= timedelta(hours=18)
         if not sane:
             reasons.append("window must be between 1 minute and 18 hours long")
         # Step the UTC timeline itself and read the local hour fresh at each
@@ -240,7 +240,15 @@ def apply(config, *, receipt, pause_days=3, active_start=18, active_end=12, what
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise StudioError("Could not run the host preparation script") from exc
     if completed.returncode:
-        raise StudioError("Host preparation script failed; inspect its receipt path and run it by hand with -WhatIf")
+        # The script refuses (2) and fails (3) after writing its receipt, so a
+        # non-zero exit with a receipt on disk is a report, not a lost run: a
+        # half-applied change must be readable rather than raised away.
+        if target.is_file():
+            report = _read_receipt(target)
+            if not isinstance(report, dict):
+                raise StudioError("Host preparation receipt is not a JSON object")
+            return {**report, "ok": False, "what_if": what_if, "receipt": str(target), "receipt_written": True}
+        raise StudioError("Host preparation script failed and wrote no receipt; run it by hand with -WhatIf")
     # On Windows, -WhatIf prints ShouldProcess diagnostics to stdout before the
     # receipt JSON, so the receipt file the script wrote is the trustworthy
     # result; stdout is only a fallback for the rare case the receipt is missing.

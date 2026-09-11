@@ -104,6 +104,16 @@ The script changes only Windows Update pause values, active hours and the power
 scheme; it never stops a process. Agents may call `host apply` only after this
 manual validation has been recorded.
 
+The script refuses before touching anything when a reboot is already pending or
+when the High performance scheme is absent from `powercfg /list` (`refused` in
+the receipt, exit 2). If a change fails once the registry writes have begun it
+records `failure` with `partial: true` and exits 3, still writing the receipt
+first, because the host is already part-changed by then. `host apply` reads
+that receipt and returns it with `ok: false` instead of raising, so the
+half-applied state is visible; it raises only when the script left no receipt
+at all. Read `refused`, `failure` and `partial` before treating a host as
+prepared.
+
 The `--what-if` run writes its receipt too: the receipt is the evidence that
 the run happened, so it is written through .NET calls that `-WhatIf` does not
 suppress, as UTF-8 without a byte-order mark. Give `--output` and `--receipt`

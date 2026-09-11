@@ -11,6 +11,7 @@ ever stopped.
 from __future__ import annotations
 from datetime import datetime, timezone
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -19,7 +20,7 @@ import subprocess
 import threading
 import time
 import uuid
-from .common import StudioError, read_json, safe_id, write_json
+from .common import StudioError, outside_package, read_json, safe_id, write_json
 from .processes import run
 
 MAX_CAPTURE_TIMEOUT = 3600
@@ -32,7 +33,7 @@ LIMITS = [
     "GPU, power and battery fields are unavailable where the host does not expose them",
     "attributable means nothing else was observed changing; it is not a performance verdict",
     "mid-window sampling is a fixed-interval walk; anything shorter-lived than the interval can be missed",
-    "the owned capture is excluded by pid, and its descendants only where the host exposes parent pids",
+    "the owned capture is excluded by pid, and its descendants by parent pid, which both hosts expose",
 ]
 
 
@@ -97,40 +98,61 @@ def read_processes_posix(*, on_pid=None):
         try:
             cpu = (int(fields[11]) + int(fields[12])) / ticks
             parent = int(fields[1])
+            # Field 22 of /proc/<pid>/stat (index 19 once the comm field is cut
+            # away): the boot-relative start time, kept as an opaque string so a
+            # pid the kernel later hands to another program is not mistaken for
+            # the one that held it before.
+            created = fields[19]
         except (ValueError, IndexError):
             continue
         entries.append({"pid": int(entry.name), "ppid": parent, "name": name,
-                        "cpu_seconds": round(cpu, 3), "working_set_bytes": rss})
+                        "cpu_seconds": round(cpu, 3), "working_set_bytes": rss, "created": created})
     if not entries:
         return {"status": "unavailable", "reason": "no processes were enumerated", "processes": []}
     return {"status": "ok", "processes": entries}
 
 
 def read_processes_windows(*, on_pid=None):
+    """Win32_Process rather than Get-Process: it carries the parent pid the
+    owned-tree filter needs and a creation time that identifies a pid, which
+    `Get-Process` does not expose in the same single query."""
     shell = _powershell()
     if shell is None:
         return {"status": "unavailable", "reason": "PowerShell was not found", "processes": []}
     output = _query([
         shell, "-NoProfile", "-NonInteractive", "-Command",
-        "Get-Process | Select-Object Id,ProcessName,CPU,WorkingSet64 | ConvertTo-Json -Compress",
+        "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,WorkingSetSize,"
+        "KernelModeTime,UserModeTime,CreationDate | ConvertTo-Json -Compress",
     ], on_pid=on_pid)
     if not output:
-        return {"status": "unavailable", "reason": "the Get-Process query returned nothing", "processes": []}
+        return {"status": "unavailable", "reason": "the Win32_Process query returned nothing", "processes": []}
     try:
         rows = json.loads(output)
     except ValueError:
-        return {"status": "unavailable", "reason": "the Get-Process query returned invalid JSON", "processes": []}
+        return {"status": "unavailable", "reason": "the Win32_Process query returned invalid JSON", "processes": []}
     if isinstance(rows, dict):
         rows = [rows]
     entries = []
     for row in rows:
         try:
+            parent = row.get("ParentProcessId")
+            created = row.get("CreationDate")
+            # Win32 kernel/user times are 100-nanosecond units.
+            cpu = (float(row["KernelModeTime"] or 0) + float(row["UserModeTime"] or 0)) / 1e7
+            # `Name` is the image name; the trailing extension is dropped so it
+            # reads like the POSIX comm field the recorder names are matched on.
+            name = str(row["Name"] or "")
+            if name.lower().endswith(".exe"):
+                name = name[:-4]
             entries.append({
-                "pid": int(row["Id"]), "ppid": None, "name": str(row["ProcessName"]),
-                "cpu_seconds": round(float(row["CPU"] or 0.0), 3),
-                "working_set_bytes": int(row["WorkingSet64"] or 0),
+                "pid": int(row["ProcessId"]), "ppid": None if parent is None else int(parent), "name": name,
+                "cpu_seconds": round(cpu, 3),
+                "working_set_bytes": int(row["WorkingSetSize"] or 0),
+                # Whatever ConvertTo-Json rendered the creation time as; it is
+                # only ever compared for equality, never parsed.
+                "created": None if created is None else str(created),
             })
-        except (KeyError, TypeError, ValueError):
+        except (AttributeError, KeyError, TypeError, ValueError):
             continue
     if not entries:
         return {"status": "unavailable", "reason": "no processes were enumerated", "processes": []}
@@ -323,12 +345,20 @@ class Sampler:
         return tree
 
     @staticmethod
-    def _observe(store, entry, at):
-        key = (entry["pid"], entry["name"])
+    def _identity(entry):
+        """A pid alone is not an identity: the OS reuses pids, and a reused one
+        carries a different name or creation time. Both are part of the key so a
+        heavy program handed a baseline pid is still seen as a newcomer."""
+        return (entry["pid"], entry["name"], entry.get("created"))
+
+    @classmethod
+    def _observe(cls, store, entry, at):
+        key = cls._identity(entry)
         seen = store.get(key)
         if seen is None:
             store[key] = {
-                "pid": entry["pid"], "name": entry["name"], "first_seen_utc": at, "last_seen_utc": at,
+                "pid": entry["pid"], "name": entry["name"], "created": entry.get("created"),
+                "first_seen_utc": at, "last_seen_utc": at,
                 "samples": 1, "cpu_seconds": entry["cpu_seconds"], "working_set_bytes": entry["working_set_bytes"],
             }
             return
@@ -353,7 +383,7 @@ class Sampler:
                 self._first = at
             self._last = at
             if self._baseline is None:
-                self._baseline = {entry["pid"] for entry in processes}
+                self._baseline = {self._identity(entry) for entry in processes}
                 return
             owned = self._owned_tree(processes)
             for entry in processes:
@@ -362,7 +392,7 @@ class Sampler:
                     continue
                 if _is_recorder(entry["name"]):
                     self._observe(self._recorders, entry, at)
-                if pid not in self._baseline:
+                if self._identity(entry) not in self._baseline:
                     self._observe(self._newcomers, entry, at)
 
     def _safe_sample(self):
@@ -418,12 +448,15 @@ class Sampler:
 
 
 def _timestamps_in_window(path, started, finished):
+    """Status-bearing like the process readers. The capture has already run by
+    the time this is read, so a log that was rotated or deleted inside the
+    window must cost the attribution, not the whole receipt."""
     inside = naive = 0
     pattern = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?")
     try:
         text = Path(path).read_text(encoding="utf-8", errors="replace")
     except OSError:
-        raise StudioError("Agent log is not readable")
+        return {"path": str(path), "status": "unavailable", "timestamps_in_window": None, "naive_timestamps": None}
     for match in pattern.finditer(text):
         raw = match.group(0).replace(" ", "T")
         if raw.endswith("Z"):
@@ -437,7 +470,7 @@ def _timestamps_in_window(path, started, finished):
             # No offset: treat it as host local time rather than discarding it.
         if started <= stamp.astimezone(timezone.utc) <= finished:
             inside += 1
-    return {"path": str(path), "timestamps_in_window": inside, "naive_timestamps": naive}
+    return {"path": str(path), "status": "ok", "timestamps_in_window": inside, "naive_timestamps": naive}
 
 
 def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes, agent_log=None, self_pid=None, during=None):
@@ -458,17 +491,24 @@ def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes,
 
     new_heavy, exited_heavy, busy = [], [], []
     if not enumerated:
-        # A failed Get-Process/ps query is not evidence of a quiet host; without
+        # A failed Win32_Process/ps query is not evidence of a quiet host; without
         # both process tables nothing inside the window can be attributed.
         reasons.append("host process enumeration failed; the window cannot be attributed")
     else:
         overlap = prior.keys() & later.keys()
-        # A PID the OS reused for a different program, or whose CPU counter went
-        # backwards (a restart), is an exit plus a fresh appearance, not one
+        # A PID the OS reused for a different program, one whose CPU counter went
+        # backwards (a restart), or one whose creation time changed under the
+        # same name, is an exit plus a fresh appearance, not one
         # continuously-running process with a CPU delta.
+        def restarted(pid):
+            first, second = prior[pid].get("created"), later[pid].get("created")
+            return first is not None and second is not None and first != second
+
         reused = {
             pid for pid in overlap
-            if prior[pid]["name"] != later[pid]["name"] or later[pid]["cpu_seconds"] < prior[pid]["cpu_seconds"]
+            if prior[pid]["name"] != later[pid]["name"]
+            or later[pid]["cpu_seconds"] < prior[pid]["cpu_seconds"]
+            or restarted(pid)
         }
         continuous = overlap - reused
         new_heavy = [later[pid] for pid in (later.keys() - prior.keys()) | reused if heavy(later[pid])]
@@ -513,10 +553,15 @@ def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes,
         started = datetime.fromisoformat(window["started_utc"])
         finished = datetime.fromisoformat(window["finished_utc"])
         agent = _timestamps_in_window(agent_log, started, finished)
-        if agent["timestamps_in_window"]:
-            reasons.append("agent activity logged inside the window")
-        if agent["naive_timestamps"]:
-            reasons.append("agent log has timestamps without a UTC offset")
+        if agent.get("status") == "unavailable":
+            # It was readable when the bench started; something removed or
+            # locked it mid-window, so nothing can be said about the agent.
+            reasons.append("agent log became unreadable inside the window")
+        else:
+            if agent["timestamps_in_window"]:
+                reasons.append("agent activity logged inside the window")
+            if agent["naive_timestamps"]:
+                reasons.append("agent log has timestamps without a UTC offset")
     gpu_before, gpu_after = before.get("gpu", {}), after.get("gpu", {})
     if gpu_before.get("status") == "ok" and gpu_after.get("status") == "ok":
         apps_before = {a["pid"] for a in gpu_before.get("compute_apps", [])}
@@ -560,7 +605,10 @@ def execute(
     # Resolved at call time, not bound as a default, so the readers stay
     # substitutable for tests and for hosts with a different enumeration.
     snapshot_reader = snapshot_reader or snapshot
-    root = Path(project).resolve()
+    # Resolved, and refused inside the installed toolkit like every other
+    # destination, but never created: a mistyped project is a refusal, not a
+    # new empty directory with an empty bench in it.
+    root = outside_package(project)
     if not root.is_dir():
         raise StudioError("Cleanroom bench needs an existing game project directory")
     if not isinstance(capture, (list, tuple)) or not capture or not all(isinstance(x, str) for x in capture):
@@ -572,6 +620,18 @@ def execute(
         raise StudioError("Settle must be 0–600 seconds")
     if type(sample_interval) not in (int, float) or not MIN_SAMPLE_INTERVAL <= sample_interval <= MAX_SAMPLE_INTERVAL:
         raise StudioError("Sample interval must be 1–60 seconds")
+    # Contamination thresholds decide what the receipt calls attributable, so a
+    # NaN or negative one would silently label a dirty window clean. They are
+    # checked here, before the capture runs and before anything is written.
+    for name, value, ceiling, bound in (
+        ("Busy fraction", busy_fraction, 1.0, "0 and 1"),
+        ("Busy floor seconds", busy_floor_seconds, None, "0 or greater"),
+        ("Heavy working set MB", heavy_working_set_mb, 1e6, "0 and 1000000"),
+    ):
+        if (type(value) not in (int, float) or not math.isfinite(value) or value < 0
+                or (ceiling is not None and value > ceiling)):
+            raise StudioError(f"{name} must be a finite number {bound}")
+    heavy_working_set_bytes = int(float(heavy_working_set_mb) * 1024 * 1024)
     if agent_log is not None and not Path(agent_log).is_file():
         raise StudioError("Agent log path must be an existing file")
     label = safe_id(label) if label else uuid.uuid4().hex
@@ -624,7 +684,7 @@ def execute(
     busy_seconds = max(float(busy_floor_seconds), float(busy_fraction) * window["elapsed_seconds"])
     comparison = compare(
         before, after, window, busy_cpu_seconds=busy_seconds,
-        heavy_working_set_bytes=int(float(heavy_working_set_mb) * 1024 * 1024),
+        heavy_working_set_bytes=heavy_working_set_bytes,
         agent_log=agent_log, self_pid=owner, during=during,
     )
     if comparison.get("during") is not None:
