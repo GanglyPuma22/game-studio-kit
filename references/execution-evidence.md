@@ -113,11 +113,14 @@ the run, mode, script, passthrough count, profile, cutoff, effective timeout,
 PID, surviving descendants), `process/` with the runner's `stdout.log` and
 `process.json`, `diagnostics.json` from the complete log, and `exit.json` with
 the verdict. Verdicts: `completed` (exit zero, no engine errors, every
-`--result` present), `engine_errors`, `results_missing`, `failed`, `timed_out`,
-`start_failed`, `interrupted`, `cutoff_passed`, `engine_replaced`,
-`descendants_survived`, `descendants_unverified`. Only `completed` is `ok`; the
-command exits 1 otherwise and still prints the verdict to stdout. Exit zero is
-not acceptance.
+`--result` present), `engine_errors`, `results_missing`, `results_unreadable`,
+`failed`, `timed_out`, `start_failed`, `interrupted`, `cutoff_passed`,
+`engine_replaced`, `descendants_survived`, `descendants_unverified`. Only
+`completed` is `ok`; the command exits 1 otherwise and still prints the verdict
+to stdout. Exit zero is not acceptance. A declared result that exists but cannot
+be read is reported as `present: false, unreadable: true` with a null hash and
+gives `results_unreadable`: the receipts are still written, because an
+unreadable result is a verdict about the run, not a failure of the launcher.
 
 The engine is hashed again at the launch instant and once more after the run.
 Bytes that changed before the launch refuse it (`engine_replaced`, nothing
@@ -149,16 +152,25 @@ a `process.json` beside them only when it is `schema_version` 1 and carries this
 launch's PID; otherwise the entry reports `pairing: "mismatched"` with a reason,
 lends no verdict, result files or process lifecycle summary (status, return
 code, elapsed time, cleanup), is counted in `totals.mismatched` and makes the
-inventory `ok: false` (the command exits 1). A relative `--output` must stay
-under the run root; only an absolute path may leave it, and never into the
-installed toolkit. It is counts and hashes only; a launch with no exit record is
-reported as `pairing: "missing_exit"`.
+inventory `ok: false` (the command exits 1). A launch whose `process_record`
+names a receipt that is not there reports `pairing: "missing_process"` with
+verdict `no_process_record`, is counted in `totals.missing_process` and makes
+the inventory `ok: false` the same way; a refusal that never started the engine
+declares no process record (`process_record: null`) and still pairs normally. A
+relative `--output` must stay under the run root; only an absolute path may
+leave it, and never into the installed toolkit. It is counts and hashes only; a
+launch with no exit record is reported as `pairing: "missing_exit"`.
 
 `candidate verify --manifest <identity-manifest.json>` hashes every item in an
 [identity manifest](../templates/identity-manifest.json) (engine, helpers,
-sources, packages, assets; absolute paths allowed for files outside GAME) and
-writes a dated receipt under `artifacts/identity/` with per-item
-match/mismatch/missing and one verdict. An `engine` item may omit `path` and
+sources, packages, assets; absolute paths allowed for files outside GAME, in
+this host's own spelling only — a Windows-absolute path read on POSIX, or a
+POSIX-absolute one read on Windows, is refused as absolute for another host
+rather than reported missing, and a drive-relative `C:name` is refused
+everywhere) and writes a dated receipt under `artifacts/identity/`, contained
+like any other output so a symlinked `artifacts/` cannot place it outside the
+project or inside the installed toolkit, with per-item match/mismatch/missing
+and one verdict. An `engine` item may omit `path` and
 carry `"source": "host-config"` instead: it is resolved through
 `executables.godot` from the host config given with `--config`, so a host path
 stays in ignored host configuration and the receipt reports `path: null` with

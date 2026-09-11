@@ -60,8 +60,10 @@ ok, cutoff refusal and timeout bounding, environment scrubbing and profile
 isolation, launcher mode flags, scope persistence and refusal, engine bytes
 replaced before or during a launch, descendants left running by the engine,
 containment of the launch directory, refusal of a project that does not exist,
-launch inventory pairing of exit and process receipts, and identity manifest
-match/mismatch/missing receipts including host-config engine items. The
+unreadable declared results, launch inventory pairing of exit and process
+receipts including a declared record that is gone, and identity manifest
+match/mismatch/missing receipts including host-config engine items, receipt
+containment and absolute paths belonging to another host. The
 descendant test needs POSIX `/proc` and skips elsewhere; the Windows parent walk
 is unexercised. No engine, provider or desktop is involved.
 

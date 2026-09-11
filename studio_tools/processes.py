@@ -13,6 +13,9 @@ import tempfile
 import time
 from .common import StudioError, write_json
 
+# Module level so a test can point the POSIX enumeration at a host without it.
+PROC = Path("/proc")
+
 
 def _creation_options(hide_window):
     if os.name != "nt":
@@ -52,7 +55,7 @@ def _proc_state(pid):
     start after the last ')': state, ppid, then the process group.
     """
     try:
-        stat = Path("/proc") / str(pid) / "stat"
+        stat = PROC / str(pid) / "stat"
         fields = stat.read_text(encoding="utf-8", errors="replace").rpartition(")")[2].split()
     except (OSError, ValueError):
         return None
@@ -109,10 +112,9 @@ def survivors(pid, hide_window=False):
     """
     if os.name == "nt":
         return _windows_survivors(pid, hide_window)
-    folder = Path("/proc")
-    if folder.is_dir():
+    if PROC.is_dir():
         found = []
-        for entry in folder.iterdir():
+        for entry in PROC.iterdir():
             if not entry.name.isdigit() or int(entry.name) == pid:
                 continue
             state = _proc_state(entry.name)
@@ -122,7 +124,8 @@ def survivors(pid, hide_window=False):
     try:
         os.killpg(pid, 0)
     except ProcessLookupError:
-        return {"status": "unavailable", "pids": [], "note": None}
+        # An empty process group is proof that nothing outlived the leader.
+        return {"status": "ok", "pids": [], "note": None}
     except OSError:
         pass
     return {

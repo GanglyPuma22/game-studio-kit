@@ -77,8 +77,8 @@ def build_args(config, project, engine, mode, script=None, passthrough=()):
     return args + list(passthrough)
 
 
-def _engine_digest(path):
-    """Hash the engine again; bytes that cannot be read are not the verified ones."""
+def _readable_digest(path):
+    """Hash a file, reporting no digest instead of raising when it cannot be read."""
     try:
         return sha256(path)
     except OSError:
@@ -135,7 +135,10 @@ def execute(
         expected.append(item)
         # A result that already exists with the same bytes after the run was not produced by it.
         present = target.is_file()
-        results_before.append({"path": item, "present": present, "sha256": sha256(target) if present else None})
+        results_before.append({
+            "path": item, "present": present,
+            "sha256": _readable_digest(target) if present else None,
+        })
     try:
         run_dir.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
@@ -199,7 +202,7 @@ def execute(
     # The digest verified above described bytes that could have been replaced
     # while this launch was prepared, so the engine is re-read at the launch
     # instant: only the verified identity may start.
-    if _engine_digest(engine_path) != actual:
+    if _readable_digest(engine_path) != actual:
         launch.update(status="refused", timeout_seconds_effective=None, process_record=None)
         write_json(run_dir / "owned-launch.json", launch)
         return _finish(
@@ -223,7 +226,7 @@ def execute(
     record = read_json(record_path) if record_path.is_file() else {"status": "start_failed"}
     log_path = run_dir / "process" / "stdout.log"
     text = log_path.read_bytes().decode("utf-8", errors="replace") if log_path.is_file() else ""
-    launch["engine"]["sha256_after_exit"] = _engine_digest(engine_path)
+    launch["engine"]["sha256_after_exit"] = _readable_digest(engine_path)
     if interrupt is not None:
         # A caller interruption is reported honestly, not folded into launched/start_failed.
         launch.update(status="interrupted", pid=record.get("pid"))
@@ -266,16 +269,24 @@ def _finish(root, run_dir, launch, record, text, verdict, failure, survivors=Non
     for item in launch["expected_results"]:
         target = relative(root, item)
         exists = target.is_file()
-        digest = sha256(target) if exists else None
+        digest = _readable_digest(target) if exists else None
+        # A result this launcher cannot read cannot be shown to be new output,
+        # and it must become a verdict rather than an exception over the receipts.
+        unreadable = exists and digest is None
         prior = before.get(item, {"present": False, "sha256": None})
         # Unchanged bytes from before the launch are stale, not produced by this run.
-        stale = exists and prior["present"] and prior["sha256"] == digest
-        result_files.append({"path": item, "present": exists and not stale, "stale": stale, "sha256": digest})
+        stale = exists and not unreadable and prior["present"] and prior["sha256"] == digest
+        result_files.append({
+            "path": item, "present": exists and not stale and not unreadable,
+            "stale": stale, "unreadable": unreadable, "sha256": digest,
+        })
     status = record.get("status", "start_failed") if record else "refused"
     if verdict is None:
         if status == "completed":
             if diagnostics["error_count"]:
                 verdict = "engine_errors"
+            elif any(entry["unreadable"] for entry in result_files):
+                verdict = "results_unreadable"
             elif any(not entry["present"] for entry in result_files):
                 verdict = "results_missing"
             elif diagnostics["status"] == "unverified" and launch["mode"] != "native":
@@ -339,7 +350,7 @@ def _receipt(root, path):
     }
 
 
-def _pairing(launch, exit_record, process_owned=True):
+def _pairing(launch, exit_record, process_owned=True, process_missing=False):
     """Refuse to summarize receipts that do not belong to this launch.
 
     Reasons name the mismatched field only; foreign receipt values are never echoed.
@@ -354,6 +365,10 @@ def _pairing(launch, exit_record, process_owned=True):
         return "mismatched", "exit record label does not match the launch label"
     if exit_record.get("scope") != launch.get("scope"):
         return "mismatched", "exit record scope does not match the launch scope"
+    if process_missing:
+        # The launch record names a process receipt: without it nothing shows
+        # what this launch actually ran, so the pair cannot vouch for the run.
+        return "missing_process", "declared process record is not beside the launch"
     if not process_owned:
         # A process record carried over from another run would otherwise lend
         # this launch its status, return code and elapsed time.
@@ -380,21 +395,25 @@ def inventory(run_root, output=None):
     if target.exists():
         raise StudioError("Inventory output exists; choose a new filename")
     launches = []
-    totals = {"launches": 0, "completed": 0, "not_ok": 0, "timed_out": 0, "missing_exit": 0, "mismatched": 0}
+    totals = {"launches": 0, "completed": 0, "not_ok": 0, "timed_out": 0,
+              "missing_exit": 0, "missing_process": 0, "mismatched": 0}
     for path in records:
         folder = path.parent
         launch, launch_file = _receipt(root, path)
         exit_path = folder / "exit.json"
         exit_record, exit_file = _receipt(root, exit_path) if exit_path.is_file() else (None, None)
-        process_path = folder / (launch.get("process_record") or "process/process.json")
+        declared = launch.get("process_record")
+        process_path = folder / (declared or "process/process.json")
         process, process_file = _receipt(root, process_path) if process_path.is_file() else (None, None)
+        # A refusal that never started the engine declares no process record.
+        process_missing = bool(declared) and process is None
         log_path = process_path.parent / "stdout.log"
         # A process record proves it belongs to this launch by its own schema
         # version and PID, whatever the exit record beside it says.
         owned_process = process is None or (
             process.get("schema_version") == 1 and process.get("pid") == launch.get("pid")
         )
-        pairing, reason = _pairing(launch, exit_record, owned_process)
+        pairing, reason = _pairing(launch, exit_record, owned_process, process_missing)
         # Only a verified pair may lend its verdict, ok flag and result files here.
         paired = exit_record if pairing == "paired" else None
         # Nor may a foreign process record lend its lifecycle summary.
@@ -402,6 +421,8 @@ def inventory(run_root, output=None):
         verdict = (paired or {}).get("verdict", "no_exit_record")
         if pairing == "mismatched":
             verdict = "mismatched_receipts"
+        elif pairing == "missing_process":
+            verdict = "no_process_record"
         present = [r["path"] for r in (paired or {}).get("result_files", []) if r.get("present")]
         missing = [r["path"] for r in (paired or {}).get("result_files", []) if not r.get("present")]
         entry = {
@@ -431,6 +452,7 @@ def inventory(run_root, output=None):
         totals["not_ok"] += not entry["ok"]
         totals["timed_out"] += entry["timed_out"]
         totals["missing_exit"] += pairing == "missing_exit"
+        totals["missing_process"] += pairing == "missing_process"
         totals["mismatched"] += pairing == "mismatched"
         launches.append(entry)
     data = {
@@ -441,8 +463,9 @@ def inventory(run_root, output=None):
         "totals": totals,
         "launches": launches,
         "limits": INVENTORY_LIMITS,
-        # An inventory that found receipts which do not belong together is not ok.
-        "ok": totals["mismatched"] == 0,
+        # An inventory that found receipts which do not belong together, or a
+        # launch whose declared process receipt is gone, is not ok.
+        "ok": totals["mismatched"] == 0 and totals["missing_process"] == 0,
     }
     write_json(target, data)
     return {**data, "output": str(target)}

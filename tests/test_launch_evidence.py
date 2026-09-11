@@ -490,6 +490,43 @@ class OwnedLaunchTests(LaunchCase):
         # A mistyped project must never be created and launched into.
         self.assertFalse(missing.exists())
 
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                     "unreadable results need POSIX permissions and a non-root user")
+    def test_unreadable_result_file_becomes_a_verdict_not_an_exception(self):
+        result = self.execute(
+            "import os,pathlib;p=pathlib.Path('artifacts/locked.json');"
+            "p.write_text('{}');os.chmod(p,0)",
+            label="locked", results=["artifacts/locked.json"],
+        )
+        self.addCleanup((self.root / "artifacts/locked.json").chmod, 0o644)
+        self.assertEqual(result["verdict"], "results_unreadable")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], "completed")
+        entry = result["result_files"][0]
+        self.assertTrue(entry["unreadable"])
+        self.assertFalse(entry["present"])
+        self.assertIsNone(entry["sha256"])
+        # The receipts are still written, which is the point of a verdict.
+        run_dir = self.root / "artifacts/launches/locked"
+        self.assertEqual(read_json(run_dir / "exit.json")["verdict"], "results_unreadable")
+        self.assertTrue((run_dir / "owned-launch.json").is_file())
+
+    @unittest.skipIf(os.name == "nt", "POSIX process groups")
+    def test_absent_process_group_without_proc_is_verified_empty(self):
+        missing_proc = Path(self.tmp.name) / "no-proc"
+        with patch("studio_tools.processes.PROC", missing_proc):
+            with patch.object(processes.os, "killpg", side_effect=ProcessLookupError):
+                self.assertEqual(processes.survivors(4242),
+                                 {"status": "ok", "pids": [], "note": None})
+                self.assertEqual(processes.stop_survivors(4242),
+                                 {"status": "ok", "pids": [], "stopped": True})
+            # A group that still exists but cannot be listed stays unavailable.
+            with patch.object(processes.os, "killpg", return_value=None):
+                unknown = processes.survivors(4242)
+        self.assertEqual(unknown["status"], "unavailable")
+        self.assertEqual(unknown["pids"], [])
+        self.assertIn("/proc", unknown["note"])
+
 
 class LaunchInventoryTests(LaunchCase):
     def test_inventory_pairs_launches_and_flags_missing_exit(self):
@@ -501,8 +538,8 @@ class LaunchInventoryTests(LaunchCase):
         with contextlib.redirect_stdout(io.StringIO()) as out:
             self.assertEqual(cli.main(["evidence", "launches", str(launches)]), 0)
         data = json.loads(out.getvalue())
-        self.assertEqual(data["totals"], {"launches": 3, "completed": 1, "not_ok": 2,
-                                          "timed_out": 1, "missing_exit": 1, "mismatched": 0})
+        self.assertEqual(data["totals"], {"launches": 3, "completed": 1, "not_ok": 2, "timed_out": 1,
+                                          "missing_exit": 1, "missing_process": 0, "mismatched": 0})
         self.assertTrue(data["ok"])
         by_dir = {entry["dir"]: entry for entry in data["launches"]}
         self.assertEqual(by_dir["good"]["verdict"], "completed")
@@ -659,6 +696,31 @@ class LaunchInventoryTests(LaunchCase):
         self.assertIn("process record", second["pairing_reason"])
         self.assertIsNone(second["status"])
 
+    def test_inventory_flags_a_declared_process_record_that_is_gone(self):
+        self.execute("print('ok')", label="good")
+        with patch("studio_tools.launch.run") as run:
+            launch.execute(self.config, self.root, sha256_expected=self.sha,
+                           cutoff_utc="2000-01-01T00:00:00Z", label="never-started")
+            run.assert_not_called()
+        launches = self.root / "artifacts/launches"
+        # The launch record names a process receipt that is no longer there.
+        (launches / "good/process/process.json").unlink()
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(cli.main(["evidence", "launches", str(launches)]), 1)
+        data = json.loads(out.getvalue())
+        by_dir = {entry["dir"]: entry for entry in data["launches"]}
+        self.assertEqual(by_dir["good"]["pairing"], "missing_process")
+        self.assertIn("process record", by_dir["good"]["pairing_reason"])
+        self.assertEqual(by_dir["good"]["verdict"], "no_process_record")
+        self.assertFalse(by_dir["good"]["ok"])
+        self.assertIsNone(by_dir["good"]["process"])
+        # A refusal that never started the engine declares none, and still pairs.
+        self.assertIsNone(read_json(launches / "never-started/owned-launch.json")["process_record"])
+        self.assertEqual(by_dir["never-started"]["pairing"], "paired")
+        self.assertEqual(by_dir["never-started"]["verdict"], "cutoff_passed")
+        self.assertEqual(data["totals"]["missing_process"], 1)
+        self.assertFalse(data["ok"])
+
 
 class IdentityManifestTests(LaunchCase):
     def test_verify_reports_match_mismatch_and_missing_with_receipt(self):
@@ -748,11 +810,10 @@ class IdentityManifestTests(LaunchCase):
             write_json(path, record)
             with self.assertRaisesRegex(StudioError, "relative to the project or fully absolute"):
                 manifest.verify(self.root, path)
-        # Genuinely absolute paths in either form name a fixed external file.
-        for absolute in ("C:\\engines\\godot.exe", "/opt/engines/godot"):
-            record["items"][0]["path"] = absolute
-            write_json(path, record)
-            self.assertEqual(manifest.verify(self.root, path)["verdict"], "missing")
+        # An absolute path in this host's own spelling names a fixed external file.
+        record["items"][0]["path"] = str(Path(self.tmp.name) / "absent engine")
+        write_json(path, record)
+        self.assertEqual(manifest.verify(self.root, path)["verdict"], "missing")
         record["items"][0]["path"] = sys.executable
         write_json(path, record)
         self.assertEqual(manifest.verify(self.root, path)["verdict"], "match")
@@ -823,6 +884,43 @@ class IdentityManifestTests(LaunchCase):
         result = json.loads(out.getvalue())
         self.assertEqual(result["verdict"], "match")
         self.assertIsNone(result["items"][0]["path"])
+
+    def test_default_receipt_must_stay_inside_the_project(self):
+        external = Path(self.tmp.name) / "outside identity"
+        external.mkdir()
+        try:
+            (self.root / "artifacts").symlink_to(external, target_is_directory=True)
+        except OSError:
+            self.skipTest("Host cannot create directory symlinks")
+        path = self.root / "manifest.json"
+        write_json(path, {"schema_version": 1, "kind": "identity-manifest", "items": [
+            {"id": "engine", "role": "engine", "source": "host-config", "sha256": self.sha}]})
+        with self.assertRaises(StudioError):
+            manifest.verify(self.root, path, config=self.config)
+        self.assertEqual(list(external.iterdir()), [])
+
+    def test_manifest_rejects_absolute_paths_belonging_to_another_host(self):
+        record = {"schema_version": 1, "kind": "identity-manifest", "items": [
+            {"id": "engine", "role": "engine", "path": "/opt/engines/godot", "sha256": self.sha}]}
+        path = self.root / "manifest.json"
+        for windows_host, native, foreign in [
+            (False, "/opt/engines/godot", "C:\\engines\\godot.exe"),
+            (True, "C:\\engines\\godot.exe", "/opt/engines/godot"),
+        ]:
+            with self.subTest(windows=windows_host), \
+                    patch("studio_tools.manifest.IS_WINDOWS", windows_host):
+                record["items"][0]["path"] = native
+                write_json(path, record)
+                self.assertEqual(manifest.verify(self.root, path)["verdict"], "missing")
+                record["items"][0]["path"] = foreign
+                write_json(path, record)
+                with self.assertRaisesRegex(StudioError, "another host"):
+                    manifest.verify(self.root, path)
+                # A drive-relative path is refused whichever host reads it.
+                record["items"][0]["path"] = "C:engine.exe"
+                write_json(path, record)
+                with self.assertRaisesRegex(StudioError, "relative to the project"):
+                    manifest.verify(self.root, path)
 
     def test_template_manifest_loads(self):
         kit = Path(__file__).resolve().parents[1]

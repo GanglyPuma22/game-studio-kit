@@ -4,14 +4,18 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 import json
-from pathlib import Path, PureWindowsPath
+import os
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import uuid
-from .common import StudioError, relative, safe_id, sha256, write_json
+from .common import StudioError, outside_package, relative, safe_id, sha256, write_json
 from .config import executable
 from .records import required
 
 ROLES = ("engine", "helper", "source", "package", "asset", "other")
+# Which spelling of an absolute path this host can actually open. Tests set it;
+# patching os.name instead would change how pathlib itself parses every path.
+IS_WINDOWS = os.name == "nt"
 # An engine lives at a host path that must stay in ignored host config, so an
 # engine item may name the configured executable instead of a path.
 SOURCES = ("host-config",)
@@ -66,8 +70,18 @@ def _target(root, path):
     if windows.drive and not windows.root:
         # C:engine.exe depends on the per-drive working directory; it names no fixed file.
         raise StudioError("Identity manifest path must be relative to the project or fully absolute")
-    absolute = Path(path).is_absolute() or windows.is_absolute()
-    return Path(path) if absolute else relative(root, path)
+    windows_absolute = windows.is_absolute()
+    posix_absolute = PurePosixPath(path).is_absolute()
+    native, foreign = (
+        (windows_absolute, posix_absolute) if IS_WINDOWS
+        else (posix_absolute, windows_absolute)
+    )
+    if foreign and not native:
+        # `C:\tools\asset.bin` names no file on POSIX and `/opt/asset.bin` names
+        # none on Windows: hashing it here would report a foreign host's file as
+        # missing instead of admitting this host cannot check the manifest.
+        raise StudioError("Identity manifest path is absolute for another host")
+    return Path(path) if native else relative(root, path)
 
 
 def verify(project, manifest_path, output=None, config=None):
@@ -100,9 +114,13 @@ def verify(project, manifest_path, output=None, config=None):
         "mismatch" if totals["mismatch"] else "missing"
     )
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    # The default receipt is contained like any other declared output: a
+    # symlinked artifacts/ must not write it outside the project or into the kit.
     receipt_path = (
         Path(output).expanduser().resolve() if output
-        else root / "artifacts" / "identity" / f"verify-{stamp}-{uuid.uuid4().hex[:8]}.json"
+        else outside_package(
+            relative(root, f"artifacts/identity/verify-{stamp}-{uuid.uuid4().hex[:8]}.json")
+        )
     )
     if receipt_path.exists():
         raise StudioError("Identity receipt exists; choose a new filename")
