@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from studio_tools import cleanroom, cli, host, processes
-from studio_tools.common import StudioError, read_json
+from studio_tools.common import StudioError, file_record, read_json, sha256
 from studio_tools.config import load
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -79,8 +79,8 @@ def stub_sampler(**attrs):
     return type("ConfiguredStubSampler", (StubSampler,), {"instances": [], **attrs})
 
 
-def observed(pid, name, first, last, samples=2, cpu=0.0, ws=10 * MB):
-    return {"pid": pid, "name": name, "first_seen_utc": first, "last_seen_utc": last,
+def observed(pid, name, first, last, samples=2, cpu=0.0, ws=10 * MB, created=None):
+    return {"pid": pid, "name": name, "created": created, "first_seen_utc": first, "last_seen_utc": last,
             "samples": samples, "cpu_seconds": cpu, "working_set_bytes": ws}
 
 
@@ -194,6 +194,45 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(continuous["contamination"]["new_heavy"], [])
         self.assertEqual(continuous["contamination"]["exited_heavy"], [])
 
+    def test_a_sampled_newcomer_whose_pid_was_reused_is_counted_as_exited(self):
+        # pid 77 held a heavy blender mid-window and is held afterwards by a
+        # light process of the same name: judging presence by pid alone would
+        # report the heavy one as still running and clear the window.
+        during = {
+            "sampler": {"mode": "stub"}, "samples": 3, "failed_samples": 0,
+            "first_sample_utc": "2026-09-10T10:00:12+00:00", "last_sample_utc": "2026-09-10T10:04:00+00:00",
+            "recorders": [],
+            "newcomers": [observed(77, "blender", "2026-09-10T10:00:12+00:00", "2026-09-10T10:02:00+00:00",
+                                   ws=900 * MB, created="500")],
+        }
+        before = snap([proc(77, "blender", created="100")])
+        after = snap([proc(77, "blender", ws=10 * MB, created="900")], at="2026-09-10T10:05:02+00:00")
+        result = cleanroom.compare(before, after, WINDOW, busy_cpu_seconds=1.0,
+                                   heavy_working_set_bytes=200 * MB, during=during)
+        self.assertFalse(result["during"]["heavy_newcomers"][0]["present_after"])
+        self.assertIn("heavy processes ran and exited inside the window", result["reasons"])
+        self.assertFalse(result["attributable"])
+        # The same pid still present with the same identity is present.
+        stayed = cleanroom.compare(before, snap([proc(77, "blender", ws=900 * MB, created="500")]), WINDOW,
+                                   busy_cpu_seconds=1.0, heavy_working_set_bytes=200 * MB, during=during)
+        self.assertTrue(stayed["during"]["heavy_newcomers"][0]["present_after"])
+        self.assertNotIn("heavy processes ran and exited inside the window", stayed["reasons"])
+
+    def test_an_unknown_ac_line_status_is_a_limit_and_never_a_battery_reason(self):
+        from types import SimpleNamespace
+
+        unknown = cleanroom._battery_reading(SimpleNamespace(ACLineStatus=255, BatteryLifePercent=77))
+        self.assertEqual(unknown, {"status": "unknown", "on_ac": None, "percent": 77})
+        self.assertEqual(cleanroom._battery_reading(SimpleNamespace(ACLineStatus=0, BatteryLifePercent=255)),
+                         {"status": "ok", "on_ac": False, "percent": None})
+        self.assertEqual(cleanroom._battery_reading(SimpleNamespace(ACLineStatus=1, BatteryLifePercent=100)),
+                         {"status": "ok", "on_ac": True, "percent": 100})
+        result = cleanroom.compare(snap([proc(1, "idle")], battery=unknown), snap([proc(1, "idle")], battery=unknown),
+                                   WINDOW, busy_cpu_seconds=1.0, heavy_working_set_bytes=200 * MB)
+        self.assertTrue(result["attributable"], result["reasons"])
+        self.assertNotIn("host is on battery power", result["reasons"])
+        self.assertIn("AC line status unknown", result["limits"])
+
     def test_a_cpu_heavy_process_that_exits_is_contamination_even_when_it_is_small(self):
         # A shader compiler or asset importer can burn a core inside the window
         # and quit before the after snapshot while never holding much memory.
@@ -289,6 +328,54 @@ class SamplerTests(unittest.TestCase):
         self.assertEqual([n["pid"] for n in result["during"]["heavy_newcomers"]], [77])
         self.assertFalse(result["during"]["heavy_newcomers"][0]["present_after"])
 
+    def test_a_recorder_started_by_the_owned_capture_is_still_contamination(self):
+        # The capture's own tree is excluded from the newcomer count, but a
+        # recorder it starts is exactly what invalidates a frame-time number.
+        with tempfile.TemporaryDirectory() as tmp:
+            record = Path(tmp) / "process.json"
+            record.write_text(json.dumps({"status": "running", "pid": 4242}), encoding="utf-8")
+            tables = [
+                [proc(1, "idle"), proc(4242, "studio")],
+                [proc(1, "idle"), proc(4242, "studio"), proc(4243, "ffmpeg", ws=400 * MB, ppid=4242)],
+            ]
+            sampler = self.sampler(tables, owned_record=record)
+            for _ in tables:
+                sampler.sample()
+            during = sampler.observation()
+        self.assertEqual([r["name"] for r in during["recorders"]], ["ffmpeg"])
+        self.assertEqual(during["newcomers"], [])
+        result = cleanroom.compare(snap([proc(1, "idle")]), snap([proc(1, "idle")]), WINDOW,
+                                   busy_cpu_seconds=1.0, heavy_working_set_bytes=200 * MB, during=during)
+        self.assertFalse(result["attributable"])
+        self.assertIn("a recorder process ran inside the window", result["reasons"])
+
+    def test_the_baseline_is_seeded_from_the_before_snapshot(self):
+        # blender started after the before snapshot and before the first sample.
+        # With a first-sample baseline it would have been mistaken for part of
+        # the quiet host and the window would have looked clean.
+        tables = [
+            [proc(1, "idle"), proc(9, "blender", ws=900 * MB)],
+            [proc(1, "idle")],
+        ]
+        sampler = self.sampler(tables, baseline={(1, "idle", None)})
+        for _ in tables:
+            sampler.sample()
+        during = sampler.observation()
+        self.assertEqual([n["name"] for n in during["newcomers"]], ["blender"])
+        self.assertEqual(during["sampler"]["baseline"], "before-snapshot")
+        before, after = snap([proc(1, "idle")]), snap([proc(1, "idle")])
+        result = cleanroom.compare(before, after, WINDOW, busy_cpu_seconds=1.0,
+                                   heavy_working_set_bytes=200 * MB, during=during)
+        self.assertIn("heavy processes ran and exited inside the window", result["reasons"])
+        self.assertFalse(result["attributable"])
+        # Used directly, with no seed, the first sample is still the baseline.
+        unseeded = self.sampler(tables)
+        for _ in tables:
+            unseeded.sample()
+        plain = unseeded.observation()
+        self.assertEqual(plain["newcomers"], [])
+        self.assertEqual(plain["sampler"]["baseline"], "first-sample")
+
     def test_the_sampler_excludes_its_own_helper_and_the_owned_capture_tree(self):
         with tempfile.TemporaryDirectory() as tmp:
             record = Path(tmp) / "process.json"
@@ -368,6 +455,8 @@ class ExecuteTests(unittest.TestCase):
         self.assertEqual(factory.instances[0].kwargs["interval"], 10.0)
         self.assertEqual(Path(factory.instances[0].kwargs["owned_record"]).name, "process.json")
         self.assertIn(os.getpid(), factory.instances[0].kwargs["ignore_pids"])
+        # The sampler is seeded from the before snapshot, not from its own first sample.
+        self.assertEqual(factory.instances[0].kwargs["baseline"], {(1, "idle", None)})
         self.assertTrue(result["attributable"])
         self.assertTrue(result["ok"])
         self.assertEqual(result["capture"]["status"], "completed")
@@ -378,6 +467,20 @@ class ExecuteTests(unittest.TestCase):
             self.assertTrue((bench / name).is_file(), name)
         self.assertEqual(read_json(bench / "cleanroom.json")["window"]["elapsed_seconds"], result["window"]["elapsed_seconds"])
         self.assertGreater(result["thresholds"]["busy_cpu_seconds"], 0)
+        # Artifacts are cited as portable project-relative paths with hashes, so
+        # the receipt can be checked on another machine and tampering shows.
+        receipt = read_json(bench / "cleanroom.json")
+        self.assertEqual(receipt["before"]["record"], file_record(self.root, bench / "before.json"))
+        self.assertEqual(receipt["after"]["record"]["path"], "artifacts/bench/clean/after.json")
+        self.assertEqual(receipt["during"]["record"], file_record(self.root, bench / "during.json"))
+        self.assertEqual(receipt["capture"]["process_record"], file_record(self.root, bench / "capture/process.json"))
+        self.assertEqual(receipt["capture"]["log"]["path"], "artifacts/bench/clean/capture/stdout.log")
+        self.assertEqual(len(receipt["capture"]["log"]["sha256"]), 64)
+        self.assertNotIn(str(self.root), json.dumps(receipt))
+        self.assertNotIn("bench_dir", receipt)
+        # The returned stdout object still carries the absolute paths.
+        self.assertEqual(result["bench_dir"], str(bench))
+        self.assertEqual(result["record"], str(bench / "cleanroom.json"))
 
     def test_capture_timeout_is_owned_and_marks_ok_false(self):
         reader = lambda: snap([proc(1, "idle")])
@@ -551,7 +654,7 @@ class ExecuteTests(unittest.TestCase):
         during = read_json(self.root / "artifacts/bench/mid/during.json")
         self.assertEqual(during["recorders"][0]["pid"], 77)
         self.assertEqual(read_json(self.root / "artifacts/bench/mid/cleanroom.json")["during"]["record"],
-                         str(self.root / "artifacts/bench/mid/during.json"))
+                         file_record(self.root, self.root / "artifacts/bench/mid/during.json"))
 
     def test_cli_route_passes_scope_and_sample_interval(self):
         with patch("studio_tools.cleanroom.Sampler", stub_sampler()), \
@@ -588,6 +691,22 @@ class ExecuteTests(unittest.TestCase):
         empty = cleanroom.snapshot(process_reader=lambda on_pid=None: [], gpu_reader=lambda: {"status": "unavailable"},
                                    power_reader=lambda: {"status": "unavailable"}, battery_reader=lambda: {"status": "unavailable"})
         self.assertEqual(empty["process_status"], "unavailable")
+
+    def test_nvidia_smi_rows_are_read_as_csv_so_commas_inside_fields_survive(self):
+        # A device name and a process path may both contain a comma; nvidia-smi
+        # quotes those fields, and splitting on commas would shred them.
+        def fake_query(args, timeout=15):
+            if any(str(a).startswith("--query-gpu=") for a in args):
+                return '"NVIDIA GeForce RTX 4090, Laptop GPU", 12, 1024, 24576, 2100, 55, 120.5'
+            return '4321, "/opt/games/my, game/godot", 512'
+
+        with patch("studio_tools.cleanroom.shutil.which", return_value="/usr/bin/nvidia-smi"), \
+                patch("studio_tools.cleanroom._query", side_effect=fake_query):
+            result = cleanroom.read_gpu()
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["devices"][0]["name"], "NVIDIA GeForce RTX 4090, Laptop GPU")
+        self.assertEqual(result["devices"][0]["temperature.gpu"], "55")
+        self.assertEqual(result["compute_apps"], [{"pid": 4321, "name": "godot", "used_memory_mib": "512"}])
 
     def test_windows_reader_carries_parent_pids_and_process_identity(self):
         # Get-Process exposes no parent pid, so the owned capture's descendants
@@ -687,6 +806,51 @@ class HostPreflightTests(unittest.TestCase):
         self.assertIn("window must be between 1 minute and 18 hours long", too_short["reasons"])
         exactly_a_minute = self.evaluate(self.state(), "2026-09-15T02:00:00+00:00", "2026-09-15T02:01:00+00:00")
         self.assertNotIn("window must be between 1 minute and 18 hours long", exactly_a_minute["reasons"])
+
+    def test_unknown_ac_line_status_is_a_limit_not_an_unready_host(self):
+        unknown = self.state(battery={"status": "unknown", "on_ac": None, "percent": 80})
+        result = self.evaluate(unknown)
+        self.assertTrue(result["ready"], result["reasons"])
+        self.assertNotIn("host is on battery power", result["reasons"])
+        self.assertIn("AC line status unknown", result["limits"])
+        report = host.preflight(load(), reader=lambda: unknown)
+        self.assertIn("AC line status unknown", report["limits"])
+        self.assertNotIn("AC line status unknown", host.preflight(load(), reader=self.state)["limits"])
+
+    def test_preflight_refuses_a_window_that_has_already_ended(self):
+        # Readiness is a claim about a window that can still be run.
+        with self.assertRaisesRegex(StudioError, "already ended"):
+            host.preflight(load(), window_start="2020-01-01T00:00:00Z", window_end="2020-01-01T06:00:00Z",
+                           reader=self.state)
+        # A window that has started but not finished is still judged.
+        now = datetime.now(timezone.utc)
+        running = host.preflight(load(), window_start=(now - timedelta(hours=1)).isoformat(),
+                                 window_end=(now + timedelta(hours=1)).isoformat(), reader=self.state)
+        self.assertEqual(running["kind"], "host-preflight")
+        self.assertIsNotNone(running["window"])
+
+    def test_apply_refuses_an_overlong_active_hours_span_before_running_powershell(self):
+        # Windows caps active hours at 18 h; the script would throw, and getting
+        # there costs an elevated PowerShell launch.
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("studio_tools.host.IS_WINDOWS", True), \
+                    patch("studio_tools.host._powershell", return_value="C:/pwsh.exe") as shell, \
+                    patch("studio_tools.host.subprocess.run") as runner:
+                with self.assertRaisesRegex(StudioError, "18 hours or less"):
+                    host.apply(load(), receipt=Path(tmp) / "apply.json", active_start=0, active_end=23)
+                runner.assert_not_called()
+                shell.assert_not_called()
+            # An 18-hour span is the documented maximum and still reaches the script.
+            receipt = Path(tmp) / "eighteen.json"
+
+            def fake_run(command, **kwargs):
+                receipt.write_text(json.dumps({"kind": "overnight-host-preparation"}), encoding="utf-8")
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+            with patch("studio_tools.host.IS_WINDOWS", True), patch("studio_tools.host._powershell", return_value="C:/pwsh.exe"), \
+                    patch("studio_tools.host.subprocess.run", side_effect=fake_run) as runner:
+                self.assertTrue(host.apply(load(), receipt=receipt, active_start=18, active_end=12)["ok"])
+                runner.assert_called_once()
 
     def test_power_scheme_unreadable_is_not_ready(self):
         result = self.evaluate(self.state(power_scheme={"status": "unavailable"}))
@@ -911,6 +1075,11 @@ class PrepareScriptContractTests(unittest.TestCase):
         self.assertIn("failure = $failure", source)
         self.assertIn("partial = [bool]$partial", source)
         # Refusal and failure are distinguishable exit codes, both after the write.
+        # Clearing the pause values must surface real failures: only a value
+        # that is absent is skipped, and any other removal error reaches the catch.
+        self.assertNotRegex(source, r"Remove-ItemProperty[^\n]*SilentlyContinue")
+        self.assertRegex(source, r"Get-ItemProperty -Path \$ux -Name \$n -ErrorAction SilentlyContinue")
+        self.assertLess(source.index("Get-ItemProperty -Path $ux -Name $n"), source.index("Remove-ItemProperty -Path $ux -Name $n"))
         self.assertIn("if ($refused) { exit 2 }", source)
         self.assertIn("if ($failure) { exit 3 }", source)
         self.assertLess(source.index("[System.IO.File]::WriteAllText"), source.index("if ($refused) { exit 2 }"))

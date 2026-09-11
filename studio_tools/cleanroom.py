@@ -9,6 +9,7 @@ ever stopped.
 """
 
 from __future__ import annotations
+import csv
 from datetime import datetime, timezone
 import json
 import math
@@ -20,7 +21,7 @@ import subprocess
 import threading
 import time
 import uuid
-from .common import StudioError, outside_package, read_json, safe_id, write_json
+from .common import StudioError, file_record, outside_package, read_json, safe_id, write_json
 from .processes import run
 
 MAX_CAPTURE_TIMEOUT = 3600
@@ -40,6 +41,21 @@ LIMITS = [
 def _is_recorder(name):
     lowered = str(name).lower()
     return lowered in RECORDER_NAMES or lowered.startswith("obs")
+
+
+def _identity(entry):
+    """A pid alone is not an identity: the OS reuses pids, and a reused one
+    carries a different name or creation time."""
+    return (entry["pid"], entry["name"], entry.get("created"))
+
+
+def _same_process(one, other):
+    """Two readings describe the same process when pid and name agree and, on
+    hosts that report one, the creation time does too."""
+    if one["pid"] != other["pid"] or one["name"] != other["name"]:
+        return False
+    first, second = one.get("created"), other.get("created")
+    return first is None or second is None or first == second
 
 
 def _utc():
@@ -188,8 +204,10 @@ def read_gpu():
         return {"status": "unavailable", "reason": "nvidia-smi query failed"}
     names = fields.split(",")
     parsed = []
-    for line in devices.splitlines():
-        parts = [p.strip() for p in line.split(",")]
+    # nvidia-smi quotes any field that contains a comma (a device or process
+    # name can), so the rows are read as CSV rather than split on commas.
+    for parts in csv.reader(devices.splitlines(), skipinitialspace=True):
+        parts = [p.strip() for p in parts]
         if len(parts) == len(names):
             parsed.append(dict(zip(names, parts)))
     apps = _query(["nvidia-smi", "--query-compute-apps=pid,process_name,used_gpu_memory", "--format=csv,noheader,nounits"])
@@ -198,8 +216,8 @@ def read_gpu():
         # failed compute-apps query alone should not sink the whole snapshot.
         return {"status": "partial", "reason": "nvidia-smi compute-apps query failed", "devices": parsed, "compute_apps": []}
     compute = []
-    for line in apps.splitlines():
-        parts = [p.strip() for p in line.split(",")]
+    for parts in csv.reader(apps.splitlines(), skipinitialspace=True):
+        parts = [p.strip() for p in parts]
         if len(parts) == 3 and parts[0].isdigit():
             compute.append({"pid": int(parts[0]), "name": Path(parts[1]).name, "used_memory_mib": parts[2]})
     return {"status": "ok", "devices": parsed, "compute_apps": compute}
@@ -213,6 +231,16 @@ def read_power_scheme():
     if not match:
         return {"status": "unavailable"}
     return {"status": "ok", "guid": match.group(1).lower(), "name": match.group(2)}
+
+
+def _battery_reading(status):
+    """Map a GetSystemPowerStatus reading. 255 is the documented "unknown"
+    value for both fields: an unknown AC line is not a host on battery, and
+    reporting it as one would invent a reason the host never gave."""
+    percent = None if status.BatteryLifePercent == 255 else int(status.BatteryLifePercent)
+    if status.ACLineStatus == 255:
+        return {"status": "unknown", "on_ac": None, "percent": percent}
+    return {"status": "ok", "on_ac": status.ACLineStatus == 1, "percent": percent}
 
 
 def read_battery():
@@ -229,8 +257,7 @@ def read_battery():
 
             status = Status()
             if ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(status)):
-                percent = None if status.BatteryLifePercent == 255 else int(status.BatteryLifePercent)
-                return {"status": "ok", "on_ac": status.ACLineStatus == 1, "percent": percent}
+                return _battery_reading(status)
         except (AttributeError, OSError):
             pass
         return {"status": "unavailable"}
@@ -284,22 +311,28 @@ class Sampler:
     long-lived sampler therefore walks the process table at a fixed interval for
     the life of the owned capture and records what it sees with timestamps.
 
-    It only reads: nothing is ever signalled here. Its own enumeration helpers,
-    the calling process and the owned capture's tree are excluded so none of
-    them is reported as contamination. The first successful sample is the
-    baseline; later samples are compared against it.
+    It only reads: nothing is ever signalled here. Its own enumeration helpers
+    and the calling process are excluded, and so is the owned capture's tree —
+    except for recorders, which contaminate the window whoever started them.
+    The baseline is seeded from the before snapshot when the caller has one, so
+    a program that started between that snapshot and the first sample is a
+    newcomer; without a seed the first successful sample is the baseline.
     """
 
     def __init__(self, *, interval=DEFAULT_SAMPLE_INTERVAL, reader=read_processes, clock=_utc,
-                 ignore_pids=(), owned_record=None):
+                 ignore_pids=(), owned_record=None, baseline=None):
         self.interval = float(interval)
         self._reader = reader
         self._clock = clock
         self._ignore = set(ignore_pids)
+        # Seeded from the before snapshot where the caller has one, so a
+        # process that started between that snapshot and the first sample is a
+        # newcomer instead of silently becoming part of the baseline.
+        self._seeded = baseline is not None
         self._owned_record = Path(owned_record) if owned_record is not None else None
         self._owned = set()
         self._helpers = set()
-        self._baseline = None
+        self._baseline = None if baseline is None else set(baseline)
         self._recorders = {}
         self._newcomers = {}
         self._samples = 0
@@ -345,15 +378,8 @@ class Sampler:
         return tree
 
     @staticmethod
-    def _identity(entry):
-        """A pid alone is not an identity: the OS reuses pids, and a reused one
-        carries a different name or creation time. Both are part of the key so a
-        heavy program handed a baseline pid is still seen as a newcomer."""
-        return (entry["pid"], entry["name"], entry.get("created"))
-
-    @classmethod
-    def _observe(cls, store, entry, at):
-        key = cls._identity(entry)
+    def _observe(store, entry, at):
+        key = _identity(entry)
         seen = store.get(key)
         if seen is None:
             store[key] = {
@@ -383,16 +409,22 @@ class Sampler:
                 self._first = at
             self._last = at
             if self._baseline is None:
-                self._baseline = {self._identity(entry) for entry in processes}
+                # No seed: this first reading is the baseline.
+                self._baseline = {_identity(entry) for entry in processes}
                 return
             owned = self._owned_tree(processes)
             for entry in processes:
                 pid = entry["pid"]
-                if pid in self._ignore or pid in self._helpers or pid in owned:
+                if pid in self._ignore or pid in self._helpers:
                     continue
+                # A recorder is contamination wherever it came from, the owned
+                # capture's own tree included: a capture that starts ffmpeg is
+                # not an untouched frame-time measurement.
                 if _is_recorder(entry["name"]):
                     self._observe(self._recorders, entry, at)
-                if self._identity(entry) not in self._baseline:
+                if pid in owned:
+                    continue
+                if _identity(entry) not in self._baseline:
                     self._observe(self._newcomers, entry, at)
 
     def _safe_sample(self):
@@ -412,8 +444,10 @@ class Sampler:
         if self._started:
             raise StudioError("Cleanroom sampler is already running")
         self._started = True
-        # Take the baseline synchronously so the window is never sampled before
-        # the sampler knows what was already running.
+        # Sample once synchronously: with a seed this is already a real
+        # observation of the window's first instant, and without one it is the
+        # baseline, so the window is never sampled before the sampler knows
+        # what was already running.
         self._safe_sample()
         self._thread = threading.Thread(target=self._loop, name="cleanroom-sampler", daemon=True)
         self._thread.start()
@@ -437,6 +471,7 @@ class Sampler:
                     "interval_seconds": self.interval,
                     "helper_pids": sorted(self._helpers),
                     "owned_pids": sorted(self._owned),
+                    "baseline": "before-snapshot" if self._seeded else "first-sample",
                 },
                 "samples": self._samples,
                 "failed_samples": self._failed,
@@ -496,19 +531,14 @@ def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes,
         reasons.append("host process enumeration failed; the window cannot be attributed")
     else:
         overlap = prior.keys() & later.keys()
-        # A PID the OS reused for a different program, one whose CPU counter went
-        # backwards (a restart), or one whose creation time changed under the
-        # same name, is an exit plus a fresh appearance, not one
+        # A PID the OS reused for a different program, one whose creation time
+        # changed under the same name, or one whose CPU counter went backwards
+        # (a restart), is an exit plus a fresh appearance, not one
         # continuously-running process with a CPU delta.
-        def restarted(pid):
-            first, second = prior[pid].get("created"), later[pid].get("created")
-            return first is not None and second is not None and first != second
-
         reused = {
             pid for pid in overlap
-            if prior[pid]["name"] != later[pid]["name"]
+            if not _same_process(prior[pid], later[pid])
             or later[pid]["cpu_seconds"] < prior[pid]["cpu_seconds"]
-            or restarted(pid)
         }
         continuous = overlap - reused
         new_heavy = [later[pid] for pid in (later.keys() - prior.keys()) | reused if heavy(later[pid])]
@@ -529,8 +559,14 @@ def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes,
     observed = None
     if during is not None:
         recorders = [dict(entry) for entry in during.get("recorders") or ()]
+        # Presence afterwards is judged on the whole identity: a pid the OS
+        # handed to a different program is not the sampled process surviving.
+        def present_after(entry):
+            match = later.get(entry["pid"])
+            return match is not None and _same_process(entry, match)
+
         transient = [
-            dict(entry, present_after=entry["pid"] in later)
+            dict(entry, present_after=present_after(entry))
             for entry in during.get("newcomers") or () if heavy(entry)
         ]
         observed = {
@@ -574,11 +610,19 @@ def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes,
         limits.append("GPU counters unavailable for this window")
     if before.get("power_scheme") != after.get("power_scheme"):
         reasons.append("power scheme changed inside the window")
+    on_battery = unknown_ac = False
     for snapshot_side in (before, after):
         battery = snapshot_side.get("battery", {})
-        if battery.get("status") == "ok" and battery.get("on_ac") is False:
-            reasons.append("host is on battery power")
-            break
+        if battery.get("status") == "unknown":
+            # Windows answers 255 when it cannot tell; that is a gap in the
+            # reading, not a host running on its battery.
+            unknown_ac = True
+        elif battery.get("status") == "ok" and battery.get("on_ac") is False:
+            on_battery = True
+    if on_battery:
+        reasons.append("host is on battery power")
+    if unknown_ac:
+        limits.append("AC line status unknown")
     if before.get("recorder") or after.get("recorder"):
         reasons.append("recorder process present")
     return {
@@ -650,10 +694,16 @@ def execute(
     write_json(bench / "before.json", before)
     # One long-lived sampler, started before the capture and stopped after it,
     # so a recorder that lives only between the two snapshots is still recorded.
+    # Its baseline is the before snapshot, not its own first sample: anything
+    # that started in between belongs to the window, not to the quiet host.
+    seed = None
+    if before.get("process_status", "ok") == "ok" and before.get("processes"):
+        seed = {_identity(entry) for entry in before["processes"]}
     sampler = (sampler_factory or Sampler)(
         interval=float(sample_interval),
         ignore_pids={owner} | set(before.get("helper_pids") or ()),
         owned_record=bench / "capture" / "process.json",
+        baseline=seed,
     )
     window = {"started_utc": _utc()}
     started = time.monotonic()
@@ -687,8 +737,12 @@ def execute(
         heavy_working_set_bytes=heavy_working_set_bytes,
         agent_log=agent_log, self_pid=owner, during=during,
     )
+    # Every artifact this bench wrote is now final, so the receipt cites each
+    # one as a portable project-relative path with the hash of what was read.
+    # An absolute path is not a reference another machine can check.
+    artifacts = {name: file_record(root, bench / f"{name}.json") for name in ("before", "after", "during")}
     if comparison.get("during") is not None:
-        comparison["during"]["record"] = str(bench / "during.json")
+        comparison["during"]["record"] = artifacts["during"]
     # Asking for a rung is asking for proof of that rung: a capture whose own
     # receipt cannot be read, or does not name the rung, is not evidence for it.
     scope_check = None
@@ -715,13 +769,16 @@ def execute(
         "capture": {
             "status": record.get("status"), "returncode": record.get("returncode"),
             "elapsed_seconds": record.get("elapsed_seconds"), "cleanup": record.get("cleanup"),
-            "failure": failure, "process_record": str(record_path) if record_path.is_file() else None,
-            "log": str(log_path) if log_path.is_file() else None, "verdict": verdict,
+            "failure": failure,
+            "process_record": file_record(root, record_path) if record_path.is_file() else None,
+            "log": file_record(root, log_path) if log_path.is_file() else None, "verdict": verdict,
         },
-        "before": {"record": str(bench / "before.json"), "at_utc": before["at_utc"], "process_count": before["process_count"], "process_status": before.get("process_status", "ok"), "gpu": before["gpu"], "power_scheme": before["power_scheme"], "battery": before["battery"], "recorder": before["recorder"]},
-        "after": {"record": str(bench / "after.json"), "at_utc": after["at_utc"], "process_count": after["process_count"], "process_status": after.get("process_status", "ok"), "gpu": after["gpu"], "power_scheme": after["power_scheme"], "battery": after["battery"], "recorder": after["recorder"]},
+        "before": {"record": artifacts["before"], "at_utc": before["at_utc"], "process_count": before["process_count"], "process_status": before.get("process_status", "ok"), "gpu": before["gpu"], "power_scheme": before["power_scheme"], "battery": before["battery"], "recorder": before["recorder"]},
+        "after": {"record": artifacts["after"], "at_utc": after["at_utc"], "process_count": after["process_count"], "process_status": after.get("process_status", "ok"), "gpu": after["gpu"], "power_scheme": after["power_scheme"], "battery": after["battery"], "recorder": after["recorder"]},
         **comparison,
     }
     result["ok"] = result["attributable"] and record.get("status") == "completed"
     write_json(bench / "cleanroom.json", result)
+    # Absolute paths are a convenience for the caller's stdout only; the receipt
+    # on disk stays portable.
     return {**result, "bench_dir": str(bench), "record": str(bench / "cleanroom.json")}

@@ -117,9 +117,11 @@ def evaluate(state, window=None, *, now=None, tz=None):
     """Pure readiness decision; window is (start_utc, end_utc) datetimes or None."""
     now = now or datetime.now(timezone.utc)
     if state.get("host_kind") != "windows":
-        return {"ready": False, "reasons": ["host kind is not Windows; preflight is informational only"], "checks": {}}
+        return {"ready": False, "reasons": ["host kind is not Windows; preflight is informational only"],
+                "checks": {}, "limits": []}
     reasons = []
     checks = {}
+    limits = []
     pending = state.get("pending_reboot", {})
     checks["pending_reboot"] = {k: bool(pending.get(k)) for k in ("cbs", "wu", "pending_file_rename")}
     if any(checks["pending_reboot"].values()):
@@ -166,9 +168,13 @@ def evaluate(state, window=None, *, now=None, tz=None):
         reasons.append("power scheme is not High performance")
     battery = state.get("battery", {})
     checks["battery"] = battery
-    if battery.get("status") == "ok" and battery.get("on_ac") is False:
+    if battery.get("status") == "unknown":
+        # Windows answers 255 when it cannot tell whether the host is on AC;
+        # that is a gap in the reading, not a reason to call the host unready.
+        limits.append("AC line status unknown")
+    elif battery.get("status") == "ok" and battery.get("on_ac") is False:
         reasons.append("host is on battery power")
-    return {"ready": not reasons, "reasons": reasons, "checks": checks}
+    return {"ready": not reasons, "reasons": reasons, "checks": checks, "limits": limits}
 
 
 def preflight(config, *, window_start=None, window_end=None, output=None, reader=None):
@@ -179,6 +185,11 @@ def preflight(config, *, window_start=None, window_end=None, output=None, reader
         window = (parse_utc(window_start, "Window start"), parse_utc(window_end, "Window end"))
         if window[1] <= window[0]:
             raise StudioError("Window end must be after window start")
+        # Readiness is a claim about a window that can still be run; a window
+        # already in the past cannot be prepared for, and saying "ready" about
+        # one would be a receipt for nothing. A window under way is still fine.
+        if window[1] <= datetime.now(timezone.utc):
+            raise StudioError("Window has already ended; give a window that has not finished")
     state = read_state(reader)
     verdict = evaluate(state, window)
     result = {
@@ -191,7 +202,7 @@ def preflight(config, *, window_start=None, window_end=None, output=None, reader
         "reasons": verdict["reasons"],
         "checks": verdict["checks"],
         "state": state,
-        "limits": LIMITS,
+        "limits": LIMITS + list(verdict.get("limits") or ()),
         "ok": verdict["ready"],
     }
     if output:
@@ -223,6 +234,10 @@ def apply(config, *, receipt, pause_days=3, active_start=18, active_end=12, what
             raise StudioError(f"Host apply {name} must be an integer {low}–{high}")
     if active_start == active_end:
         raise StudioError("Active hours start and end must differ")
+    # Windows caps active hours at 18 h; the script throws on a longer span, so
+    # refuse here instead of spawning an elevated PowerShell to be told that.
+    if (active_end - active_start) % 24 > 18:
+        raise StudioError("Host apply active hours span must be 18 hours or less")
     target = outside_package(receipt)
     if target.exists():
         raise StudioError("Host receipt exists; choose a new filename")

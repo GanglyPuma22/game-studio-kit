@@ -187,8 +187,11 @@ CPU seconds and working set, `nvidia-smi` devices and compute apps, active
 power scheme, battery, recorder processes), runs the capture command once
 through the owned runner, snapshots again, and writes `before.json`,
 `after.json`, `during.json`, the capture's job receipts and `cleanroom.json`
-under `artifacts/bench/<label>/`. The project must already exist: a mistyped
-`--project` is refused, never created. Contamination thresholds
+under `artifacts/bench/<label>/`. `cleanroom.json` cites each of those files as
+a project-relative path with its SHA-256, so the receipt stays checkable on
+another machine and an edited artifact shows; absolute paths appear only in the
+command's stdout. The project must already exist: a mistyped `--project` is
+refused, never created. Contamination thresholds
 (`--busy-fraction`, `--busy-floor-seconds`, `--heavy-working-set-mb`) are
 validated before the capture, so a non-finite or out-of-range threshold cannot
 quietly label a dirty window clean:
@@ -208,8 +211,10 @@ present, and the agent log (when supplied) stayed readable, with no timestamps
 inside the window and none without a UTC offset. A log that was readable when
 the bench started and cannot be read at the comparison is its own reason
 ("agent log became unreadable inside the window"); the receipt is still
-written. Each violation is a named reason. Missing GPU or
-battery counters are limits, not reasons. The command never stops any process
+written. Each violation is a named reason. Missing GPU counters, and an AC
+line status the host reports as unknown, are limits, not reasons: Windows
+answers "unknown" rather than "on battery" when it cannot tell, and the
+difference is not invented here. The command never stops any process
 other than its own capture. An agent must make no tool calls while the command
 runs; the command owns the wait.
 
@@ -220,14 +225,19 @@ and heavy newcomers with first/last-seen timestamps in `during.json` and under
 `during` in the receipt. A recorder observed mid-window is a reason, and so is
 a heavy process that ran and exited before the second snapshot. The sampler
 only reads; its own enumeration helpers and the owned capture's process tree
-are excluded, and it never signals anything. Anything shorter-lived than the
-interval can still be missed, which is a stated limit rather than a clean
-result.
+are excluded from the newcomer count, and it never signals anything. Recorders
+are the exception: one that the capture itself started still contaminates the
+window and is still a reason. The sampler's baseline is the before snapshot,
+not its own first sample, so a program that started in between belongs to the
+window rather than to the quiet host. Anything shorter-lived than the interval
+can still be missed, which is a stated limit rather than a clean result.
 
 A process is identified by pid, name and creation time, not by pid alone. A pid
 the OS hands to another program inside the window is therefore a newcomer to
 the sampler and an exit plus an appearance to the before/after diff, rather
-than one long-running process with a CPU delta.
+than one long-running process with a CPU delta, and a sampled newcomer counts
+as still present afterwards only when that whole identity is in the after
+snapshot.
 
 If either snapshot's process query fails, `process_enumeration` says so and the
 window is not attributable: an empty process table is a failed query, not a
@@ -249,6 +259,9 @@ when it refuses and 3 when a change failed part-way through, and writes its
 receipt (with `refused`, `failure` and `partial`) before either; `host apply`
 returns that receipt with `ok: false` rather than raising, so a half-applied
 change is reported instead of lost. A window is judged only when it is between
-one minute and eighteen hours long. `--output` and `--receipt` must be outside
+one minute and eighteen hours long, and preflight refuses a window that has
+already ended; a window under way is still judged. `host apply` refuses an
+active-hours span longer than the 18 hours Windows allows before it launches
+PowerShell at all. `--output` and `--receipt` must be outside
 the installed toolkit, like every other output. On non-Windows hosts preflight
 reports `host_kind: unsupported` and apply refuses.

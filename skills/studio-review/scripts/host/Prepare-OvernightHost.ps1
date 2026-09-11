@@ -88,7 +88,14 @@ $partial = $false
 try {
   if ($Restore) {
     if ($PSCmdlet.ShouldProcess('Windows Update pause and power scheme', 'restore defaults')) {
-      foreach ($n in $pauseNames) { Remove-ItemProperty -Path $ux -Name $n -ErrorAction SilentlyContinue }
+      # Only a value that is not there is skipped. Silencing every removal
+      # error would report a restore that never happened, so anything else
+      # (an access denial, a locked hive) falls into the catch below.
+      foreach ($n in $pauseNames) {
+        if ($null -ne (Get-ItemProperty -Path $ux -Name $n -ErrorAction SilentlyContinue)) {
+          Remove-ItemProperty -Path $ux -Name $n
+        }
+      }
       powercfg /setactive $balanced | Out-Null
       if ($LASTEXITCODE -ne 0) { throw 'powercfg rejected the scheme change' }
     }

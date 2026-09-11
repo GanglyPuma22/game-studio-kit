@@ -87,7 +87,11 @@ python "$Kit\scripts\studio.py" host preflight --window-start 2026-09-15T05:00:0
 
 It reports whether Windows Update is paused past the window end, whether a
 reboot is pending, whether active hours cover every hour of the window (local
-time, at most 18 hours), the power scheme and AC state. A planned Windows
+time, at most 18 hours), the power scheme and AC state. A window that has
+already ended is refused outright — readiness is a claim about a window that
+can still be run — while a window already under way is still judged. When
+Windows answers that it does not know the AC line status, that is recorded as
+the limit "AC line status unknown" rather than as a host on battery. A planned Windows
 Update restart inside an unattended window has already cost one production run
 more than four hours.
 
@@ -104,9 +108,12 @@ The script changes only Windows Update pause values, active hours and the power
 scheme; it never stops a process. Agents may call `host apply` only after this
 manual validation has been recorded.
 
-The script refuses before touching anything when a reboot is already pending or
-when the High performance scheme is absent from `powercfg /list` (`refused` in
-the receipt, exit 2). If a change fails once the registry writes have begun it
+`host apply` refuses an active-hours span longer than 18 hours before it
+launches PowerShell, so a mistake costs no elevated process. The script itself
+refuses before touching anything when a reboot is already pending or when the
+High performance scheme is absent from `powercfg /list` (`refused` in the
+receipt, exit 2), and `--restore` reports a pause value it could not remove
+instead of silently skipping it. If a change fails once the registry writes have begun it
 records `failure` with `partial: true` and exits 3, still writing the receipt
 first, because the host is already part-changed by then. `host apply` reads
 that receipt and returns it with `ok: false` instead of raising, so the
