@@ -527,6 +527,75 @@ class OwnedLaunchTests(LaunchCase):
         self.assertEqual(unknown["pids"], [])
         self.assertIn("/proc", unknown["note"])
 
+    def test_scrub_prefixes_match_case_insensitively_only_on_windows(self):
+        with patch.dict(os.environ, {"salvage_token": "secret", "KEEP_ME": "yes"}):
+            with patch("studio_tools.launch.IS_WINDOWS", True):
+                self.execute("print('win')", label="win-scrub", scrub=["SALVAGE_"])
+            windows = self.last_kwargs["env"]
+            with patch("studio_tools.launch.IS_WINDOWS", False):
+                self.execute("print('posix')", label="posix-scrub", scrub=["SALVAGE_"])
+            posix = self.last_kwargs["env"]
+        # A Windows process cannot hold two names differing only in case.
+        self.assertNotIn("salvage_token", windows)
+        self.assertEqual(windows["KEEP_ME"], "yes")
+        # Elsewhere `salvage_token` and `SALVAGE_TOKEN` are two different names.
+        self.assertEqual(posix["salvage_token"], "secret")
+
+    def test_cutoff_is_rechecked_after_the_engine_is_hashed(self):
+        start = datetime.now(timezone.utc)
+        cutoff = (start + timedelta(seconds=30)).isoformat()
+        clock = FakeClock(start)
+        hashed = []
+
+        def hashing_consumes_the_window(path):
+            digest = sha256(path)
+            if Path(path).resolve() == Path(sys.executable).resolve():
+                hashed.append(1)
+                # The window closes while the engine is hashed at the launch instant.
+                if len(hashed) == 2:
+                    clock.values = [start + timedelta(seconds=31)]
+            return digest
+
+        with patch("studio_tools.launch.datetime", clock), \
+                patch("studio_tools.launch.sha256", hashing_consumes_the_window), \
+                patch("studio_tools.launch.run") as run:
+            result = launch.execute(self.config, self.root, sha256_expected=self.sha,
+                                    cutoff_utc=cutoff, label="expired-in-digest")
+            run.assert_not_called()
+        self.assertEqual(result["verdict"], "cutoff_passed")
+        self.assertFalse(result["ok"])
+        owned = read_json(self.root / "artifacts/launches/expired-in-digest/owned-launch.json")
+        self.assertEqual(owned["status"], "refused")
+        self.assertIsNone(owned["timeout_seconds_effective"])
+        self.assertIsNone(owned["process_record"])
+        self.assertFalse((self.root / "artifacts/launches/expired-in-digest/process").exists())
+
+    def test_result_that_escapes_the_project_after_the_run_is_a_verdict(self):
+        external = Path(self.tmp.name) / "outside result.json"
+        external.write_text("{}")
+        probe = self.root / "symlink probe"
+        try:
+            probe.symlink_to(external)
+        except OSError:
+            self.skipTest("Host cannot create symlinks")
+        probe.unlink()
+        result = self.execute(
+            "import pathlib;pathlib.Path('artifacts/escape.json').symlink_to(%r);print('linked')"
+            % str(external),
+            label="escaped-result", results=["artifacts/escape.json"],
+        )
+        self.assertEqual(result["verdict"], "results_invalid")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], "completed")
+        entry = result["result_files"][0]
+        self.assertTrue(entry["escaped"])
+        self.assertFalse(entry["present"])
+        self.assertIsNone(entry["sha256"])
+        # The receipts that explain the run are still written.
+        run_dir = self.root / "artifacts/launches/escaped-result"
+        self.assertEqual(read_json(run_dir / "exit.json")["verdict"], "results_invalid")
+        self.assertTrue((run_dir / "owned-launch.json").is_file())
+
 
 class LaunchInventoryTests(LaunchCase):
     def test_inventory_pairs_launches_and_flags_missing_exit(self):
@@ -612,6 +681,10 @@ class LaunchInventoryTests(LaunchCase):
         self.assertIn("label", by_dir["good"]["pairing_reason"])
         self.assertEqual(by_dir["good"]["verdict"], "mismatched_receipts")
         self.assertFalse(by_dir["good"]["ok"])
+        # Its own process record cannot vouch for a launch whose exit record is foreign.
+        for field in ("status", "returncode", "elapsed_seconds", "cleanup"):
+            self.assertIsNone(by_dir["good"][field])
+        self.assertFalse(by_dir["good"]["timed_out"])
         self.assertIsNone(by_dir["good"]["diagnostics"])
         self.assertEqual(by_dir["good"]["result_files"], {"present": [], "missing": []})
         self.assertIsNotNone(by_dir["good"]["exit"])
@@ -739,7 +812,7 @@ class IdentityManifestTests(LaunchCase):
         result = manifest.verify(self.root, path)
         self.assertFalse(result["ok"])
         self.assertEqual(result["verdict"], "mismatch")
-        self.assertEqual(result["totals"], {"match": 2, "mismatch": 1, "missing": 1})
+        self.assertEqual(result["totals"], {"match": 2, "mismatch": 1, "missing": 1, "unreadable": 0})
         self.assertEqual({i["id"]: i["status"] for i in result["items"]},
                          {"engine": "match", "a": "match", "b": "mismatch", "c": "missing"})
         receipt = read_json(result["receipt"])
@@ -921,6 +994,36 @@ class IdentityManifestTests(LaunchCase):
                 write_json(path, record)
                 with self.assertRaisesRegex(StudioError, "relative to the project"):
                     manifest.verify(self.root, path)
+
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                     "unreadable files need POSIX permissions and a non-root user")
+    def test_unreadable_item_is_recorded_instead_of_aborting_the_receipt(self):
+        source = self.root / "source"
+        source.mkdir()
+        readable = source / "a.bin"
+        readable.write_bytes(b"alpha")
+        locked = source / "locked.bin"
+        locked.write_bytes(b"beta")
+        locked.chmod(0)
+        self.addCleanup(locked.chmod, 0o644)
+        record = {"schema_version": 1, "kind": "identity-manifest", "items": [
+            {"id": "a", "role": "source", "path": "source/a.bin", "sha256": sha256(readable)},
+            {"id": "locked", "role": "asset", "path": "source/locked.bin", "sha256": "0" * 64}]}
+        path = self.root / "manifest.json"
+        write_json(path, record)
+        result = manifest.verify(self.root, path)
+        self.assertEqual(result["verdict"], "unreadable")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["totals"], {"match": 1, "mismatch": 0, "missing": 0, "unreadable": 1})
+        entry = {item["id"]: item for item in result["items"]}["locked"]
+        self.assertEqual(entry["status"], "unreadable")
+        self.assertIsNone(entry["actual"])
+        # The receipt covering every other item is still written.
+        self.assertEqual(read_json(result["receipt"])["verdict"], "unreadable")
+        # A genuine mismatch still outranks an unreadable item.
+        record["items"][0]["sha256"] = "1" * 64
+        write_json(path, record)
+        self.assertEqual(manifest.verify(self.root, path)["verdict"], "mismatch")
 
     def test_template_manifest_loads(self):
         kit = Path(__file__).resolve().parents[1]

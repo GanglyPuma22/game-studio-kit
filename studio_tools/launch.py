@@ -21,6 +21,9 @@ from .processes import run, stop_survivors
 
 MODES = ("import", "test", "check", "native")
 MAX_TIMEOUT = 3600
+# Windows environment names are case-insensitive; tests set this flag directly
+# because patching os.name would also change how pathlib parses every path.
+IS_WINDOWS = os.name == "nt"
 LIMITS = [
     "exit zero is not acceptance",
     "stdout and stderr are combined in one log; the child may print private data",
@@ -75,6 +78,40 @@ def build_args(config, project, engine, mode, script=None, passthrough=()):
     if not isinstance(passthrough, (list, tuple)) or not all(isinstance(x, str) for x in passthrough):
         raise StudioError("Passthrough arguments must be strings")
     return args + list(passthrough)
+
+
+def _scrubbed(prefixes):
+    """The child environment without the scrubbed names.
+
+    A Windows process cannot hold two names that differ only in case, so a
+    prefix there matches whatever case the name is spelled in; elsewhere the
+    comparison stays exact, since `path` and `PATH` are two different names.
+    """
+    wanted = [prefix.upper() for prefix in prefixes] if IS_WINDOWS else list(prefixes)
+    return {
+        key: value for key, value in os.environ.items()
+        if not any((key.upper() if IS_WINDOWS else key).startswith(prefix) for prefix in wanted)
+    }
+
+
+def _remaining(cutoff, limit, launch, run_dir):
+    """Bound the wait by what is left of the authorized window at this instant.
+
+    Returns the effective timeout, or None when the window has closed. The
+    launch record is updated either way, so the receipt says what was allowed.
+    """
+    if cutoff is None:
+        return float(limit)
+    remaining = (cutoff - datetime.now(timezone.utc)).total_seconds()
+    if remaining <= 0:
+        launch.update(status="refused", timeout_seconds_effective=None, process_record=None)
+        write_json(run_dir / "owned-launch.json", launch)
+        return None
+    effective = max(0.001, min(float(limit), remaining))
+    if launch["timeout_seconds_effective"] != round(effective, 3):
+        launch["timeout_seconds_effective"] = round(effective, 3)
+        write_json(run_dir / "owned-launch.json", launch)
+    return effective
 
 
 def _readable_digest(path):
@@ -177,37 +214,27 @@ def execute(
         return _finish(root, run_dir, launch, None, "", verdict, "Authorized cutoff already passed")
     profile = run_dir / "profile"
     profile.mkdir()
-    environment = {
-        key: value for key, value in os.environ.items()
-        if not any(key.startswith(prefix) for prefix in prefixes)
-    }
+    environment = _scrubbed(prefixes)
     for key in PROFILE_KEYS:
         environment[key] = app_path(config, profile, "godot")
-    if cutoff is not None:
-        # Writing the receipt and preparing the profile consume part of the window,
-        # so the authorization is rechecked against the clock at the launch instant
-        # and the wait is bounded by what is actually left of it.
-        remaining = (cutoff - datetime.now(timezone.utc)).total_seconds()
-        if remaining <= 0:
-            launch.update(status="refused", timeout_seconds_effective=None, process_record=None)
-            write_json(run_dir / "owned-launch.json", launch)
-            return _finish(
-                root, run_dir, launch, None, "", "cutoff_passed",
-                "Authorized cutoff passed while the launch was prepared",
-            )
-        effective = max(0.001, min(float(limit), remaining))
-        if launch["timeout_seconds_effective"] != round(effective, 3):
-            launch["timeout_seconds_effective"] = round(effective, 3)
-            write_json(run_dir / "owned-launch.json", launch)
     # The digest verified above described bytes that could have been replaced
-    # while this launch was prepared, so the engine is re-read at the launch
-    # instant: only the verified identity may start.
+    # while this launch was prepared, so the engine is re-read before starting:
+    # only the verified identity may start.
     if _readable_digest(engine_path) != actual:
         launch.update(status="refused", timeout_seconds_effective=None, process_record=None)
         write_json(run_dir / "owned-launch.json", launch)
         return _finish(
             root, run_dir, launch, None, "", "engine_replaced",
             "Engine bytes changed before the launch; the verified identity did not start",
+        )
+    # Writing the receipts, preparing the profile and hashing the engine all
+    # consume part of the window, so the authorization is rechecked last, after
+    # every slow step: the wait `run` gets is what is left of it right now.
+    effective = _remaining(cutoff, limit, launch, run_dir)
+    if effective is None:
+        return _finish(
+            root, run_dir, launch, None, "", "cutoff_passed",
+            "Authorized cutoff passed while the launch was prepared",
         )
     failure = None
     interrupt = None
@@ -267,7 +294,15 @@ def _finish(root, run_dir, launch, record, text, verdict, failure, survivors=Non
     before = {entry["path"]: entry for entry in launch.get("results_before", [])}
     result_files = []
     for item in launch["expected_results"]:
-        target = relative(root, item)
+        try:
+            target = relative(root, item)
+        except StudioError:
+            # A declared result that only now resolves outside the project (a
+            # symlink the run created) is not evidence, and saying so in the
+            # receipt beats raising over the receipts that explain the run.
+            result_files.append({"path": item, "present": False, "stale": False,
+                                 "unreadable": False, "escaped": True, "sha256": None})
+            continue
         exists = target.is_file()
         digest = _readable_digest(target) if exists else None
         # A result this launcher cannot read cannot be shown to be new output,
@@ -278,13 +313,15 @@ def _finish(root, run_dir, launch, record, text, verdict, failure, survivors=Non
         stale = exists and not unreadable and prior["present"] and prior["sha256"] == digest
         result_files.append({
             "path": item, "present": exists and not stale and not unreadable,
-            "stale": stale, "unreadable": unreadable, "sha256": digest,
+            "stale": stale, "unreadable": unreadable, "escaped": False, "sha256": digest,
         })
     status = record.get("status", "start_failed") if record else "refused"
     if verdict is None:
         if status == "completed":
             if diagnostics["error_count"]:
                 verdict = "engine_errors"
+            elif any(entry["escaped"] for entry in result_files):
+                verdict = "results_invalid"
             elif any(entry["unreadable"] for entry in result_files):
                 verdict = "results_unreadable"
             elif any(not entry["present"] for entry in result_files):
@@ -416,8 +453,9 @@ def inventory(run_root, output=None):
         pairing, reason = _pairing(launch, exit_record, owned_process, process_missing)
         # Only a verified pair may lend its verdict, ok flag and result files here.
         paired = exit_record if pairing == "paired" else None
-        # Nor may a foreign process record lend its lifecycle summary.
-        summary = process if owned_process else None
+        # Nor may any unpaired entry lend a process lifecycle summary: a
+        # foreign exit record leaves no verified account of what ran either.
+        summary = process if pairing == "paired" else None
         verdict = (paired or {}).get("verdict", "no_exit_record")
         if pairing == "mismatched":
             verdict = "mismatched_receipts"

@@ -89,7 +89,7 @@ def verify(project, manifest_path, output=None, config=None):
     manifest_path = Path(manifest_path).expanduser().resolve()
     manifest, manifest_digest = _read(manifest_path)
     items = []
-    totals = {"match": 0, "mismatch": 0, "missing": 0}
+    totals = {"match": 0, "mismatch": 0, "missing": 0, "unreadable": 0}
     for item in manifest["items"]:
         source = item.get("source")
         if source == "host-config":
@@ -102,16 +102,25 @@ def verify(project, manifest_path, output=None, config=None):
         if target is None or not target.is_file():
             status, actual = "missing", None
         else:
-            actual = sha256(target)
-            status = "match" if actual == item["sha256"] else "mismatch"
+            try:
+                actual = sha256(target)
+            except OSError:
+                # A file this host cannot read cannot be shown to match or
+                # differ; the receipt records that instead of the command
+                # aborting and leaving every other item unreported.
+                status, actual = "unreadable", None
+            else:
+                status = "match" if actual == item["sha256"] else "mismatch"
         totals[status] += 1
         items.append({
             "id": item["id"], "role": item["role"],
             "path": None if source else item["path"], "source": source,
             "expected": item["sha256"], "actual": actual, "status": status,
         })
-    verdict = "match" if totals["mismatch"] == 0 and totals["missing"] == 0 else (
-        "mismatch" if totals["mismatch"] else "missing"
+    # A wrong hash outranks an absent file, which outranks one this host cannot
+    # read; only a clean sweep is a match.
+    verdict = next(
+        (name for name in ("mismatch", "missing", "unreadable") if totals[name]), "match"
     )
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     # The default receipt is contained like any other declared output: a
