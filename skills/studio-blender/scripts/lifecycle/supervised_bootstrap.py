@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import traceback
+import uuid
 from pathlib import Path
 
 
@@ -54,6 +55,17 @@ def _enable_documented_addon():
         + "; checked: "
         + "; ".join(findings)
     )
+
+
+def _write_receipt_atomic(path: Path, data: dict) -> None:
+    """Write the bootstrap receipt to a sibling temp file and replace it
+    into place, so the Ensure polling loop (Test-Path then Get-Content on
+    this exact path) never observes a partially written file and fails
+    ConvertFrom-Json on an incomplete read.
+    """
+    tmp_path = path.with_name(f".{path.name}.tmp-{os.getpid()}-{uuid.uuid4().hex}")
+    tmp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    os.replace(tmp_path, path)
 
 
 def main() -> None:
@@ -116,12 +128,11 @@ def main() -> None:
             "telemetry_consent": prefs.telemetry_consent,
             "listener": list(server.socket.getsockname()),
         }
-        receipt_path.write_text(json.dumps(receipt, indent=2), encoding="utf-8")
+        _write_receipt_atomic(receipt_path, receipt)
         print("SUPERVISED_MCP_BOOTSTRAP_PASS", flush=True)
     except Exception:
-        receipt_path.write_text(
-            json.dumps({"status": "BLOCKED", "traceback": traceback.format_exc()}, indent=2),
-            encoding="utf-8",
+        _write_receipt_atomic(
+            receipt_path, {"status": "BLOCKED", "traceback": traceback.format_exc()}
         )
         traceback.print_exc()
         raise

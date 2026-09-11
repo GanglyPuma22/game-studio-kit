@@ -204,6 +204,39 @@ class BlenderMcpConfigDoctorTests(unittest.TestCase):
             with self.assertRaisesRegex(StudioError, "outside the installed kit"):
                 load(overrides={"blender_mcp": block})
 
+    def test_working_root_symlink_into_kit_is_rejected(self):
+        # The lexical PureWindowsPath comparison cannot see through a
+        # symlink/junction; an existing working_root must be resolved
+        # against its real target before comparing it to the kit root.
+        from studio_tools.config import _working_root_is_outside_kit
+
+        root = Path(self.temp.name)
+        kit_root = root / "kit"
+        kit_root.mkdir()
+        elsewhere = root / "elsewhere"
+        elsewhere.mkdir()
+        linked_working_root = elsewhere / "runs"
+        try:
+            linked_working_root.symlink_to(kit_root, target_is_directory=True)
+        except OSError as exc:
+            self.skipTest(f"Host cannot create directory symlinks: {exc}")
+        self.assertFalse(_working_root_is_outside_kit(str(linked_working_root), kit_root))
+
+    def test_working_root_symlink_outside_kit_is_accepted(self):
+        from studio_tools.config import _working_root_is_outside_kit
+
+        root = Path(self.temp.name)
+        kit_root = root / "kit"
+        kit_root.mkdir()
+        elsewhere = root / "elsewhere"
+        elsewhere.mkdir()
+        linked_working_root = root / "runs-link"
+        try:
+            linked_working_root.symlink_to(elsewhere, target_is_directory=True)
+        except OSError as exc:
+            self.skipTest(f"Host cannot create directory symlinks: {exc}")
+        self.assertTrue(_working_root_is_outside_kit(str(linked_working_root), kit_root))
+
     def test_lifecycle_identity_paths_must_be_absolute(self):
         for field in ("working_root", "blender_executable", "probe_python"):
             block = {**self.block, field: f"relative/{field}"}
@@ -504,6 +537,19 @@ class BlenderMcpPowerShellRegressionTests(unittest.TestCase):
         self.assertLess(source.index("WaitOne"), source.index("$receiptPath"))
         self.assertIn("ReleaseMutex", source)
 
+    def test_stop_allows_cleanup_with_an_absent_listener_but_not_a_conflicting_one(self):
+        source = self._source("Stop-SupervisedBlenderMCP.ps1")
+        # A verified owned process (PID, executable and start time already
+        # matched) must still be stoppable if its add-on listener died; a
+        # listener owned by someone else must still block cleanup.
+        process_block = source[
+            source.index("$process = Get-Process") : source.index("$remainingListener")
+        ]
+        self.assertIn("if ($listeners.Count) {", process_block)
+        self.assertIn("Refusing cleanup: loopback listener ownership is ambiguous", process_block)
+        self.assertIn("$receipt.listener = '127.0.0.1:9876'", process_block)
+        self.assertIn("$receipt.listener = 'absent'", process_block)
+
     def test_ensure_and_stop_recover_an_abandoned_lifecycle_mutex(self):
         for name in ("Ensure-SupervisedBlenderMCP.ps1", "Stop-SupervisedBlenderMCP.ps1"):
             source = self._source(name)
@@ -562,6 +608,17 @@ class BlenderMcpPowerShellRegressionTests(unittest.TestCase):
         # comparison would treat every such reuse as a failed health check.
         self.assertNotIn("if ($LASTEXITCODE -ne 0)", source)
 
+    def test_outside_kit_check_resolves_reparse_points(self):
+        source = self._source("Ensure-SupervisedBlenderMCP.ps1")
+        # [IO.Path]::GetFullPath only normalizes lexically; it never follows
+        # a symlink/junction, so comparing its raw output for the kit and
+        # working roots would miss a reparse point pointing into the kit.
+        self.assertIn("function Resolve-ReparseTarget", source)
+        self.assertIn("$kitRoot = Resolve-ReparseTarget", source)
+        self.assertIn("$workingRootFull = Resolve-ReparseTarget", source)
+        self.assertNotIn("$kitRoot = [IO.Path]::GetFullPath", source)
+        self.assertNotIn("$workingRootFull = [IO.Path]::GetFullPath", source)
+
     def test_health_check_helper_judges_outcome_not_a_bare_exit_code(self):
         source = self._source("Ensure-SupervisedBlenderMCP.ps1")
         helper = source[
@@ -602,6 +659,56 @@ class BlenderMcpPowerShellRegressionTests(unittest.TestCase):
         self.assertLess(discovery.index("bl_info"), discovery.index("addon_utils.enable"))
         self.assertIn("DOCUMENTED_ADDON_NAME", discovery)
         self.assertIn("DOCUMENTED_ADDON_VERSION", discovery)
+
+    def test_bootstrap_routes_every_receipt_write_through_the_atomic_helper(self):
+        bootstrap = self._source("supervised_bootstrap.py")
+        self.assertIn("def _write_receipt_atomic", bootstrap)
+        self.assertIn("os.replace(tmp_path, path)", bootstrap)
+        # One definition plus two call sites (the PASS and BLOCKED writes).
+        self.assertEqual(bootstrap.count("_write_receipt_atomic"), 3)
+        self.assertNotIn("receipt_path.write_text(", bootstrap)
+
+    def test_bootstrap_write_receipt_atomic_leaves_no_partial_file(self):
+        # supervised_bootstrap.py imports bpy/addon_utils, which only exist
+        # inside Blender; stub them so the module can be loaded here and
+        # _write_receipt_atomic exercised for real, without needing Blender.
+        import importlib.util
+        import types
+
+        bootstrap_path = (
+            ROOT / "skills/studio-blender/scripts/lifecycle/supervised_bootstrap.py"
+        )
+        fake_modules = {"bpy": types.ModuleType("bpy"), "addon_utils": types.ModuleType("addon_utils")}
+        with patch.dict(sys.modules, fake_modules):
+            spec = importlib.util.spec_from_file_location(
+                "supervised_bootstrap_under_test", bootstrap_path
+            )
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            receipt_path = Path(tmp) / "bootstrap.json"
+            real_replace = os.replace
+            calls = []
+
+            def spying_replace(src, dst):
+                # The source must be a distinct, already-fully-written
+                # sibling file at the moment of replace, never the final
+                # path itself, so a reader polling the final path never
+                # observes a partially written file.
+                calls.append((Path(src), Path(dst)))
+                self.assertNotEqual(Path(src), Path(dst))
+                self.assertEqual(Path(src).parent, Path(dst).parent)
+                self.assertTrue(Path(src).is_file())
+                return real_replace(src, dst)
+
+            with patch("os.replace", side_effect=spying_replace):
+                module._write_receipt_atomic(receipt_path, {"status": "PASS"})
+
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(json.loads(receipt_path.read_text()), {"status": "PASS"})
+            leftovers = [p for p in Path(tmp).iterdir() if p != receipt_path]
+            self.assertEqual(leftovers, [])
 
 
 if __name__ == "__main__":

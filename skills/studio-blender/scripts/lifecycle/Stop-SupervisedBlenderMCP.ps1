@@ -48,8 +48,18 @@ if ($process) {
     $startDelta = ($process.StartTime.ToUniversalTime() - $expectedStartUtc).Duration()
     if ($startDelta -gt [TimeSpan]::FromMilliseconds(10)) { throw "Refusing cleanup: process start-time mismatch ($($startDelta.TotalMilliseconds) ms)" }
     $listeners = @(Get-NetTCPConnection -State Listen -LocalPort 9876 -ErrorAction SilentlyContinue)
-    if ($listeners.Count -ne 1 -or $listeners[0].OwningProcess -ne $receipt.pid -or $listeners[0].LocalAddress -ne '127.0.0.1') {
-        throw 'Refusing cleanup: loopback listener ownership is ambiguous'
+    if ($listeners.Count) {
+        # A conflicting listener owned by someone else blocks cleanup; an
+        # absent listener does not. The add-on's socket server can die
+        # independently of the owned Blender process it runs inside, and a
+        # verified owned process (PID, executable and start time already
+        # matched the receipt above) should still be stoppable in that case.
+        if ($listeners.Count -ne 1 -or $listeners[0].OwningProcess -ne $receipt.pid -or $listeners[0].LocalAddress -ne '127.0.0.1') {
+            throw 'Refusing cleanup: loopback listener ownership is ambiguous'
+        }
+        $receipt.listener = '127.0.0.1:9876'
+    } else {
+        $receipt.listener = 'absent'
     }
     [void]$process.CloseMainWindow()
     if (!$process.WaitForExit($CloseTimeoutSeconds * 1000)) {

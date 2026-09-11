@@ -57,6 +57,50 @@ function Invoke-LifecycleHealthCheck {
     }
     return $output
 }
+
+function Resolve-ReparseTarget {
+    # [IO.Path]::GetFullPath only normalizes a path lexically; it never
+    # follows a symlink or junction. A WorkingRoot (or an ancestor of one
+    # that does not exist yet) that is itself a reparse point pointing
+    # inside the installed kit would otherwise pass a purely lexical
+    # outside-kit comparison. Walk up to the nearest existing ancestor,
+    # resolve any reparse point on it to its final real target, and
+    # reattach the not-yet-created remainder.
+    param([Parameter(Mandatory=$true)][string]$Path)
+    $existing = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+    $remainder = @()
+    while ($existing -and !(Test-Path -LiteralPath $existing)) {
+        $remainder = @((Split-Path -Leaf $existing)) + $remainder
+        $parent = Split-Path -Parent $existing
+        if (!$parent -or $parent -eq $existing) { break }
+        $existing = $parent
+    }
+    if (Test-Path -LiteralPath $existing) {
+        $item = Get-Item -LiteralPath $existing -Force
+        $resolved = $null
+        try {
+            # PowerShell 7.1+ / .NET 6+.
+            $target = $item.ResolveLinkTarget($true)
+            if ($target) { $resolved = $target.FullName }
+        } catch {
+            # PowerShell 5.1 has no ResolveLinkTarget; walk .Target by hand.
+            $seen = @{}
+            $current = $item
+            while ($current.LinkType -and $current.Target -and $current.Target.Count -and !$seen.ContainsKey($current.FullName)) {
+                $seen[$current.FullName] = $true
+                $nextPath = $current.Target[0]
+                if (!(Test-Path -LiteralPath $nextPath)) { break }
+                $current = Get-Item -LiteralPath $nextPath -Force
+            }
+            if ($current.FullName -ne $item.FullName) { $resolved = $current.FullName }
+        }
+        $existing = [IO.Path]::GetFullPath($(if ($resolved) { $resolved } else { $item.FullName })).TrimEnd('\')
+    }
+    if ($remainder.Count) {
+        return [IO.Path]::GetFullPath((Join-Path $existing ($remainder -join '\'))).TrimEnd('\')
+    }
+    return $existing
+}
 if ($SessionId -notmatch '^[A-Za-z0-9._-]{1,128}$') { throw 'SessionId must use 1-128 letters, digits, dots, underscores, or hyphens' }
 if ($ownerName -notmatch '^[A-Za-z0-9._-]{1,128}$') { throw 'OwnerIdentity must use 1-128 letters, digits, dots, underscores, or hyphens' }
 $sourcePath = (Resolve-Path -LiteralPath $SourceScene -ErrorAction Stop).Path
@@ -84,8 +128,8 @@ $serverEnv = $hostMcp.server.env
 if (!$hostMcp.server.command -or $serverEnv.BLENDER_HOST -ne '127.0.0.1' -or $serverEnv.BLENDER_PORT -ne '9876' -or $serverEnv.DISABLE_TELEMETRY -ne 'true' -or $serverEnv.BLENDER_MCP_DISABLE_TELEMETRY -ne 'true') {
     throw 'MCP server config must select an explicit command, loopback port 9876 and telemetry off'
 }
-$kitRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\..')).TrimEnd('\')
-$workingRootFull = [IO.Path]::GetFullPath($WorkingRoot).TrimEnd('\')
+$kitRoot = Resolve-ReparseTarget -Path (Join-Path $PSScriptRoot '..\..\..\..')
+$workingRootFull = Resolve-ReparseTarget -Path $WorkingRoot
 if ($workingRootFull -eq $kitRoot -or $workingRootFull.StartsWith($kitRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
     throw 'WorkingRoot must be outside the installed Game Studio Kit'
 }

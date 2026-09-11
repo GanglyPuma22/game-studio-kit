@@ -37,6 +37,27 @@ def _kit_root():
     return Path(__file__).resolve().parents[1]
 
 
+def _working_root_is_outside_kit(working_root_value, kit_root_path):
+    working_root_concrete = Path(working_root_value)
+    if working_root_concrete.exists():
+        # An already-existing working_root can be a symlink/junction whose
+        # real target lies inside the installed kit; the lexical
+        # PureWindowsPath comparison below cannot see that, since it never
+        # touches the filesystem. Path.resolve() follows reparse points on
+        # this host, so prefer it whenever the directory is real. A
+        # not-yet-created directory has nothing to resolve yet, so fall
+        # through to the lexical, host-independent comparison.
+        resolved_working_root = working_root_concrete.resolve()
+        resolved_kit_root = kit_root_path.resolve()
+        return not (
+            resolved_working_root == resolved_kit_root
+            or resolved_working_root.is_relative_to(resolved_kit_root)
+        )
+    kit_root = PureWindowsPath(str(kit_root_path))
+    working_root = PureWindowsPath(working_root_value)
+    return not (working_root == kit_root or working_root.is_relative_to(kit_root))
+
+
 def _validate_blender_mcp(block):
     if not isinstance(block, dict):
         raise StudioError("blender_mcp must be an object")
@@ -86,14 +107,7 @@ def _validate_blender_mcp(block):
             "blender_mcp.server.env must select loopback port 9876 with "
             "telemetry disabled"
         )
-    # Both sides of this comparison are lifecycle identity paths, so compare
-    # them the same Windows-only way as `_is_absolute_lifecycle_path` above:
-    # plain `Path` would resolve a Windows-style working_root relative to
-    # this process's own (host-dependent) current directory, which can
-    # spuriously collide with the kit's own location on a non-Windows host.
-    kit_root = PureWindowsPath(str(_kit_root()))
-    working_root = PureWindowsPath(block["working_root"])
-    if working_root == kit_root or working_root.is_relative_to(kit_root):
+    if not _working_root_is_outside_kit(block["working_root"], _kit_root()):
         raise StudioError("blender_mcp.working_root must be outside the installed kit")
 
 

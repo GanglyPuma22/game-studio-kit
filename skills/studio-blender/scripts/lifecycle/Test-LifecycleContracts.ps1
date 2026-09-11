@@ -61,6 +61,9 @@ $contracts = @(
     @{Name='ensure closes owned startup failures without force'; Text=$ensure; Pattern='STARTUP_FAILED_CLOSED'},
     @{Name='ensure exposes bounded app rehandshake policy'; Text=$ensure; Pattern='ONE_READ_ONLY_RETRY_ON_10053'},
     @{Name='ensure uses active receipt'; Text=$ensure; Pattern='active-receipt\.json'},
+    @{Name='ensure resolves reparse points before the outside-kit check'; Text=$ensure; Pattern='function Resolve-ReparseTarget'},
+    @{Name='ensure compares the reparse-resolved kit root, not a lexical GetFullPath form'; Text=$ensure; Pattern='\$kitRoot = Resolve-ReparseTarget'},
+    @{Name='ensure compares the reparse-resolved working root, not a lexical GetFullPath form'; Text=$ensure; Pattern='\$workingRootFull = Resolve-ReparseTarget'},
     @{Name='health checks loopback'; Text=$test; Pattern="127\.0\.0\.1"},
     @{Name='health runs protocol probe'; Text=$test; Pattern='probe_mcp\.py'},
     @{Name='stop is receipt bound'; Text=$stop; Pattern='OwnershipReceipt'},
@@ -68,6 +71,8 @@ $contracts = @(
     @{Name='stop requests graceful close'; Text=$stop; Pattern='CloseMainWindow'},
     @{Name='stop records manual-close state safely'; Text=$stop; Pattern='Add-Member -NotePropertyName cleanup_note'},
     @{Name='stop adds closure receipt fields safely'; Text=$stop; Pattern="Add-Member -NotePropertyName closed_utc"},
+    @{Name='stop allows cleanup of a verified process with an absent listener'; Text=$stop; Pattern='\$receipt\.listener = ''absent'''},
+    @{Name='stop still refuses a conflicting listener owned by someone else'; Text=$stop; Pattern='Refusing cleanup: loopback listener ownership is ambiguous'},
     @{Name='bootstrap binds loopback'; Text=$bootstrap; Pattern='host=["'']127\.0\.0\.1["'']'},
     @{Name='bootstrap disables telemetry'; Text=$bootstrap; Pattern='telemetry_consent = False'},
     @{Name='bootstrap records real exceptions'; Text=$bootstrap; Pattern='traceback\.format_exc\(\)'},
@@ -90,7 +95,13 @@ $forbidden = @(
     # program, so a bare `$LASTEXITCODE -ne 0` afterward can misread a
     # $null or stale exit code as failure (see Invoke-LifecycleHealthCheck
     # above). This must never come back as the only guard on that call.
-    @{Name='ensure never bare-compares $LASTEXITCODE to 0 after invoking another script'; Text=$ensure; Pattern='if \(\$LASTEXITCODE -ne 0\)'}
+    @{Name='ensure never bare-compares $LASTEXITCODE to 0 after invoking another script'; Text=$ensure; Pattern='if \(\$LASTEXITCODE -ne 0\)'},
+    # A lexical-only GetFullPath assignment for the kit/working roots would
+    # miss a symlink/junction whose real target lies inside the kit (see
+    # Resolve-ReparseTarget above); the outside-kit check must never go
+    # back to comparing raw GetFullPath results.
+    @{Name='ensure never compares the kit root using a lexical-only GetFullPath form'; Text=$ensure; Pattern='\$kitRoot = \[IO\.Path\]::GetFullPath'},
+    @{Name='ensure never compares the working root using a lexical-only GetFullPath form'; Text=$ensure; Pattern='\$workingRootFull = \[IO\.Path\]::GetFullPath'}
 )
 
 foreach ($contract in $forbidden) {
