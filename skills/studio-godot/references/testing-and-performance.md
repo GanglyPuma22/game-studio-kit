@@ -20,7 +20,11 @@ from nothing, a lightweight project-owned runner (a `test_runner.gd` that discov
 scripts, runs their functions, and reports pass/fail as structured JSON) is often a better fit
 for the kit's evidence model than a full framework, because it can be shaped to speak the
 [studio-smoke-v1 protocol](execution.md) directly instead of translating a framework's own
-report format into one.
+report format into one. Note the wiring: `godot smoke` launches the project's main scene and
+never passes `--script`, so a standalone runner only executes if the main scene delegates to
+it (or it is the main scene). A runner that is not wired that way is run instead with
+`python <KIT>/scripts/studio.py launch --project <GAME> --mode test --script res://tests/test_runner.gd ...`
+and its own result files declared with `--result`.
 
 ## Decision tree: unit, scene, snapshot
 
@@ -50,7 +54,9 @@ report format into one.
 Run every headless test through the kit's owned process model, not a bare shell command:
 
 - For a project that has declared the `studio-smoke-v1` capability in its `project.json`, use
-  `python <KIT>/scripts/studio.py godot smoke --project <GAME> --config <HOST>` (see
+  `python <KIT>/scripts/studio.py godot smoke --project <GAME> --config <HOST> --output artifacts/smoke-<stamp>.json`
+  with a fresh output path every time (the default `artifacts/runtime-smoke.json` is refused
+  once it exists, so a repeated recipe fails before Godot starts) (see
   [execution.md](execution.md)) — it launches the main scene headlessly with
   `--studio-smoke=<path>`, and requires the project's own script to write a report with
   `ok: true` only when every claimed assertion actually passed.
@@ -84,11 +90,13 @@ For performance work, prefer `RenderingServer` (Godot 4's renderer-facing API; i
 the Godot 3-era `VisualServer`) over ad hoc frame-time guessing:
 
 - `RenderingServer.get_rendering_info(RENDERING_INFO_*)` exposes draw calls, primitives, and
-  memory counters that can be sampled headlessly or in a native capture and compared against a
-  budget, the same way a material or geometry claim needs a measured number rather than an
+  memory counters to compare against a budget; sample them only in a native rendering run,
+  since the smoke and `launch --mode test` paths start Godot with `--headless`, where no frame
+  is rendered and draw-call/primitive counters are zero or unrepresentative (headless runs
+  remain right for non-rendering probes), the same way a material or geometry claim needs a measured number rather than an
   assumption.
-- Use the engine's built-in profiler (Debugger → Profiler, or `--debug-collisions`/monitoring
-  flags in a native run) for a first pass on frame-time breakdown by category (physics,
+- Use the engine's built-in profiler (Debugger → Profiler and Monitors in the editor, or a
+  `Performance.get_monitor()` sample written by the probe in a native run) for a first pass on frame-time breakdown by category (physics,
   rendering, script, idle) before micro-profiling a specific function; a native profiler run is
   native-review evidence and headless timing is smoke-level evidence — do not present one as
   the other.
