@@ -198,13 +198,42 @@ class OvernightRunTests(unittest.TestCase):
 
     def test_corrections_invalidate_all_stage_evidence(self):
         procedure = PROCEDURE.read_text(encoding="utf-8")
-        self.assertIn("every stage 3-7 receipt recorded under the previous digest is invalid", procedure)
+        self.assertIn("stage 3-7 receipt recorded under the previous `content_digest` is invalid", procedure)
         self.assertIn("no exception for a correction that only touched a renderer, LOD or scope setting", procedure)
-        self.assertIn("stages 3 through 7 are repeated in order under the new digest", procedure)
+        self.assertIn("stages 3 through 7 are repeated in order under the new `content_digest`", procedure)
         self.assertEqual(procedure.count("may cite only receipts produced under the final"), 2)
         self.assertNotIn("Stage 4 runs immediately after any renderer, LOD or scope change and blocks", procedure)
         state = (ROOT / "templates/state.md").read_text(encoding="utf-8")
-        self.assertIn("Candidate digest", state)
+        self.assertIn("Candidate content digest", state)
+
+    def test_corrections_bind_to_content_digest_not_record_file_hash(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        self.assertIn("never a whole-file sha256 of `artifacts/candidate.json`", procedure)
+        self.assertIn("never because the record file's own hash\nchanged", procedure)
+        state = (ROOT / "templates/state.md").read_text(encoding="utf-8")
+        self.assertIn("never the record file's own sha256", state)
+
+    def test_finalize_step_attaches_verdicts_after_stage_seven(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        self.assertIn("**Finalize the candidate (after stage 7).**", procedure)
+        self.assertIn("no kit command writes `candidate.json`'s `verdicts`, `defects` or\n`acceptance` fields directly", procedure)
+        finalize = procedure[procedure.index("**Finalize the candidate"):procedure.index("**Corrections invalidate evidence.**")]
+        self.assertEqual(finalize.count("validate-record --project <run>"), 1)
+
+    def test_engine_version_checked_against_doctor_before_candidate_new(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        self.assertIn("studio.py doctor", procedure)
+        self.assertIn("capabilities.godot.version", procedure)
+        self.assertIn("`launch --version` fallback", procedure)
+        self.assertLess(procedure.index("Engine version check."), procedure.index("candidate new --project <run>"))
+
+    def test_stage_four_refuses_when_contract_render_settings_mismatch(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        self.assertIn("declared render settings differ from the fixed native launch profile; no performance evidence citable", procedure)
+        self.assertIn("known limit of `launch --mode native`", procedure)
+        preflight = procedure[procedure.index("## 1. Preflight"):procedure.index("## 2. Stage gates")]
+        self.assertIn("`[1920, 1080]`", preflight)
+        self.assertIn("`forward_plus`", preflight)
 
     def test_worker_paths_live_under_artifacts_run(self):
         procedure = PROCEDURE.read_text(encoding="utf-8")
@@ -226,9 +255,21 @@ class OvernightRunTests(unittest.TestCase):
     def test_scorecard_has_five_separate_review_dimensions(self):
         text = (ROOT / "templates/return.md").read_text(encoding="utf-8")
         for dimension in ("Visual", "Interaction", "Motion", "Audio", "Performance"):
-            self.assertIn(f"6/7 {dimension} | pass / fail / not_run", text)
+            self.assertIn(f"6/7 {dimension} | | pass / fail / not_run", text)
         self.assertNotIn("| 6 Visual review |", text)
         self.assertNotIn("| 7 Audiovisual and human acceptance |", text)
+
+    def test_scorecard_passed_column_holds_the_verdict_not_scope_rung(self):
+        text = (ROOT / "templates/return.md").read_text(encoding="utf-8")
+        header = text[text.index("| Stage | Scope rung"):text.index("|---")]
+        columns = [c.strip() for c in header.strip("| \n").split("|")]
+        self.assertEqual(columns, ["Stage", "Scope rung", "Passed", "Verdict artifact", "Notes"])
+        for dimension in ("Visual", "Interaction", "Motion", "Audio", "Performance"):
+            row = next(line for line in text.splitlines() if f"6/7 {dimension}" in line)
+            cells = [c.strip() for c in row.strip("| \n").split("|")]
+            self.assertEqual(cells[0], f"6/7 {dimension}")
+            self.assertEqual(cells[1], "")
+            self.assertEqual(cells[2], "pass / fail / not_run")
 
     def test_setup_linux_has_global_rules_install_with_markers(self):
         setup = (ROOT / "docs/setup-linux.md").read_text(encoding="utf-8")

@@ -29,6 +29,7 @@ so receipts from different runs are never confused with each other.
 3. `python <KIT>/scripts/studio.py host preflight --window-start <UTC> --window-end <UTC> --output <run>/artifacts/run/host/preflight-<UTC stamp>.json`, a fresh stamped path per attempt so a failed receipt is never overwritten or deleted; record which one is current in `STATE.md` (a defined checkpoint, see below). This gate applies only on Windows hosts: `host preflight` reports `host_kind: unsupported` elsewhere. On Windows, stop with NEEDS-USER if it is not ready; `host apply` may run only after the user has validated the script by hand once. On any other host, record `host preflight: unsupported on this host` in `STATE.md` and continue; the cleanroom snapshot pair (stage 4) stays mandatory everywhere for performance evidence regardless of preflight support.
 4. Copy [identity-manifest](../../../templates/identity-manifest.json) to `<run>/artifacts/run/identity-manifest.json` and fill it from the production contract (engine path and sha256, project sources in this worktree), or use the manifest path the contract already provides.
 5. `python <KIT>/scripts/studio.py candidate verify --project <run> --manifest <run>/artifacts/run/identity-manifest.json` for the engine, helpers, sources and packages the contract names, hashed from this worktree. A mismatch stops the run. Verification records identities at the moment it runs; it must be run against the same worktree every later stage uses, never a worktree created or swapped afterward.
+6. Read the production contract's `settings.viewport` and `settings.renderer` (`project.json`). `launch --mode native` (`studio_tools/launch.py`'s `mode_flags`) unconditionally passes `--resolution 1920x1080 --rendering-method forward_plus`; there is no flag to change it. If the contract's declared viewport is not exactly `[1920, 1080]` or its declared renderer is not exactly `forward_plus`, record `declared render settings differ from the fixed native launch profile; no performance evidence citable` in `STATE.md` at this checkpoint and refuse stage 4 when it is reached; carry the same sentence into `RETURN.md`'s Not demonstrated section. This is a known limit of `launch --mode native`, not a bug to work around mid-run: the kit fixes native launches to 1920x1080/forward_plus, so this procedure only cites stage 4-7 evidence when the contract already declares that exact resolution and renderer.
 
 There is no ledger script: the machine ledgers are the receipts the kit
 commands already write (preflight receipts, `owned-launch.json`,
@@ -56,22 +57,82 @@ gets no other edits.
 **Stage 2 completion.** The compile report must carry `compile_verdict: pass`
 or `compile_verdict: fail`; `fail` or a missing report stops the run at
 stage 2. On a `pass` — and again after any later content correction — the
-root runs `python <KIT>/scripts/studio.py candidate new --project <run> --id
-<run-id> --engine-version <version>` then `python <KIT>/scripts/studio.py
-validate-record --project <run> --record artifacts/candidate.json` before
-stage 3 starts.
+root first verifies the engine version, then creates and validates the
+candidate:
+
+1. **Engine version check.** Run `python <KIT>/scripts/studio.py doctor
+   --output <run>/artifacts/run/host/doctor-<UTC stamp>.json` (once per run,
+   or reuse the current run's receipt if nothing about the host changed) and
+   read `capabilities.godot.version`. `doctor` probes the exact
+   `executables.godot` path the host config also hands to `launch`
+   (`studio_tools/config.py`'s `executable`), so a match is authoritative for
+   this host, not merely corroborating. Compare the reported version to the
+   production contract's declared `engine.version` (`project.json`); a
+   mismatch stops the run before stage 3. [Known limit: if
+   `capabilities.godot` carries no `version` field (status `needs_setup` —
+   the configured executable is missing, or its `--version` output did not
+   match a recognizable version string), no kit command can verify the
+   engine version; record `engine version: unverified — doctor could not
+   probe the configured executable` in `STATE.md` and stop at stage 2 rather
+   than recording the declared version unverified. There is no
+   `launch --version` fallback: `launch --mode check` requires `--script`
+   and runs an engine script, it does not expose a bare `--version` result as
+   its own verdict.]
+2. `python <KIT>/scripts/studio.py candidate new --project <run> --id
+   <run-id> --engine-version <version>` then `python <KIT>/scripts/studio.py
+   validate-record --project <run> --record artifacts/candidate.json` before
+   stage 3 starts.
+
+**Finalize the candidate (after stage 7).** Stage 2's `validate-record` runs
+before any review evidence exists; no stage finalizes the candidate on its
+own — this step does. After stage 7 completes, the root attaches the hashed
+captures and review evidence gathered across stages 3-7 to
+`artifacts/candidate.json`, setting the five `verdicts`
+(`visual`, `interaction`, `motion`, `audio`, `performance`) and
+`acceptance.decision`/`reviewer`/`rationale` to match the evidence shape and
+methods [acceptance](../../../references/acceptance.md) and
+`studio_tools/evidence.py`'s `validate_candidate` require (for example, an
+audio pass also needs the evidence entry's `listening` object). [Known limit:
+no kit command writes `candidate.json`'s `verdicts`, `defects` or
+`acceptance` fields directly. `review ingest`, `review qualify` and
+`review assess` (`studio_tools/review_records.py`,
+`studio_tools/validation.py`) produce and validate the underlying
+run/analysis/qualification evidence a verdict cites, but attaching that
+evidence to the candidate record is a direct edit to
+`artifacts/candidate.json` today.] After editing the record, the root
+re-runs `python <KIT>/scripts/studio.py validate-record --project <run>
+--record artifacts/candidate.json`; a failure here means the finalized
+record is not usable, and the run reports that rather than presenting an
+unvalidated scorecard. `RETURN.md` (Section 6) cites only this validated
+final record.
 
 **Corrections invalidate evidence.** Every gate's evidence is bound to the
-candidate digest it was produced under: `STATE.md` records the current
-`artifacts/candidate.json` sha256, and every stage 3-7 receipt logged in
-`STATE.md` is recorded together with the digest it was produced under.
-Whenever `candidate new` is re-run after a content correction, every stage 3-7 receipt recorded under the previous digest is invalid
+candidate's immutable content identity, not to the record file's own bytes.
+`candidate.json`'s `content_digest` field (`studio_tools/evidence.py`) hashes
+only `content_files` — the project's actual game content — so editing
+`verdicts`, `defects` or `acceptance` inside the same file, as the finalize
+step above does, never changes `content_digest`; a receipt is never staled by
+that. `STATE.md` records the current `candidate_id` and `content_digest`
+(never a whole-file sha256 of `artifacts/candidate.json`, which changes the
+moment finalize attaches verdict evidence), and every stage 3-7 receipt
+logged in `STATE.md` is recorded together with the `content_digest` it was
+produced under. A receipt is stale when its recorded `content_digest`
+differs from the current one — never because the record file's own hash
+changed. Whenever `candidate new` is re-run after a content correction (an
+actual change to project files, which does change `content_digest`), every
+stage 3-7 receipt recorded under the previous `content_digest` is invalid
 — there is no exception for a correction that only touched a renderer, LOD or scope setting —
-and stages 3 through 7 are repeated in order under the new digest.
-The final scorecard may cite only receipts produced under the final digest.
+and stages 3 through 7 are repeated in order under the new `content_digest`.
+The final scorecard may cite only receipts produced under the final
+`content_digest`.
 
 A stage 4 failure blocks stages 5 to 7. No geometry refinement to satisfy a
 tolerance proof until stage 4 passes at the scope the refinement will create.
+Stage 4's render settings are fixed, not requested: `launch --mode native`
+always launches at 1920x1080 with the `forward_plus` renderer regardless of
+what the run passes it, so Preflight step 6 (Section 1) is the only gate —
+if the contract does not declare that exact resolution and renderer, stage 4
+never runs.
 
 **Stage 5 mode.** Traversal launches use `--mode native` explicitly;
 `launch`'s default mode is `import`, and no headless mode can establish
@@ -157,9 +218,9 @@ no `owned-launch.json` exists yet), skip that command — it raises when the
 run root has no launches — and write `launch inventory: none (no launches)`
 under Evidence index together with the stop reason.
 
-The scorecard may cite only receipts produced under the final candidate
-digest (Section 2); a receipt left over from an earlier digest is not
-evidence. Preserve failures. Never claim acceptance from exit codes, unit
+The scorecard may cite only receipts produced under the final candidate's
+`content_digest` (Section 2); a receipt left over from an earlier
+`content_digest` is not evidence. Preserve failures. Never claim acceptance from exit codes, unit
 tests or source coverage.
 
 ## 7. Stop rules
