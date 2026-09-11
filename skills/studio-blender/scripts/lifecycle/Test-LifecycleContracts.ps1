@@ -51,6 +51,11 @@ $contracts = @(
     @{Name='ensure refuses reuse of a different executable without force-stopping it'; Text=$ensure; Pattern='NEEDS_STOP'},
     @{Name='ensure reuse skips the protocol probe unless explicitly forced'; Text=$ensure; Pattern='if \(!\$Probe\) \{ \$reuseHealthArgs\[.SkipProtocolProbe.\] = \$true \}'},
     @{Name='ensure exposes a probe switch to force the full reuse round-trip'; Text=$ensure; Pattern='\[switch\]\$Probe'},
+    @{Name='ensure judges health check by script outcome not a bare exit code'; Text=$ensure; Pattern='function Invoke-LifecycleHealthCheck'},
+    @{Name='ensure treats exit code as meaningful only when a native program set it'; Text=$ensure; Pattern='\$global:LASTEXITCODE -is \[int\] -and \$global:LASTEXITCODE -ne 0'},
+    @{Name='ensure checks dollar-question as a defense-in-depth failure signal'; Text=$ensure; Pattern='if \(!\$\? -or'},
+    @{Name='ensure routes reuse health through the shared check helper'; Text=$ensure; Pattern='Invoke-LifecycleHealthCheck -Script \$testScript -Arguments \$reuseHealthArgs'},
+    @{Name='ensure routes fresh-start health through the shared check helper'; Text=$ensure; Pattern='Invoke-LifecycleHealthCheck -Script \$testScript -Arguments \$freshHealthArgs'},
     @{Name='ensure guards active pointer parsing'; Text=$ensure; Pattern='if \(Test-Path -LiteralPath \$activePath\) \{\s*try \{\s*\$active = .+ConvertFrom-Json'},
     @{Name='ensure verifies working copy hash'; Text=$ensure; Pattern='workingCopySha'},
     @{Name='ensure closes owned startup failures without force'; Text=$ensure; Pattern='STARTUP_FAILED_CLOSED'},
@@ -80,4 +85,18 @@ foreach ($contract in $contracts) {
     }
 }
 
-Write-Output "PASS: $($required.Count) components and $($contracts.Count) lifecycle contracts"
+$forbidden = @(
+    # `& $testScript ...` runs another PowerShell script, not a native
+    # program, so a bare `$LASTEXITCODE -ne 0` afterward can misread a
+    # $null or stale exit code as failure (see Invoke-LifecycleHealthCheck
+    # above). This must never come back as the only guard on that call.
+    @{Name='ensure never bare-compares $LASTEXITCODE to 0 after invoking another script'; Text=$ensure; Pattern='if \(\$LASTEXITCODE -ne 0\)'}
+)
+
+foreach ($contract in $forbidden) {
+    if ($contract.Text -match $contract.Pattern) {
+        throw "Forbidden lifecycle pattern present: $($contract.Name)"
+    }
+}
+
+Write-Output "PASS: $($required.Count) components, $($contracts.Count) lifecycle contracts and $($forbidden.Count) forbidden patterns absent"

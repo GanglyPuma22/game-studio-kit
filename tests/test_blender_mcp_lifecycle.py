@@ -550,7 +550,34 @@ class BlenderMcpPowerShellRegressionTests(unittest.TestCase):
         # check and only run the full round-trip probe when -Probe is passed.
         self.assertIn("[switch]$Probe", source)
         self.assertIn("if (!$Probe) { $reuseHealthArgs['SkipProtocolProbe'] = $true }", reuse_block)
-        self.assertEqual(reuse_block.count("& $testScript"), 1)
+        self.assertEqual(reuse_block.count("Invoke-LifecycleHealthCheck"), 1)
+
+    def test_health_check_never_bare_compares_lastexitcode(self):
+        source = self._source("Ensure-SupervisedBlenderMCP.ps1")
+        # `& $testScript ...` runs another PowerShell script, not a native
+        # program: $LASTEXITCODE is only set here when Test-SupervisedBlenderMCP.ps1
+        # internally runs the native protocol probe. A -SkipProtocolProbe
+        # reuse check runs no native program at all, so $LASTEXITCODE stays
+        # $null (or a stale value); `$null -ne 0` is true, so a bare
+        # comparison would treat every such reuse as a failed health check.
+        self.assertNotIn("if ($LASTEXITCODE -ne 0)", source)
+
+    def test_health_check_helper_judges_outcome_not_a_bare_exit_code(self):
+        source = self._source("Ensure-SupervisedBlenderMCP.ps1")
+        helper = source[
+            source.index("function Invoke-LifecycleHealthCheck") : source.index(
+                "if ($SessionId -notmatch"
+            )
+        ]
+        self.assertIn("$global:LASTEXITCODE = $null", helper)
+        self.assertIn(
+            "if (!$? -or ($global:LASTEXITCODE -is [int] -and $global:LASTEXITCODE -ne 0)) {",
+            helper,
+        )
+        self.assertIn("throw $FailureMessage", helper)
+        # Both the reuse and fresh-start health checks route through the
+        # shared helper instead of duplicating a bare $LASTEXITCODE check.
+        self.assertEqual(source.count("Invoke-LifecycleHealthCheck -Script $testScript"), 2)
 
     def test_startup_failure_closes_in_memory_owned_process_without_stop_preconditions(self):
         source = self._source("Ensure-SupervisedBlenderMCP.ps1")

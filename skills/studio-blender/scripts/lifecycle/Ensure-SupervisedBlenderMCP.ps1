@@ -30,6 +30,33 @@ function Set-ReceiptContentAtomic {
     $Value | ConvertTo-Json -Depth $Depth | Set-Content -LiteralPath $tempPath -Encoding utf8
     Move-Item -LiteralPath $tempPath -Destination $Path -Force
 }
+
+function Invoke-LifecycleHealthCheck {
+    # Judge success by Test-SupervisedBlenderMCP.ps1's own outcome, not a
+    # bare $LASTEXITCODE comparison. It runs as another PowerShell script
+    # (the & call operator), not a native program, so $LASTEXITCODE is only
+    # ever set here when it internally invokes the native protocol probe.
+    # A -SkipProtocolProbe reuse check runs no native program at all, which
+    # leaves $LASTEXITCODE $null (or a stale value from an unrelated
+    # earlier native call) in this process; `$null -ne 0` is true, so a
+    # bare comparison would treat every such reuse as a failure. Treat
+    # $LASTEXITCODE as meaningful only when it is an int a native program
+    # actually just set. The script already throws a terminating error on
+    # every real failure, including a nonzero native probe exit code it
+    # checks internally right after that native call; $? is a second,
+    # defense-in-depth signal for a failure that did not throw.
+    param(
+        [Parameter(Mandatory=$true)][string]$Script,
+        [Parameter(Mandatory=$true)][hashtable]$Arguments,
+        [Parameter(Mandatory=$true)][string]$FailureMessage
+    )
+    $global:LASTEXITCODE = $null
+    $output = & $Script @Arguments
+    if (!$? -or ($global:LASTEXITCODE -is [int] -and $global:LASTEXITCODE -ne 0)) {
+        throw $FailureMessage
+    }
+    return $output
+}
 if ($SessionId -notmatch '^[A-Za-z0-9._-]{1,128}$') { throw 'SessionId must use 1-128 letters, digits, dots, underscores, or hyphens' }
 if ($ownerName -notmatch '^[A-Za-z0-9._-]{1,128}$') { throw 'OwnerIdentity must use 1-128 letters, digits, dots, underscores, or hyphens' }
 $sourcePath = (Resolve-Path -LiteralPath $SourceScene -ErrorAction Stop).Path
@@ -120,8 +147,7 @@ if (Test-Path -LiteralPath $activePath) {
             OwnerIdentity = $ownerName
         }
         if (!$Probe) { $reuseHealthArgs['SkipProtocolProbe'] = $true }
-        $healthJson = & $testScript @reuseHealthArgs
-        if ($LASTEXITCODE -ne 0) { throw 'Existing owned Blender session failed its health check' }
+        $healthJson = Invoke-LifecycleHealthCheck -Script $testScript -Arguments $reuseHealthArgs -FailureMessage 'Existing owned Blender session failed its health check'
         if ($existing.session_id -ne $SessionId) {
             throw "A healthy supervised Blender session is leased to another agent session: $($existing.session_id)"
         }
@@ -220,8 +246,14 @@ try {
     $receipt.listener = '127.0.0.1:9876'
     Set-ReceiptContentAtomic -Path $ownershipReceipt -Value $receipt
     Set-ReceiptContentAtomic -Path $activePath -Value @{receipt_path=[IO.Path]::GetFullPath($ownershipReceipt)} -Depth 2
-    $healthJson = & $testScript -OwnershipReceipt $ownershipReceipt -WorkingRoot $WorkingRoot -ProbePython $ProbePython -McpServerConfig $McpServerConfig -OwnerIdentity $ownerName
-    if ($LASTEXITCODE -ne 0) { throw 'New owned Blender session failed its protocol probe' }
+    $freshHealthArgs = @{
+        OwnershipReceipt = $ownershipReceipt
+        WorkingRoot = $WorkingRoot
+        ProbePython = $ProbePython
+        McpServerConfig = $McpServerConfig
+        OwnerIdentity = $ownerName
+    }
+    $healthJson = Invoke-LifecycleHealthCheck -Script $testScript -Arguments $freshHealthArgs -FailureMessage 'New owned Blender session failed its protocol probe'
     $result = $healthJson | ConvertFrom-Json
     $result | Add-Member -NotePropertyName reused -NotePropertyValue $false
     $result | Add-Member -NotePropertyName native_client_rehandshake_policy -NotePropertyValue $rehandshakePolicy
