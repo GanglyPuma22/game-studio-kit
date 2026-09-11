@@ -1,3 +1,4 @@
+<!-- game-studio-kit overnight-rules begin -->
 # Overnight and production runs
 
 These rules apply whenever a prompt names an overnight, unattended, production or ledger-driven run, or hands you a production contract for a game project. They exist because one such run spent hundreds of millions of tokens and delivered zero playable minutes. The full procedure is `skills/studio-director/references/overnight-run.md` in the installed Game Studio Kit; its commands enforce what this text asks for.
@@ -27,3 +28,4 @@ These rules apply whenever a prompt names an overnight, unattended, production o
 ## Handback
 - The first lines of `RETURN.md` are player-facing metrics: minutes of ordinary-control play, distance travelled, landings, encounters. Then the scorecard by stage and scope.
 - Preserve failures. Never claim acceptance from exit codes, unit tests or source coverage.
+<!-- game-studio-kit overnight-rules end -->

@@ -11,33 +11,64 @@ on its own. Install the matching global rules from
 
 ## 1. Preflight (under 20 minutes, no launches)
 
-`<run>` is `<GAME>/artifacts/runs/<run-id>/`: `STATE.md`, the receipts that
-serve as machine ledgers, worker returns and the preflight receipts (one per
-attempt, under `<run>/host/`) live there. Every launch and bench label
-must start with `<run-id>-` so receipts from different runs are never
-confused with each other.
+`<GAME>` and `<run>` are the same path: the worktree created in step 1 below
+is both the run directory and the project root every kit command uses via
+`--project`. Say this once; the rest of the procedure writes only `<run>`.
+Everything the run writes lives under `<run>/artifacts/`: the hand-maintained
+records sit at `<run>/artifacts/run/` (`STATE.md`, `RETURN.md`, the identity
+manifest, and preflight receipts under `<run>/artifacts/run/host/`, one per
+attempt); everything else lands where the kit commands already put it
+(`<run>/artifacts/launches/`, `<run>/artifacts/bench/`, `<run>/artifacts/identity/`,
+`<run>/artifacts/candidate.json`). Every launch and bench label must start with `<run-id>-`
+so receipts from different runs are never confused with each other.
 
-1. `python <KIT>/scripts/studio.py host preflight --window-start <UTC> --window-end <UTC> --output <run>/host/preflight-<UTC stamp>.json`, a fresh stamped path per attempt so a failed receipt is never overwritten or deleted; record which one is current in `STATE.md`. This gate applies only on Windows hosts: `host preflight` reports `host_kind: unsupported` elsewhere. On Windows, stop with NEEDS-USER if it is not ready; `host apply` may run only after the user has validated the script by hand once. On any other host, record `host preflight: unsupported on this host` in `STATE.md` and continue; the cleanroom snapshot pair (stage 4) stays mandatory everywhere for performance evidence regardless of preflight support.
-2. Fresh worktree at the pinned revision; never the preserved candidate. This worktree is `<GAME>` for the rest of the run: every later stage's `--project` points at it, and it is never recreated or swapped mid-run.
-3. Copy [identity-manifest](../../../templates/identity-manifest.json) to `<run>/identity-manifest.json` and fill it from the production contract (engine path and sha256, project sources in the worktree from step 2), or use the manifest path the contract already provides.
-4. `python <KIT>/scripts/studio.py candidate verify --project <GAME> --manifest <run>/identity-manifest.json` for the engine, helpers, sources and packages the contract names, hashed from the worktree created in step 2. A mismatch stops the run. Verification records identities at the moment it runs; it must be run against the same worktree every later stage uses, never a worktree created or swapped afterward.
-5. Create `<run>/STATE.md` from [state](../../../templates/state.md). There is no ledger script: the machine ledgers are the receipts the kit commands already write (preflight receipts, `owned-launch.json`, `exit.json`, `cleanroom.json`, identity `verify-*.json`) plus the inventory `evidence launches` builds from them. Never hand-write or poll for a ledger or heartbeat; a blocking launch replaces polling. `STATE.md` and `RETURN.md` are the only hand-maintained run records: `RETURN.md` is write-once, at the end (Section 6). `STATE.md` is rewritten atomically from its template only at defined checkpoints — after each preflight attempt, at each stage transition, after the third compaction (Section 5, root refresh), and at handback — and gets no other edits.
+1. `git worktree add <run> <pinned revision>` into a path that does not exist yet; never the preserved candidate. `<run>` stays put for the whole run — never recreated or swapped mid-run, and every later stage's `--project` points at it.
+2. Create `<run>/artifacts/run/STATE.md` from [state](../../../templates/state.md).
+3. `python <KIT>/scripts/studio.py host preflight --window-start <UTC> --window-end <UTC> --output <run>/artifacts/run/host/preflight-<UTC stamp>.json`, a fresh stamped path per attempt so a failed receipt is never overwritten or deleted; record which one is current in `STATE.md` (a defined checkpoint, see below). This gate applies only on Windows hosts: `host preflight` reports `host_kind: unsupported` elsewhere. On Windows, stop with NEEDS-USER if it is not ready; `host apply` may run only after the user has validated the script by hand once. On any other host, record `host preflight: unsupported on this host` in `STATE.md` and continue; the cleanroom snapshot pair (stage 4) stays mandatory everywhere for performance evidence regardless of preflight support.
+4. Copy [identity-manifest](../../../templates/identity-manifest.json) to `<run>/artifacts/run/identity-manifest.json` and fill it from the production contract (engine path and sha256, project sources in this worktree), or use the manifest path the contract already provides.
+5. `python <KIT>/scripts/studio.py candidate verify --project <run> --manifest <run>/artifacts/run/identity-manifest.json` for the engine, helpers, sources and packages the contract names, hashed from this worktree. A mismatch stops the run. Verification records identities at the moment it runs; it must be run against the same worktree every later stage uses, never a worktree created or swapped afterward.
+
+There is no ledger script: the machine ledgers are the receipts the kit
+commands already write (preflight receipts, `owned-launch.json`,
+`exit.json`, `cleanroom.json`, identity `verify-*.json`) plus the inventory
+`evidence launches` builds from them. Never hand-write or poll for a ledger
+or heartbeat; a blocking launch replaces polling. `STATE.md` and `RETURN.md`
+are the only hand-maintained run records: `RETURN.md` is write-once, at the
+end (Section 6). `STATE.md` is rewritten atomically from its template only at
+defined checkpoints: after each preflight attempt, at each stage transition,
+after the third compaction (Section 5, root refresh), and at handback. It
+gets no other edits.
 
 ## 2. Stage gates
 
 | Stage | Owner | Kit command / artifact | Max launches | Max minutes | Stop rule |
 |---|---|---|---|---|---|
 | 1 Host readiness | root | `host preflight` receipt | 0 | 20 | not ready (Windows) → NEEDS-USER; unsupported elsewhere → continue |
-| 2 Source compile | root (script), via kit commands; worker analyzes | terrain/composition build owned and written by the root; worker report JSON | 0 | 60, one compaction | report missing → stop stage |
+| 2 Source compile | root (script), via kit commands; worker analyzes | terrain/composition build owned and written by the root; worker report JSON, then `candidate new` + `validate-record` | 0 | 60, one compaction | missing report or `compile_verdict: fail` → stop stage |
 | 3 Native admission | root | `launch --mode native` verdict JSON | 2 | 30 | second verdict not `completed` → stop (retryable) |
 | 4 Performance cleanroom | root, idle | `bench cleanroom -- launch ...` with `attributable: true` | one capture per rung plus one repeat (five for the four-rung example) | 45 | fails the frame budget → one attribution pass, no new scope (retryable) |
-| 5 Traversal | root | `launch` with the game's route probe and synthetic input | 3 per hypothesis, 6 in total | 60 | harness bug → headless fixture, never a native relaunch; stop at 6 total launches (retryable) |
+| 5 Traversal | root | `launch --mode native` with the game's route probe and synthetic input | 3 per hypothesis, 6 in total | 60 | harness bug → headless fixture, never a native relaunch; stop at 6 total launches (retryable) |
 | 6 Visual review | root, desktop | native stills against the style reference | 2 | 45 | no defect list → stop |
 | 7 Audiovisual and human acceptance | operator, then user | recorded route, listening notes | 1 | 30 | never claimed by the root |
+
+**Stage 2 completion.** The compile report must carry `compile_verdict: pass`
+or `compile_verdict: fail`; `fail` or a missing report stops the run at
+stage 2. On a `pass` — and again after any later content correction — the
+root runs `python <KIT>/scripts/studio.py candidate new --project <run> --id
+<run-id> --engine-version <version>` then `python <KIT>/scripts/studio.py
+validate-record --project <run> --record artifacts/candidate.json` before
+stage 3 starts. `STATE.md` records the resulting `artifacts/candidate.json`
+digest; stage 6 and 7 review evidence binds to that digest, so regenerating
+the candidate after a correction invalidates any review evidence recorded
+against the earlier one.
 
 Stage 4 runs immediately after any renderer, LOD or scope change and blocks
 stages 5 to 7 on failure. No geometry refinement to satisfy a tolerance proof
 until stage 4 passes at the scope the refinement will create.
+
+**Stage 5 mode.** Traversal launches use `--mode native` explicitly;
+`launch`'s default mode is `import`, and no headless mode can establish
+traversal.
 
 **Scope ladder.** Define the rungs from smallest to full scope before the run,
 each with a `safe_id`-valid ID (letters, digits, hyphens, underscores) and a
@@ -69,9 +100,9 @@ files and never re-reads a source a previous worker already summarized.
 ## 4. Benchmarks
 
 ```text
-python <KIT>/scripts/studio.py bench cleanroom --project <GAME> --config <host config> --label <run-id>-<stage>-<n> \
+python <KIT>/scripts/studio.py bench cleanroom --project <run> --config <host config> --label <run-id>-<stage>-<n> \
   --scope <rung> --timeout 2700 --agent-log <agent activity log> -- \
-  python <KIT>/scripts/studio.py launch --project <GAME> --config <host config> --sha256 <engine> --mode native \
+  python <KIT>/scripts/studio.py launch --project <run> --config <host config> --sha256 <engine> --mode native \
   --script <probe> --cutoff-utc <window end> --label <run-id>-<stage>-<n> --scope <rung> --result <summary json>
 ```
 
@@ -87,7 +118,7 @@ everything else in the reasons and leave it running.
 After the third context compaction, update `STATE.md` (current commit and
 candidate identity, selected sources with hashes, stage reached with verdict
 paths, open blockers, next step, budget used) and end the turn with:
-"Compaction limit reached. Start a fresh session from `<run>/STATE.md`."
+"Compaction limit reached. Start a fresh session from `<run>/artifacts/run/STATE.md`."
 Do not continue past compaction three.
 
 ## 6. Return
@@ -96,9 +127,9 @@ Write `RETURN.md` once, at the end, from [return](../../../templates/return.md):
 player-facing metrics first (minutes of ordinary-control play, distance
 travelled, landings, encounters), then the scorecard by stage and scope, then
 what was not demonstrated, then the evidence index produced by
-`python <KIT>/scripts/studio.py evidence launches <GAME>/artifacts/launches`.
-A run never reuses a worktree: the pinned worktree from Preflight step 2 is
-`--project` for every launch this run makes, so `<GAME>/artifacts/launches`
+`python <KIT>/scripts/studio.py evidence launches <run>/artifacts/launches`.
+A run never reuses a worktree: the pinned worktree from Preflight step 1 is
+`--project` for every launch this run makes, so `<run>/artifacts/launches`
 is this run's own inventory root and holds only its launches. There is no
 flag to filter by run; never place another run's launches under this
 worktree. If the run stopped before any launch was owned (at preflight or stage 2, so

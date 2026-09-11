@@ -10,8 +10,8 @@
 ## Scorecard
 | Stage | Scope rung | Passed | Verdict artifact | Notes |
 |---|---|---|---|---|
-| 1 Host readiness | | | `host/preflight-<UTC stamp>.json` | |
-| 2 Source compile | | | | |
+| 1 Host readiness | | | `artifacts/run/host/preflight-<UTC stamp>.json` | |
+| 2 Source compile | | | worker report JSON (`compile_verdict`) | |
 | 3 Native admission | | | `artifacts/launches/<run-id>-<stage>-<n>/exit.json` | |
 | 4 Performance cleanroom | | | `artifacts/bench/<run-id>-<stage>-<n>/cleanroom.json` (`attributable`) | |
 | 5 Traversal | | | | |

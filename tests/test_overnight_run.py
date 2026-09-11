@@ -63,7 +63,7 @@ class OvernightRunTests(unittest.TestCase):
         procedure = PROCEDURE.read_text(encoding="utf-8")
         example = procedure[procedure.index("## 4. Benchmarks"):procedure.index("## 5. Root refresh")]
         self.assertEqual(example.count("--scope <rung>"), 2)
-        self.assertIn("bench cleanroom --project <GAME>", example)
+        self.assertIn("bench cleanroom --project <run>", example)
         self.assertIn("--timeout 2700", example)
         self.assertIn("persist it in\ntheir receipts", procedure)
 
@@ -75,9 +75,9 @@ class OvernightRunTests(unittest.TestCase):
 
     def test_run_id_convention_and_evidence_root_are_defined(self):
         procedure = PROCEDURE.read_text(encoding="utf-8")
-        self.assertIn("`<run>` is `<GAME>/artifacts/runs/<run-id>/`", procedure)
+        self.assertIn("`<GAME>` and `<run>` are the same path", procedure)
         self.assertIn("must start with `<run-id>-`", procedure)
-        self.assertIn("evidence launches <GAME>/artifacts/launches", procedure)
+        self.assertIn("evidence launches <run>/artifacts/launches", procedure)
         for template in (ROOT / "templates/return.md", ROOT / "templates/state.md"):
             self.assertIn("<run-id>-<stage>-<n>", template.read_text(encoding="utf-8"))
 
@@ -115,7 +115,7 @@ class OvernightRunTests(unittest.TestCase):
         code_start = section.index("```text")
         code = section[code_start:section.index("```", code_start + len("```text"))]
         self.assertEqual(code.count("--config <host config>"), 2)
-        self.assertIn("launch --project <GAME> --config <host config>", code)
+        self.assertIn("launch --project <run> --config <host config>", code)
         self.assertIn("does not propagate", section)
 
     def test_stop_rules_mark_which_stages_are_retryable(self):
@@ -126,18 +126,49 @@ class OvernightRunTests(unittest.TestCase):
 
     def test_setup_windows_checks_pointer_conflict_before_appending_global_rules(self):
         setup = (ROOT / "docs/setup-windows.md").read_text(encoding="utf-8")
-        self.assertLess(
-            setup.index("Refusing to overwrite $PointerPath"),
-            setup.index("Add-Content"),
-        )
-        self.assertIn("# Overnight and production runs", setup)
-        self.assertIn("-SimpleMatch", setup)
+        conflict_index = setup.index("Refusing to overwrite $PointerPath")
+        for needle in ("Add-Content -Path $AgentsPath", "Set-Content -Path $AgentsPath"):
+            self.assertLess(conflict_index, setup.index(needle))
+        self.assertIn("game-studio-kit overnight-rules begin", setup)
+        self.assertIn("game-studio-kit overnight-rules end", setup)
+        self.assertIn("Singleline", setup)
+        self.assertIn("only one game-studio-kit overnight-rules marker", setup)
+
+    def test_agents_overnight_block_is_wrapped_in_markers(self):
+        text = BLOCK.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("<!-- game-studio-kit overnight-rules begin -->"))
+        self.assertTrue(text.rstrip("\n").endswith("<!-- game-studio-kit overnight-rules end -->"))
 
     def test_worktree_precedes_verification_in_preflight(self):
         procedure = PROCEDURE.read_text(encoding="utf-8")
         preflight = procedure[procedure.index("## 1. Preflight"):procedure.index("## 2. Stage gates")]
-        self.assertLess(preflight.index("Fresh worktree"), preflight.index("candidate verify"))
+        self.assertLess(preflight.index("git worktree add"), preflight.index("candidate verify"))
         self.assertIn("records identities at the moment it runs", preflight)
+
+    def test_run_directory_is_the_worktree(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        self.assertIn("`<GAME>` and `<run>` are the same path", procedure)
+        for path in (
+            "<run>/artifacts/run/STATE.md",
+            "<run>/artifacts/run/host/",
+            "<run>/artifacts/run/identity-manifest.json",
+        ):
+            self.assertIn(path, procedure)
+        self.assertNotIn("<GAME>/artifacts/runs", procedure)
+
+    def test_stage2_compile_verdict_gates_candidate_creation(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        self.assertIn("compile_verdict: pass", procedure)
+        self.assertIn("compile_verdict: fail", procedure)
+        self.assertIn("candidate new --project <run>", procedure)
+        self.assertIn("validate-record --project <run> --record artifacts/candidate.json", procedure)
+        brief = (ROOT / "templates/worker-brief.md").read_text(encoding="utf-8")
+        self.assertIn('"compile_verdict": "pass" | "fail"', brief)
+
+    def test_stage5_launch_uses_explicit_native_mode(self):
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        self.assertIn("| 5 Traversal | root | `launch --mode native` with the game's route probe", procedure)
+        self.assertIn("default mode is `import`", procedure)
 
     def test_preflight_stop_rule_is_scoped_to_windows(self):
         procedure = PROCEDURE.read_text(encoding="utf-8")

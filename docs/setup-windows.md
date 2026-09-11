@@ -152,10 +152,25 @@ if ((Test-Path $PointerPath) -and -not (Select-String -Path $PointerPath -Patter
     throw "Refusing to overwrite $PointerPath: it exists and is not a game-studio-kit pointer. Resolve the conflict by hand, then rerun."
 }
 $AgentsPath = Join-Path $Codex "AGENTS.md"
-$BlockHeading = "# Overnight and production runs"
-$AlreadyInstalled = (Test-Path $AgentsPath) -and (Select-String -Path $AgentsPath -Pattern $BlockHeading -SimpleMatch -Quiet)
-if (-not $AlreadyInstalled) {
-    Add-Content -Path $AgentsPath -Value ("`n" + (Get-Content -Raw (Join-Path $Kit "references\codex\AGENTS-overnight.md")))
+$BlockBegin = "<!-- game-studio-kit overnight-rules begin -->"
+$BlockEnd = "<!-- game-studio-kit overnight-rules end -->"
+$Block = Get-Content -Raw (Join-Path $Kit "references\codex\AGENTS-overnight.md")
+if (Test-Path $AgentsPath) {
+    $Existing = Get-Content -Raw $AgentsPath
+    $HasBegin = $Existing.Contains($BlockBegin)
+    $HasEnd = $Existing.Contains($BlockEnd)
+    if ($HasBegin -and $HasEnd) {
+        $Pattern = [regex]::Escape($BlockBegin) + ".*?" + [regex]::Escape($BlockEnd)
+        $Options = [System.Text.RegularExpressions.RegexOptions]::Singleline
+        $Updated = [regex]::Replace($Existing, $Pattern, { $Block }, $Options)
+        Set-Content -Path $AgentsPath -Value $Updated -Encoding UTF8 -NoNewline
+    } elseif ($HasBegin -or $HasEnd) {
+        throw "$AgentsPath has only one game-studio-kit overnight-rules marker; resolve the conflict by hand before rerunning."
+    } else {
+        Add-Content -Path $AgentsPath -Value ("`n" + $Block)
+    }
+} else {
+    Set-Content -Path $AgentsPath -Value $Block -Encoding UTF8
 }
 New-Item -ItemType Directory -Force -Path (Join-Path $Codex "skills\overnight-run") | Out-Null
 @"
@@ -168,13 +183,16 @@ Read and follow $Kit\skills\studio-director\references\overnight-run.md. Its com
 "@ | Set-Content -Path $PointerPath -Encoding UTF8
 ```
 
-The pointer-collision check runs before anything is written, including the
-`AGENTS.md` append: it refuses to overwrite a `SKILL.md` some other skill or
+The pointer-collision check runs before anything is written, including any
+`AGENTS.md` change: it refuses to overwrite a `SKILL.md` some other skill or
 a hand-authored file already occupies, and replaces it cleanly when the
-marker shows it is this kit's own prior pointer. The `AGENTS.md` append is
-idempotent: it only runs when the file does not already contain the block's
-heading, so rerunning this snippet never duplicates the block. Confirm in a
-throwaway Codex session by asking which rules apply to an overnight run.
-Update the pointer when the kit checkout moves; the block itself carries no
-host paths.
+marker shows it is this kit's own prior pointer. `AGENTS-overnight.md` is
+itself wrapped in `<!-- game-studio-kit overnight-rules begin -->` /
+`end` marker lines; the snippet looks for both in `AGENTS.md`, replaces only
+the text between them with a singleline regex when both are present, appends
+the whole block when neither is, and throws if it finds only one — a sign
+the file was hand-edited and needs manual resolution before rerunning.
+Confirm in a throwaway Codex session by asking which rules apply to an
+overnight run. Update the pointer when the kit checkout moves; the block
+itself carries no host paths.
 

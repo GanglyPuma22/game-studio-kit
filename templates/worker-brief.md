@@ -1,7 +1,7 @@
 # Worker brief: <deliverable id>
 
 - Deliverable file: `<run>/workers/<id>/<name>.json`
-- Schema: (fields, types, required; one `limits` list naming what this file does not establish; top-level `"status": "complete" | "incomplete"` and `"incomplete_fields": []`)
+- Schema: (fields, types, required; one `limits` list naming what this file does not establish; top-level `"status": "complete" | "incomplete"` and `"incomplete_fields": []`; a stage 2 compile-report deliverable also carries top-level `"compile_verdict": "pass" | "fail"`)
 - Summary file: `<run>/workers/<id>/SUMMARY.md`, under 400 words
 - Inputs (path and sha256 each; read the summaries, not the sources they summarize):
   -
