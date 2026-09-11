@@ -33,7 +33,7 @@ Rules that matter at scale:
   `_process` produces framerate-dependent behavior and desyncs from the physics solver.
 - Camera smoothing and purely visual interpolation belong in `_process`, ideally using
   `Node3D`'s built-in physics interpolation (`physics_interpolation_mode`, project-wide toggle
-  under Rendering) rather than a hand-rolled lerp keyed to a variable frame delta.
+  `physics/common/physics_interpolation` under Physics → Common) rather than a hand-rolled lerp keyed to a variable frame delta.
 - Do not mix a manual velocity integration in `_process` with `move_and_slide()` in
   `_physics_process` on the same body; pick one authority for a given body's motion per tick
   type and keep it there.
@@ -110,9 +110,11 @@ Use named layers/masks (Project Settings → Layer Names → 3D Physics) rather 
 numbers in code or comments — `collision_layer = 4` communicates nothing on review, while a
 named `Terrain` layer does. Keep the layer/mask matrix small and documented: a body's
 `collision_layer` says what it *is*, its `collision_mask` says what it *notices*. A common
-planetary-scale mistake is giving every dynamic body a mask that includes far-away terrain
-chunks it will never actually reach that tick, inflating broad-phase cost; scope masks to
-what a body can plausibly interact with given its current streamed/loaded radius.
+planetary-scale mistake is trying to use masks as a distance filter: masks select collision
+categories, and the broad phase already rejects chunks a body does not spatially overlap, so
+far terrain on the shared `Terrain` layer costs nothing extra through the mask. Control
+distance-based cost by streaming and spatial activation (which chunks exist and are enabled
+around the body), never by excluding a category the body must still collide with nearby.
 
 ## Point gravity and space overrides
 
@@ -136,7 +138,8 @@ When a body jitters, check in this order before assuming it is a physics-engine 
 2. **Mixed-authority movement** — is something writing position in both `_process` and
    `_physics_process`, or mixing `move_and_slide()` with direct `global_position` sets?
 3. **Interpolation mismatch** — is `physics_interpolation_mode` inconsistent between a moving
-   platform (`AnimatableBody3D`) and the character riding it (`sync_to_physics` unset)?
+   platform (`AnimatableBody3D`) and the character riding it, or is the platform's own
+   `sync_to_physics` unset (that property belongs to `AnimatableBody3D`, not the character)?
 4. **Scaled collision shapes** — is a parent `Node3D` scale non-1.0 above a `CollisionShape3D`?
 5. **Engine-build mismatch** — was the tolerance that flagged this jitter measured on a
    different Godot build or physics backend than the one currently running?

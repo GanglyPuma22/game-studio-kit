@@ -50,7 +50,7 @@ report format into one.
 Run every headless test through the kit's owned process model, not a bare shell command:
 
 - For a project that has declared the `studio-smoke-v1` capability in its `project.json`, use
-  `studio.py godot smoke --project <GAME> --config <HOST>` (see
+  `python <KIT>/scripts/studio.py godot smoke --project <GAME> --config <HOST>` (see
   [execution.md](execution.md)) — it launches the main scene headlessly with
   `--studio-smoke=<path>`, and requires the project's own script to write a report with
   `ok: true` only when every claimed assertion actually passed.
@@ -100,8 +100,9 @@ the Godot 3-era `VisualServer`) over ad hoc frame-time guessing:
 ## Performance budgets
 
 State a budget as a percentile, not an average — a mean frame time hides the spikes players
-actually notice. A common target for a 30 fps-class experience is a 33.3 ms **p95** frame
-time (not p50): capture a distribution of frame times over a representative play/probe
+actually notice. A common target for a 30 fps-class experience is a **p95** frame time of at
+most 1000/30 = 33.334 ms (state the threshold with that rounding, or an explicit tolerance,
+so a perfectly paced 30 fps run is not rejected by 33.333… > 33.3), not a p50: capture a distribution of frame times over a representative play/probe
 session (not just the first few warm-up frames), sort it, and report the 95th-percentile
 value alongside the sample count and session length used to produce it. State the budget
 per-subsystem where practical (terrain streaming, physics step, rendering) so a regression can
