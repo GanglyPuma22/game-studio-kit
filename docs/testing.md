@@ -71,6 +71,41 @@ is unexercised. No engine, provider or desktop is involved.
 python -m unittest discover -s tests -p test_launch_evidence.py -v
 ```
 
+## Interactive playtest
+
+`playtest` and `launch --mode native` start the same engine with the same
+native flags and check the same engine identity, and they are not
+interchangeable. `launch` runs a project-owned script for a bounded, timed
+window and returns one verdict an agent reads; the run is over when the command
+returns, and a missing declared result makes it not ok. `playtest` runs a
+session a person drives and judges: it has session modes instead of one
+blocking wait, it may run uncapped while a human plays, it can keep the real
+user profile so saves and settings survive, and it leaves a `relaunch` script
+the player can run again later without this kit, without Python and without an
+agent. Its `ok` means the engine ran cleanly, never that the game played well —
+`acceptance` stays `not_established` in every mode. Choose the session mode and
+the input route with
+[studio-playtest](../skills/studio-playtest/SKILL.md).
+
+`test_playtest.py` covers it with small Python child processes standing in for
+the engine: a blocking `handoff` session writing both receipts with no argv
+value or environment value in any of them while the combined log holds both,
+`acceptance` staying `not_established` even when `ok` is true, an `attended`
+session returning with no exit receipt and being completed by exactly one
+`collect` with the second refused, the uncapped `--max-minutes 0` accepted
+where a human is present and refused for `driven`, `--script` required for
+`driven` and rejected for `handoff`, engine SHA-256 refusal before anything is
+launched, the recorded profile for both isolated and host sessions, a label
+collision refused, the emitted launcher carrying the engine path and scene but
+no environment, and a declared result inside the playtest's own run directory
+refused. A separate check reads the skill and template as files: that they name
+the kit commands they describe, keep the two harness rules, and contain no
+host-specific absolute path. No engine, provider or desktop is involved.
+
+```text
+python -m unittest discover -s tests -p test_playtest.py -v
+```
+
 ## Cleanroom and host preflight tests
 
 `test_cleanroom_host.py` covers the pure snapshot comparison (new, exited and

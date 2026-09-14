@@ -179,6 +179,57 @@ configured one that is absent, is `missing`. Every other item still requires
 `path`, and `source` is rejected anywhere else. A matching hash is byte
 identity, not acceptance or entitlement.
 
+## Interactive playtest receipts
+
+`playtest` is the same machinery aimed at a session a person drives and judges.
+It verifies the engine's expected SHA-256 the same way, refuses a project that
+does not exist, re-reads the engine bytes at the launch instant, honours
+`--cutoff-utc` and `--scrub-env`, and writes to
+`artifacts/playtests/<label>/` — a separate namespace, so a playtest and an
+owned launch can never collide on the label that refuses a reused run
+directory. Each run directory holds `playtest.json` (session mode, scene and
+its hash, harness script, engine identity before and after, profile, commit and
+whether the tree was dirty, renderer and resolution, effective cap, PID),
+`process/` with the runner's log and record, `diagnostics.json`, and `exit.json`.
+
+Two things differ from `launch`, both deliberately. A session may exceed the
+3600-second ceiling: `--max-minutes 0` runs until the player quits and is legal
+only for `handoff` and `attended`, where a human decides when it ends, while
+`driven` stays bounded because nobody is at the controls. And profile isolation
+discards saves and settings between runs, which is usually wrong for a
+playtest, so `--use-host-profile` plays on the real user profile and records
+`"profile": "host"` — a receipt is never ambiguous about which profile ran. An
+isolated session still refuses a self-contained `_sc_` Godot, because such an
+install ignores the profile environment; a host-profile session accepts it,
+since it claims no isolation to begin with.
+
+**`ok` is run health, and nothing in these receipts is ever acceptance.** It
+means the engine ran, exited cleanly, logged no errors and produced every
+declared `--result`. No program can decide whether a playtest went well, so
+`acceptance` is `"not_established"` in every mode including `driven`, and the
+limits carry `a playtest launch is not acceptance; a human verdict is required`
+alongside the existing `exit zero is not acceptance`. A green `driven` harness
+establishes wiring, not normal-input usability.
+
+`--session attended` starts the game and returns, so an agent keeps its desktop
+and voice tools while somebody plays. Nothing waits for that process, so its
+exit code, elapsed time and surviving descendants are never observed: the exit
+receipt says `status: "unobserved"` with a null return code rather than
+inventing either, and reports `engine_running_at_collect` as true, false, or
+null on a host that cannot tell. It is completed by exactly one `playtest
+collect --label <label>`, run after the player says they are done; a second
+call is refused, because calling it repeatedly to discover when the game closed
+is polling.
+
+With `--emit-launcher` (the default) the run directory also gets `relaunch.cmd`
+on Windows or `relaunch.sh` elsewhere, generated from the exact argument array
+that ran so it cannot drift from the session it documents, with the label,
+engine SHA-256, commit and profile in its header. It carries no environment:
+reproducing one would either write scrubbed values into a file or silently
+claim an isolation it does not set up, so the header names the profile the
+recorded session used and the script plays on the runner's own. A person runs
+it without this kit, without Python and without an agent.
+
 ## Cleanroom windows and host readiness
 
 A performance number is citable only with a cleanroom pair around it. `bench
