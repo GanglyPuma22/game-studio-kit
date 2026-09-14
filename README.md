@@ -1,6 +1,6 @@
 # Game Studio Kit
 
-Ten self-contained skills and a small Python helper library for producing and reviewing bounded game scenes. Local Blender, procedural audio/terrain and Godot form the functional baseline. Meshy, Gaea, ElevenLabs and Blender MCP are optional routes.
+Eleven self-contained skills and a small Python helper library for producing and reviewing bounded game scenes. Local Blender, procedural audio/terrain and Godot form the functional baseline. Meshy, Gaea, ElevenLabs and Blender MCP are optional routes.
 
 Start by reading [studio-director](skills/studio-director/SKILL.md) in your capable local agent. Keep the **whole repository** together. It has no dependency on private agent folders, other installed skills, a daemon, or a paid account. You provide Python 3.11+, application installations, project inputs and your host's actual tools.
 

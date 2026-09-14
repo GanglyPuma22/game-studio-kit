@@ -1,7 +1,7 @@
 {
   "name": "game-studio-kit",
-  "version": "0.1.1",
-  "description": "Self-contained game production skills: design, Blender, animation, terrain, audio, Godot and evidence review.",
+  "version": "0.1.2",
+  "description": "Self-contained game production skills: design, Blender, animation, terrain, audio, Godot, interactive playtesting and evidence review.",
   "author": {
     "name": "Game Studio Kit contributors"
   },
@@ -9,7 +9,7 @@
   "interface": {
     "displayName": "Game Studio Kit",
     "shortDescription": "Build and review a bounded game scene.",
-    "longDescription": "Local Blender and Godot baseline, optional generation providers, and explicit native review handoffs.",
+    "longDescription": "Local Blender and Godot baseline, optional generation providers, interactive playtest sessions with a re-runnable launcher, and explicit native review handoffs.",
     "developerName": "Game Studio Kit contributors",
     "category": "Productivity",
     "capabilities": [],

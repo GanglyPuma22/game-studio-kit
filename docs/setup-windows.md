@@ -44,7 +44,7 @@ python "$Kit\scripts\studio.py" godot smoke --project "$Game" --config "$HostCon
 
 A direct skill start is: ask the host to read `C:\Tools\game-studio-kit\skills\studio-director\SKILL.md` with GAME declared. This needs no registration and tests the package route, but not plugin discovery.
 
-For **registered plugin** use the host's local plugin development/install flow with the complete tree and `.codex-plugin/plugin.json`. See [official packaging](https://developers.openai.com/plugins/build/plugins) and [build/install guidance](https://learn.chatgpt.com/docs/build-plugins). Do not copy only the ten folders into a global skills directory; that breaks shared references. In Codex CLI, the verified command surface is `codex plugin marketplace add <local-marketplace-root>` then `codex plugin add game-studio-kit@<marketplace-name>`; check the installed CLI's help if it differs.
+For **registered plugin** use the host's local plugin development/install flow with the complete tree and `.codex-plugin/plugin.json`. See [official packaging](https://developers.openai.com/plugins/build/plugins) and [build/install guidance](https://learn.chatgpt.com/docs/build-plugins). Do not copy only the eleven folders into a global skills directory; that breaks shared references. In Codex CLI, the verified command surface is `codex plugin marketplace add <local-marketplace-root>` then `codex plugin add game-studio-kit@<marketplace-name>`; check the installed CLI's help if it differs.
 
 A local marketplace can be staged in a separate host-owned directory with this layout:
 

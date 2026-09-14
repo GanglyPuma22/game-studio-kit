@@ -15,7 +15,7 @@
 
 `doctor` is offline-first. An executable's `ready` means it answered a version query; operations remain unverified until executed. Credential presence is not authentication, entitlement, balance or provider readiness. The helper always reports host computer use as unverified: the active agent must inspect its actual tool list and perform a bounded native app operation to establish it.
 
-Each output has one writer. Only one operator controls the visible desktop. Delegation is optional and follows host/user authorization; the ten skills are not ten persistent agents. Save the editable source before a mode switch and track who owns any launched process. Do not reuse another project's environment assumptions.
+Each output has one writer. Only one operator controls the visible desktop. Delegation is optional and follows host/user authorization; the eleven skills are not eleven persistent agents. Save the editable source before a mode switch and track who owns any launched process. Do not reuse another project's environment assumptions.
 
 
 | Concrete request | Staged reads and advancement |
