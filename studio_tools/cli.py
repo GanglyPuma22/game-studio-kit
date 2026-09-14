@@ -63,6 +63,10 @@ def parser():
                         "Default 60, except attended, which is never waited for and cannot be capped")
     c.add_argument("--result", action="append", default=[], help="Project-relative file a driven harness must produce")
     c.add_argument("--scrub-env", action="append", default=[], help="Environment prefix removed from the child")
+    c.add_argument("--rendering-method", choices=["forward_plus", "mobile", "gl_compatibility"],
+                   help="Override the renderer; default is whatever the project declares")
+    c.add_argument("--resolution", help="Override the window size as WIDTHxHEIGHT; "
+                                        "default is whatever the project declares")
     c.add_argument("--use-host-profile", action="store_true",
                    help="Play on the real user profile so saves and settings persist")
     c.add_argument("--no-launcher", action="store_true", help="Skip the re-runnable relaunch script")
@@ -283,7 +287,8 @@ def dispatch(a):
             scene=a.scene, script=a.script, label=a.label, max_minutes=a.max_minutes,
             cutoff_utc=a.cutoff_utc, results=a.result, scrub=a.scrub_env,
             passthrough=list(a.passthrough), use_host_profile=a.use_host_profile,
-            emit_launcher=not a.no_launcher,
+            emit_launcher=not a.no_launcher, rendering_method=a.rendering_method,
+            resolution=a.resolution,
         )
     if a.command == "evidence":
         from .launch import inventory

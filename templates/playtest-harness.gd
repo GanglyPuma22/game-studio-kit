@@ -2,9 +2,10 @@
 #
 # Fill in SCENE_PATH, ROUTE and _assertions(). Run it with:
 #   playtest start --project <GAME> --config <HOST> --sha256 <engine sha256> \
-#     --session driven --script res://tests/playtest_harness.gd \
-#     --max-minutes 5 --result artifacts/playtests/route.json \
-#     -- --studio-playtest=<absolute JSON path>
+#     --session driven --script res://tests/playtest_harness.gd --max-minutes 5
+#
+# The kit supplies --studio-playtest=<path> itself and reads the report back,
+# so do not pass that argument and do not declare the report with --result.
 #
 # A script passed through --script must extend SceneTree or MainLoop, so this
 # instantiates the game scene itself; an ordinary Node would never run.
@@ -83,11 +84,11 @@ func _physics_process(delta: float) -> bool:
 			_fail("Project has no input action named " + action)
 			return true
 		if not state["pressed"] and _seconds >= step["press_at"]:
-			Input.action_press(action)
+			_drive(action, true)
 			state["pressed"] = true
 			_record("press", action)
 		elif state["pressed"] and not state["released"] and _seconds >= step["release_at"]:
-			Input.action_release(action)
+			_drive(action, false)
 			state["released"] = true
 			_record("release", action)
 	_sample()
@@ -95,6 +96,22 @@ func _physics_process(delta: float) -> bool:
 		_report()
 		return true
 	return false
+
+## Drive one action both ways a game can read it. Input.action_press only sets
+## the polled state that Input.is_action_pressed reports, so a game that reads
+## its actions as events in _input() would look like it ignored input that a
+## player's keyboard delivers fine. Pushing an InputEventAction as well feeds
+## the event pipeline. Neither form synthesises a raw key, so a game reading
+## keycodes directly rather than actions still needs a person at the keyboard.
+func _drive(action: String, pressed: bool) -> void:
+	if pressed:
+		Input.action_press(action)
+	else:
+		Input.action_release(action)
+	var event := InputEventAction.new()
+	event.action = action
+	event.pressed = pressed
+	Input.parse_input_event(event)
 
 func _route_complete() -> bool:
 	for state in _steps:
@@ -132,9 +149,14 @@ func _report() -> void:
 	for index in ROUTE.size():
 		var state: Dictionary = _steps[index]
 		if state["pressed"] and not state["released"]:
+			# Releasing here would make a truncated route look complete, so the
+			# step is left unreleased and route_completed stays false.
 			Input.action_release(ROUTE[index]["action"])
-			state["released"] = true
 	var checks := _assertions()
+	# Built in, not left to _assertions(): hitting MAX_SECONDS before every step
+	# was released means the declared route never finished, and a report saying
+	# ok would describe an experiment that did not run.
+	checks["route_completed"] = _route_complete()
 	var failed: PackedStringArray = []
 	for name in checks.keys():
 		if not bool(checks[name]):
