@@ -539,6 +539,34 @@ def _timestamps_in_window(path, started, finished, *, root=None):
     inside = naive = 0
     pattern = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?")
     text = data.decode("utf-8", errors="replace")
+    activity_lines = []
+    for line in text.splitlines():
+        try:
+            event = json.loads(line)
+        except (ValueError, TypeError):
+            activity_lines.append(line)
+            continue
+        if not isinstance(event, dict) or "timestamp" not in event:
+            activity_lines.append(line)
+            continue
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            payload = {}
+        kind = event.get("type")
+        passive = (
+            kind == "response_item"
+            and payload.get("type") in {"function_call_output", "custom_tool_call_output"}
+        ) or (
+            kind == "event_msg" and payload.get("type") in {"token_count", "user_message"}
+        ) or (
+            kind == "response_item" and payload.get("type") == "message"
+            and payload.get("role") in {"user", "tool"}
+        )
+        if not passive:
+            # Event time, not timestamps quoted in payloads. Unknown event
+            # types conservatively remain activity signals.
+            activity_lines.append(str(event["timestamp"]))
+    text = "\n".join(activity_lines)
     for match in pattern.finditer(text):
         stamp_text = match.group(0).replace(" ", "T")
         if stamp_text.endswith("Z"):
@@ -560,7 +588,10 @@ def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes,
     """Pure comparison of two snapshots around a window; returns reasons, never log text."""
     reasons = []
     limits = list(LIMITS)
-    ignore = {self_pid} if self_pid is not None else set()
+    # PID 0 measures unused CPU capacity on Windows, not competing work.
+    ignore = {0}
+    if self_pid is not None:
+        ignore.add(self_pid)
     # The enumeration helper each snapshot spawned lists itself; it is this
     # toolkit's own child, not a program that appeared inside the window.
     ignore |= set(before.get("helper_pids") or ()) | set(after.get("helper_pids") or ())

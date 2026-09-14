@@ -85,6 +85,38 @@ def observed(pid, name, first, last, samples=2, cpu=0.0, ws=10 * MB, created=Non
 
 
 class CompareTests(unittest.TestCase):
+    def test_windows_idle_capacity_is_not_competing_cpu(self):
+        before = snap([proc(0, "System Idle Process"), proc(10, "busy")])
+        after = snap([proc(0, "System Idle Process", cpu=900.0), proc(10, "busy", cpu=4.0)])
+        options = {"busy_cpu_seconds": 1.0, "heavy_working_set_bytes": 200 * MB}
+        result = cleanroom.compare(before, after, WINDOW, **options)
+        self.assertEqual(result["contamination"]["busy"], [{"pid": 10, "name": "busy", "cpu_delta_seconds": 4.0}])
+        self.assertFalse(result["attributable"])
+        clean = cleanroom.compare(snap([proc(0, "System Idle Process")]),
+                                  snap([proc(0, "System Idle Process", cpu=900.0)]), WINDOW, **options)
+        self.assertTrue(clean["attributable"])
+
+    def test_codex_event_times_exclude_quoted_history_and_passive_outputs(self):
+        events = [
+            {"timestamp": "2026-09-10T09:59:00Z", "type": "response_item", "payload": {
+                "type": "function_call", "arguments": "historical 2026-09-10T10:02:00 and 2026-09-10T10:03:00Z"}},
+            {"timestamp": "2026-09-10T10:02:00Z", "type": "response_item", "payload": {"type": "custom_tool_call_output"}},
+            {"timestamp": "2026-09-10T10:02:00Z", "type": "event_msg", "payload": {"type": "token_count"}},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "codex.jsonl"
+            options = {"busy_cpu_seconds": 1.0, "heavy_working_set_bytes": 200 * MB, "agent_log": log}
+            log.write_text("\n".join(json.dumps(e) for e in events))
+            result = cleanroom.compare(snap([]), snap([]), WINDOW, **options)
+            self.assertTrue(result["attributable"])
+            self.assertEqual(result["contamination"]["agent_log"]["naive_timestamps"], 0)
+            for payload in [{"type": "function_call"}, {"type": "custom_tool_call"},
+                            {"type": "message", "role": "assistant"}, {"type": "reasoning"}]:
+                log.write_text(json.dumps({"timestamp": "2026-09-10T10:02:00Z", "type": "response_item", "payload": payload}))
+                self.assertFalse(cleanroom.compare(snap([]), snap([]), WINDOW, **options)["attributable"])
+            log.write_text(json.dumps({"timestamp": "2026-09-10T10:02:00Z", "type": "unknown"}))
+            self.assertFalse(cleanroom.compare(snap([]), snap([]), WINDOW, **options)["attributable"])
+
     def test_flags_new_exited_and_busy_processes_and_ignores_self(self):
         before = snap([proc(1, "idle"), proc(2, "browser", cpu=10.0), proc(3, "big", ws=500 * MB), proc(99, "self", cpu=0.0)])
         after = snap([proc(1, "idle"), proc(2, "browser", cpu=14.0), proc(4, "newcomer", ws=300 * MB), proc(5, "tiny"), proc(99, "self", cpu=50.0)])
