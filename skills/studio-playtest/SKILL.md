@@ -27,7 +27,7 @@ The boundary is the one [acceptance](../../references/acceptance.md) already dra
 | `attended` | Maxim plays while the agent keeps desktop, voice or computer-use access to narrate, watch or take notes. | Nothing waits for the exit, so no return code, elapsed time or surviving descendant is ever observed for that run. |
 | `driven` | A harness supplies the input and may declare `--result` files. | Bounded by `--max-minutes` and judged by assertions, which is the weakest evidence of the three about how the game feels. |
 
-`--max-minutes 0` removes the cap and is legal only for `handoff` and `attended`, where a person decides when the session ends. A `driven` session has nobody at the controls and stays bounded.
+`--max-minutes 0` removes the cap and is legal only for `handoff` and `attended`, where a person decides when the session ends. A `driven` session has nobody at the controls and stays bounded. `attended` goes further: nothing waits for it, so a cap could only be written into the receipt and never applied, and a non-zero `--max-minutes` there is refused rather than recorded.
 
 An `attended` session is completed by exactly one `playtest collect --label <label>`, run after the player says they are done. Calling `collect` repeatedly to find out whether the game has closed yet is polling, which the [overnight rules](../studio-director/references/overnight-run.md) forbid; the second call is refused rather than supported. Ask, or wait to be told.
 

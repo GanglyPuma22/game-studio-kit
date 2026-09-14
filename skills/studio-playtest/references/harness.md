@@ -28,7 +28,11 @@ this.
    one frame that mattered and inflates the combined log the kit captures.
 4. **`_assertions()`** — the named booleans this route exists to check. Every
    one must be true for the report's `ok`. Name them for what they claim
-   (`stayed_grounded`, `crossed_seam`), not for what they measure.
+   (`stayed_grounded`, `crossed_seam`), not for what they measure. A failed
+   assertion is pushed to the engine log and quits with a non-zero code,
+   because that is what the kit reads: `playtest` judges a driven run from the
+   log and the exit status, so a harness that only wrote `"ok": false` into its
+   own report would be recorded as a clean `completed`.
 5. **`MAX_SECONDS`** — the harness quits itself. `--max-minutes` is the kit's
    backstop for a harness that hangs, not the plan for how long the run takes.
 
@@ -42,6 +46,10 @@ python <KIT>/scripts/studio.py playtest start --project <GAME> --config <HOST> \
   --result artifacts/playtests/seam-route.json \
   -- --studio-playtest=<absolute path to that same file>
 ```
+
+A driven session takes its scene from the harness's own `SCENE_PATH`, so
+`--scene` is refused alongside `--script`: a scene named on the command line
+would be hashed into the receipt as evidence of a route the harness never drove.
 
 The user argument carries an absolute path because that is what
 `OS.get_cmdline_user_args()` hands the engine, matching the
