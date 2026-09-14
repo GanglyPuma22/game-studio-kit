@@ -303,7 +303,20 @@ def execute(
             "Authorized cutoff passed while the playtest was prepared",
         )
     if session == "attended":
-        started = start(args, job_dir=run_dir / "process", cwd=str(root), env=environment)
+        try:
+            started = start(args, job_dir=run_dir / "process", cwd=str(root), env=environment)
+        except StudioError as exc:
+            # The runner has already written a start_failed process record; the
+            # session receipt must not be left claiming it is still launching,
+            # and there is no session for a later collect to complete.
+            playtest.update(status="start_failed")
+            write_json(run_dir / "playtest.json", playtest)
+            failed_record = run_dir / "process" / "process.json"
+            return _finish(
+                root, run_dir, playtest,
+                read_json(failed_record) if failed_record.is_file() else {"status": "start_failed"},
+                "", "start_failed", str(exc),
+            )
         playtest.update(status="launched", pid=started["pid"])
         write_json(run_dir / "playtest.json", playtest)
         return {
