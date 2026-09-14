@@ -104,6 +104,25 @@ def _windows_survivors(pid, hide_window):
     return {"status": "ok", "pids": sorted(found), "note": None}
 
 
+def alive(pid):
+    """Whether `pid` is still a running process, or None where this host cannot tell.
+
+    This is the only signal available about a job nobody waited for: a caller
+    that did not start a process cannot reap it, so it has no exit status to
+    read. A zombie has already finished. A host that cannot answer gets None
+    rather than a guess, because a wrong "finished" would describe a session
+    that is still going and a wrong "running" would block the caller. A true
+    answer is a statement about the PID, not proof that the original process
+    still holds it.
+    """
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        return None
+    if os.name == "nt" or not PROC.is_dir():
+        return None
+    state = _proc_state(pid)
+    return state is not None and state[0] != "Z"
+
+
 def survivors(pid, hide_window=False):
     """List processes of this job that are still running after its leader exited.
 
@@ -306,6 +325,55 @@ def run(
         "log": str(log) if log is not None else None,
         "process_record": str(record_path) if record_path is not None else None,
     }
+
+
+def start(args, *, job_dir, cwd=None, env=None, hide_window=False):
+    """Start a job, record it, and return while it is still running.
+
+    The opposite trade from `run`, and the only form that makes one: the caller
+    gets no exit status, because the process is meant to outlive it. It exists
+    for a session a human ends, where waiting would hold an agent at the child's
+    mercy for as long as somebody feels like playing. The log and `process.json`
+    are written exactly as `run` writes them, so one reader serves both forms,
+    but the record keeps `status: running` and `owned: false` for good: nothing
+    here ever observes the exit, and a later caller can only ask `alive`.
+    """
+    if not isinstance(args, (list, tuple)) or not args:
+        raise StudioError("Process command must be a nonempty argument array")
+    folder = Path(job_dir).resolve()
+    try:
+        folder.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        raise StudioError("Job directory exists; choose a new run identity") from None
+    log = folder / "stdout.log"
+    record_path = folder / "process.json"
+    record = {
+        "schema_version": 1,
+        "status": "starting",
+        "started_utc": datetime.now(timezone.utc).isoformat(),
+        "pid": None,
+        "returncode": None,
+        "hidden_console_requested": hide_window,
+        "owned": False,
+    }
+    write_json(record_path, record)
+    # The child holds its own descriptor on the log, so this process closes the
+    # file as soon as the child has it: nothing stays behind to drain or wait.
+    with log.open("wb") as capture:
+        try:
+            process = subprocess.Popen(
+                [str(a) for a in args], cwd=cwd, env=env,
+                stdout=capture, stderr=subprocess.STDOUT, **_creation_options(hide_window),
+            )
+        except (OSError, ValueError, TypeError) as exc:
+            record["status"] = "start_failed"
+            write_json(record_path, record)
+            raise StudioError(
+                f"Could not start {Path(str(args[0])).name}; check executable configuration"
+            ) from exc
+    record.update(status="running", pid=process.pid)
+    write_json(record_path, record)
+    return {"pid": process.pid, "log": str(log), "process_record": str(record_path)}
 
 
 def record(args, *, job_dir, duration, grace=5, startup=0, cancelled=None, cwd=None):
