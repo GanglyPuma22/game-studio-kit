@@ -208,6 +208,13 @@ def execute(
         raise StudioError("Environment scrub prefixes must be non-empty strings")
     if not isinstance(passthrough, (list, tuple)) or not all(isinstance(x, str) for x in passthrough):
         raise StudioError("Passthrough arguments must be strings")
+    if emit_launcher and IS_WINDOWS and any('"' in item for item in passthrough):
+        # Refuse here rather than when the launcher is written, which is after
+        # the run directory exists: the advice below has to still be possible.
+        raise StudioError(
+            "A passthrough argument containing a quotation mark cannot be written to a "
+            ".cmd launcher; rerun with --no-launcher"
+        )
     label = safe_id(label) if label else uuid.uuid4().hex
     # A separate namespace from artifacts/launches, so a playtest and an owned
     # launch can never collide on the label that refuses a reused run directory.
