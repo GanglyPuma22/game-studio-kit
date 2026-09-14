@@ -24,7 +24,7 @@ from .common import (
 )
 from .config import app_path, executable, require_executable
 from .launch import IS_WINDOWS, MAX_TIMEOUT, PROFILE_KEYS, _readable_digest, _scrubbed, mode_flags, parse_utc
-from .processes import alive, run, start, stop_survivors
+from .processes import alive, run, start, stop_started, stop_survivors
 
 SESSIONS = ("handoff", "attended", "driven")
 DEFAULT_MAX_MINUTES = 60
@@ -178,10 +178,16 @@ def _launcher(root, run_dir, args, playtest):
     """
     if IS_WINDOWS:
         name, comment, head = "relaunch.cmd", "REM ", ["@echo off"]
-        body = " ".join(_cmd_quote(item) for item in args)
+        body = [
+            f"cd /d {_cmd_quote(str(root))} || exit /b 1",
+            " ".join(_cmd_quote(item) for item in args),
+        ]
     else:
         name, comment, head = "relaunch.sh", "# ", ["#!/bin/sh"]
-        body = " ".join(shlex.quote(item) for item in args)
+        body = [
+            f"cd -- {shlex.quote(str(root))} || exit 1",
+            " ".join(shlex.quote(item) for item in args),
+        ]
     notes = [
         LAUNCHER_NOTE,
         f"label: {playtest['label']}",
@@ -194,11 +200,13 @@ def _launcher(root, run_dir, args, playtest):
             " (this script does not recreate the isolated profile; it plays on yours)"
             if playtest["profile"] == "isolated" else ""
         ),
-        "Runs the same engine, project and scene as the recorded session.",
+        "Runs the same engine, project and scene as the recorded session,",
+        "from the project directory the session ran in, so a relative path",
+        "resolves the way it did then.",
         "It establishes nothing: a playtest is accepted by a person, not by a script.",
     ]
     path = run_dir / name
-    path.write_text("\n".join(head + [comment + note for note in notes] + [body, ""]), encoding="utf-8")
+    path.write_text("\n".join(head + [comment + note for note in notes] + body + [""]), encoding="utf-8")
     if not IS_WINDOWS:
         path.chmod(0o755)
     return file_record(root, path)
@@ -449,7 +457,14 @@ def execute(
                 "", "start_failed", str(exc),
             )
         playtest.update(status="launched", pid=started["pid"])
-        write_json(run_dir / "playtest.json", playtest)
+        try:
+            write_json(run_dir / "playtest.json", playtest)
+        except BaseException:
+            # This receipt is how anyone finds the session again, and an
+            # auto-generated label is never returned to the caller, so a child
+            # left running here could not even be named to clean it up.
+            stop_started(started["pid"])
+            raise
         return {
             **playtest,
             "verdict": "launched",

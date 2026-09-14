@@ -264,8 +264,12 @@ that ran so it cannot drift from the session it documents, with the label,
 engine SHA-256, commit and profile in its header. It carries no environment:
 reproducing one would either write scrubbed values into a file or silently
 claim an isolation it does not set up, so the header names the profile the
-recorded session used and the script plays on the runner's own. A person runs
-it without this kit, without Python and without an agent.
+recorded session used and the script plays on the runner's own. It changes to
+the project directory first, because the session itself ran with the project as
+its working directory: a launcher invoked from a desktop shortcut or another
+directory would otherwise resolve a relative path against somewhere else while
+claiming to reproduce the recorded command. A person runs it without this kit,
+without Python and without an agent.
 
 ## Cleanroom windows and host readiness
 
