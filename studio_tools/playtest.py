@@ -42,8 +42,12 @@ LIMITS = [
 ATTENDED_LIMITS = LIMITS + [
     "an attended session is not owned by the collecting process: its exit code, "
     "elapsed time and surviving descendants are not observed",
+    "an attended session is not waited for, so no time cap is enforced and "
+    "--cutoff-utc gates only whether it may start, never when it ends",
 ]
 LAUNCHER_NOTE = "game-studio-kit playtest relaunch"
+# Every field `collect` reads out of a receipt it did not write in this process.
+REQUIRED_RECEIPT_FIELDS = ("label", "engine", "expected_results", "started_utc")
 
 
 def _scene(scene):
@@ -64,9 +68,10 @@ def _revision(root):
     A playtest is evidence about one build of a game, so the receipt names the
     source that produced it. A project that is not a checkout reports nulls: not
     knowing the commit is a gap in the evidence, not a reason to refuse the run.
+    The queries are asked rather than predicted from a `.git` entry beside the
+    project, because a game inside a monorepo has its checkout further up and
+    would otherwise lose the identity this receipt exists to keep.
     """
-    if not (root / ".git").exists():
-        return None, None
     commit = None
     try:
         head = subprocess.run(
@@ -155,7 +160,7 @@ def _window(cutoff, limit, playtest, run_dir):
 
 def execute(
     config, project, *, sha256_expected, session="handoff", scene=None, script=None,
-    label=None, max_minutes=DEFAULT_MAX_MINUTES, cutoff_utc=None, results=(), scrub=(),
+    label=None, max_minutes=None, cutoff_utc=None, results=(), scrub=(),
     passthrough=(), use_host_profile=False, emit_launcher=True,
 ):
     """Verify identity, start the game once, and record the session."""
@@ -173,6 +178,13 @@ def execute(
         # Handing a human the controls and scripting them at the same time
         # produces a session nobody can say who drove.
         raise StudioError("--script belongs to a driven playtest; a person drives handoff and attended")
+    if script is not None and scene is not None:
+        # The harness is the SceneTree entrypoint and loads its own scene, so a
+        # scene named here would be recorded and hashed as evidence of a route
+        # the harness never drove.
+        raise StudioError(
+            "A driven playtest takes its scene from the harness; set it there rather than with --scene"
+        )
     scene = _scene(scene)
     engine_path = Path(require_executable(config, "godot")).expanduser()
     if not engine_path.is_file():
@@ -190,8 +202,20 @@ def execute(
             "An isolated playtest requires Godot without a self-contained _sc_ marker; "
             "play on the engine's own profile with --use-host-profile instead"
         )
+    if max_minutes is None:
+        # Attended defaults to uncapped because a cap is exactly what it cannot
+        # keep; the other sessions are waited for and take the ordinary default.
+        max_minutes = 0 if session == "attended" else DEFAULT_MAX_MINUTES
     if type(max_minutes) not in (int, float) or not math.isfinite(max_minutes) or max_minutes < 0:
         raise StudioError("Playtest --max-minutes must be a number of minutes, or 0 for no cap")
+    if session == "attended" and max_minutes != 0:
+        # Nothing waits for an attended session, so a cap could only be written
+        # into the receipt, never applied. Refusing beats recording a bound that
+        # does not exist.
+        raise StudioError(
+            "An attended playtest is not waited for and cannot be capped; "
+            "omit --max-minutes or pass 0, and end the session by quitting the game"
+        )
     if max_minutes == 0:
         if session == "driven":
             raise StudioError(
@@ -208,11 +232,18 @@ def execute(
         raise StudioError("Environment scrub prefixes must be non-empty strings")
     if not isinstance(passthrough, (list, tuple)) or not all(isinstance(x, str) for x in passthrough):
         raise StudioError("Passthrough arguments must be strings")
-    if emit_launcher and IS_WINDOWS and any('"' in item for item in passthrough):
+    flags = mode_flags("native")
+    args = [str(engine_path.resolve()), "--path", app_path(config, root, "godot")] + flags
+    if script is not None:
+        args += ["--script", script]
+    if scene is not None:
+        args.append(scene)
+    args += list(passthrough)
+    if emit_launcher and IS_WINDOWS and any('"' in item for item in args):
         # Refuse here rather than when the launcher is written, which is after
         # the run directory exists: the advice below has to still be possible.
         raise StudioError(
-            "A passthrough argument containing a quotation mark cannot be written to a "
+            "An argument containing a quotation mark cannot be written to a "
             ".cmd launcher; rerun with --no-launcher"
         )
     label = safe_id(label) if label else uuid.uuid4().hex
@@ -235,13 +266,6 @@ def execute(
         run_dir.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
         raise StudioError("Playtest directory exists; choose a new label") from None
-    flags = mode_flags("native")
-    args = [str(engine_path.resolve()), "--path", app_path(config, root, "godot")] + flags
-    if script is not None:
-        args += ["--script", script]
-    if scene is not None:
-        args.append(scene)
-    args += list(passthrough)
     now = datetime.now(timezone.utc)
     effective = limit
     verdict = None
@@ -310,6 +334,10 @@ def execute(
             "Authorized cutoff passed while the playtest was prepared",
         )
     if session == "attended":
+        # The cutoff above decided whether this session could start; nothing
+        # here can decide when it ends, so the receipt records no cap at all
+        # rather than one that was computed and then never applied.
+        playtest["max_minutes_effective"] = None
         try:
             started = start(args, job_dir=run_dir / "process", cwd=str(root), env=environment)
         except StudioError as exc:
@@ -503,8 +531,37 @@ def collect(config, project, label):
         raise StudioError(
             "collect completes an attended playtest; handoff and driven write their own exit receipt"
         )
+    # A receipt read back from disk is untrusted input: every field used below
+    # is checked here so a truncated or hand-edited record refuses clearly
+    # instead of failing somewhere deeper as a KeyError.
+    if (not all(key in playtest for key in REQUIRED_RECEIPT_FIELDS)
+            or not isinstance(playtest.get("engine"), dict)
+            or not isinstance(playtest["engine"].get("sha256"), str)
+            or not isinstance(playtest.get("expected_results"), list)):
+        raise StudioError("Playtest receipt is incomplete; this session cannot be collected")
     if (run_dir / "exit.json").is_file():
         raise StudioError("That playtest was already collected; a session is collected once")
+    # Claim the session before reading it. Two collects racing would otherwise
+    # both pass the check above and both believe they performed a one-time
+    # operation; only the process that creates this marker may finish.
+    reservation = run_dir / "collect.lock"
+    try:
+        reservation.mkdir(exist_ok=False)
+    except FileExistsError:
+        raise StudioError(
+            "Another collect is completing this playtest; a session is collected once"
+        ) from None
+    try:
+        return _collected(config, root, run_dir, record_path, playtest)
+    except BaseException:
+        # A collect that did not finish leaves nothing claimed, so the session
+        # can be collected again once whatever stopped it is fixed.
+        reservation.rmdir()
+        raise
+
+
+def _collected(config, root, run_dir, record_path, playtest):
+    """Read one attended session's evidence and write its exit receipt."""
     engine = executable(config, "godot")
     playtest["engine"]["sha256_after_exit"] = _readable_digest(Path(engine)) if engine else None
     process_path = run_dir / "process" / "process.json"
@@ -527,6 +584,14 @@ def collect(config, project, label):
         failure = "Engine bytes changed during the session; the receipts describe bytes it no longer has"
     elif not record.get("pid"):
         verdict = record.get("status", "start_failed")
+    elif after is None:
+        # Collection cannot confirm the engine it started is the engine it
+        # finished with, so the session does not get a clean verdict.
+        verdict = "engine_unverified"
+        failure = (
+            "The configured engine could not be re-read at collection, so this session's "
+            "engine identity after the run is unknown"
+        )
     else:
         verdict = _health(diagnostics, result_files, "collected")
     started = playtest.get("started_utc")

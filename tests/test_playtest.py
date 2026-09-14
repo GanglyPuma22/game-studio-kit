@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import tempfile
 import time
@@ -24,6 +25,12 @@ HARNESS = ROOT / "skills/studio-playtest/references/harness.md"
 TEMPLATE = ROOT / "templates/playtest-harness.gd"
 # Receipts, never the launcher: the launcher has to reproduce the command line.
 RECEIPTS = ("playtest.json", "exit.json", "process/process.json", "diagnostics.json")
+# check-package counts the manifest's own skills but cannot read prose, so the
+# documents that tell an agent how many entrypoints exist are checked here.
+NUMBER_WORDS = {10: "ten", 11: "eleven", 12: "twelve"}
+CATALOG_DOCS = ("AGENTS.md", "README.md", "docs/agent-start.md", "docs/setup-windows.md",
+                "docs/contributing.md", "references/tool-routing.md")
+CATALOG_NOUN = r"(?:skills|entrypoints|folders)"
 
 
 class PlaytestCase(unittest.TestCase):
@@ -147,7 +154,7 @@ class SessionTests(PlaytestCase):
         self.assertNotIn("private-env", launcher)
 
     def test_attended_returns_and_exactly_one_collect_completes_it(self):
-        result = self.attend("print('attended')", label="live", max_minutes=0)
+        result = self.attend("print('attended')", label="live")
         self.assertEqual(result["verdict"], "launched")
         self.assertEqual(result["status"], "launched")
         self.assertEqual(result["acceptance"], "not_established")
@@ -182,6 +189,55 @@ class SessionTests(PlaytestCase):
         with self.assertRaisesRegex(StudioError, "already collected"):
             playtest.collect(self.config, self.root, "stillborn")
 
+    def test_attended_refuses_a_cap_it_could_not_enforce(self):
+        with patch("studio_tools.playtest.start") as started:
+            with self.assertRaisesRegex(StudioError, "cannot be capped"):
+                playtest.execute(self.config, self.root, sha256_expected=self.sha,
+                                 session="attended", max_minutes=5, label="capped")
+            started.assert_not_called()
+        # The receipt records no cap, not even one a cutoff would have implied.
+        result = self.attend("print('attended')", label="uncapped-by-default",
+                             cutoff_utc=(datetime.now(timezone.utc) + timedelta(minutes=9)).isoformat())
+        self.assertIsNone(result["max_minutes_effective"])
+        self.assertIsNone(
+            read_json(self.root / "artifacts/playtests/uncapped-by-default/playtest.json")["max_minutes_effective"]
+        )
+        self.settled(result["pid"])
+
+    def test_driven_takes_its_scene_from_the_harness(self):
+        with patch("studio_tools.playtest.run") as run:
+            with self.assertRaisesRegex(StudioError, "scene from the harness"):
+                playtest.execute(self.config, self.root, sha256_expected=self.sha, session="driven",
+                                 script="res://tests/route.gd", scene="res://main.tscn",
+                                 max_minutes=5, label="two-scenes")
+            run.assert_not_called()
+        self.assertFalse((self.root / "artifacts/playtests/two-scenes").exists())
+
+    def test_collect_refuses_a_malformed_receipt_and_a_concurrent_claim(self):
+        result = self.attend("print('attended')", label="partial")
+        self.settled(result["pid"])
+        record_path = self.root / "artifacts/playtests/partial/playtest.json"
+        truncated = read_json(record_path)
+        del truncated["engine"]
+        write_json(record_path, truncated)
+        # A receipt read back from disk is untrusted input, not a KeyError.
+        with self.assertRaisesRegex(StudioError, "incomplete"):
+            playtest.collect(self.config, self.root, "partial")
+        second = self.attend("print('attended')", label="claimed")
+        self.settled(second["pid"])
+        (self.root / "artifacts/playtests/claimed/collect.lock").mkdir()
+        with self.assertRaisesRegex(StudioError, "Another collect"):
+            playtest.collect(self.config, self.root, "claimed")
+
+    def test_collect_without_a_readable_engine_is_not_ok(self):
+        result = self.attend("print('attended')", label="no-engine")
+        self.settled(result["pid"])
+        # An engine that cannot be re-read leaves the session's identity unverified.
+        collected = playtest.collect(load(overrides={"timeout": 5}), self.root, "no-engine")
+        self.assertEqual(collected["verdict"], "engine_unverified")
+        self.assertFalse(collected["ok"])
+        self.assertEqual(collected["acceptance"], "not_established")
+
     def test_collect_refuses_a_session_it_does_not_complete(self):
         self.execute("print('played')", label="blocked")
         with self.assertRaisesRegex(StudioError, "completes an attended playtest"):
@@ -196,7 +252,7 @@ class SessionTests(PlaytestCase):
         # recording a ceiling that was never applied.
         self.assertIsNone(self.last_kwargs["timeout"])
         self.assertIsNone(read_json(self.root / "artifacts/playtests/uncapped/playtest.json")["max_minutes_effective"])
-        attended = self.attend("print('attended')", label="uncapped-attended", max_minutes=0)
+        attended = self.attend("print('attended')", label="uncapped-attended")
         self.assertEqual(attended["verdict"], "launched")
         self.settled(attended["pid"])
         with patch("studio_tools.playtest.run") as run:
@@ -340,7 +396,7 @@ class PlaytestCommandTests(PlaytestCase):
             with contextlib.redirect_stdout(io.StringIO()) as out:
                 code = cli.main([
                     "playtest", "start", "--project", str(self.root), "--config", str(self.host_config),
-                    "--sha256", self.sha, "--session", "attended", "--label", "cli", "--max-minutes", "0",
+                    "--sha256", self.sha, "--session", "attended", "--label", "cli",
                 ])
         self.assertEqual(code, 0)
         started = json.loads(out.getvalue())
@@ -378,6 +434,37 @@ class PlaytestCommandTests(PlaytestCase):
         self.assertIn("identity mismatch", reported["error"])
 
 
+class WindowsLivenessTests(unittest.TestCase):
+    """`alive` on Windows, which has no /proc to read."""
+
+    def answer(self, **kwargs):
+        completed = subprocess.CompletedProcess(args=[], **kwargs)
+        with patch("studio_tools.processes.shutil.which", return_value="pwsh"), \
+             patch("studio_tools.processes.subprocess.run", return_value=completed) as run:
+            return processes._windows_alive(4321), run
+
+    def test_windows_liveness_reads_the_same_process_table_as_the_descendant_walk(self):
+        running, run = self.answer(returncode=0, stdout="1\n")
+        self.assertIs(running, True)
+        self.assertIn("ProcessId=4321", run.call_args.args[0][-1])
+        self.assertIn("Win32_Process", run.call_args.args[0][-1])
+        self.assertIs(self.answer(returncode=0, stdout="0\n")[0], False)
+
+    def test_windows_liveness_answers_unknown_rather_than_guessing(self):
+        # An unreadable process table must not be reported as "not running".
+        self.assertIsNone(self.answer(returncode=1, stdout="")[0])
+        self.assertIsNone(self.answer(returncode=0, stdout="not a number")[0])
+        with patch("studio_tools.processes.shutil.which", return_value=None):
+            self.assertIsNone(processes._windows_alive(4321))
+        with patch("studio_tools.processes.shutil.which", return_value="pwsh"), \
+             patch("studio_tools.processes.subprocess.run", side_effect=OSError):
+            self.assertIsNone(processes._windows_alive(4321))
+
+    def test_alive_rejects_a_pid_that_is_not_one(self):
+        for value in (None, 0, -1, True, "4321"):
+            self.assertIsNone(processes.alive(value))
+
+
 class PlaytestDocumentationTests(unittest.TestCase):
     """The skill and template are shipped files; check what they promise."""
 
@@ -413,6 +500,43 @@ class PlaytestDocumentationTests(unittest.TestCase):
         # Injected input never claims the dimensions it cannot establish.
         for declared in ("ordinary_input_review", "visual_review", "listening"):
             self.assertIn(declared, template)
+        # Step state is per step. Deriving it from the currently held action
+        # makes a released step fire again on the next frame, so the declared
+        # route would loop instead of running once.
+        self.assertIn('state["pressed"]', template)
+        self.assertIn('state["released"]', template)
+        self.assertNotIn("_held", template)
+        # A failed assertion has to reach the kit through the log and the exit
+        # code, which is what playtest reads; the report file alone would be
+        # recorded as a clean completed run.
+        self.assertIn("push_error(\"Playtest harness assertions failed", template)
+        self.assertIn("quit(1)", template)
+
+    def test_catalog_count_agrees_with_the_manifest_everywhere(self):
+        count = len(read_json(ROOT / "studio-kit.json")["skills"])
+        self.assertIn(f"!= {count}", (ROOT / "studio_tools/package.py").read_text(encoding="utf-8"))
+        for name in CATALOG_DOCS:
+            text = (ROOT / name).read_text(encoding="utf-8")
+            self.assertRegex(
+                text, rf"(?i)\b{NUMBER_WORDS[count]}\b[^.]{{0,40}}?{CATALOG_NOUN}\b",
+                f"{name} does not state the shipped catalog size",
+            )
+            for number, word in NUMBER_WORDS.items():
+                if number != count:
+                    self.assertNotRegex(
+                        text, rf"(?i)\b{word}\b[^.]{{0,40}}?{CATALOG_NOUN}\b",
+                        f"{name} still claims {word} entrypoints",
+                    )
+
+    def test_plugin_manifest_tracks_the_package_version_and_names_playtesting(self):
+        plugin = read_json(ROOT / ".codex-plugin/plugin.json")
+        manifest = read_json(ROOT / "studio-kit.json")
+        # A marketplace that caches by version would otherwise keep serving a
+        # build without the eleventh skill.
+        self.assertEqual(plugin["version"], manifest["version"])
+        self.assertNotEqual(plugin["version"], "0.1.1")
+        self.assertIn("playtesting", plugin["description"])
+        self.assertEqual(plugin["skills"], "./skills/")
 
     def test_shipped_playtest_files_carry_no_host_specific_path(self):
         # A skill that names one host's directories cannot be installed on another.

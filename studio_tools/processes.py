@@ -104,6 +104,30 @@ def _windows_survivors(pid, hide_window):
     return {"status": "ok", "pids": sorted(found), "note": None}
 
 
+def _windows_alive(pid):
+    """Ask the process table `_windows_survivors` walks whether this PID is present.
+
+    Windows has no zombie state to exclude: a PID the table still lists is a
+    process that has not exited.
+    """
+    shell = shutil.which("pwsh") or shutil.which("powershell")
+    if not shell:
+        return None
+    query = f"(Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}' | Measure-Object).Count"
+    try:
+        done = subprocess.run(
+            [shell, "-NoProfile", "-NonInteractive", "-Command", query],
+            capture_output=True, text=True, timeout=30, check=False,
+            **_creation_options(True),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    counted = done.stdout.strip()
+    if done.returncode or not counted.isdigit():
+        return None
+    return int(counted) > 0
+
+
 def alive(pid):
     """Whether `pid` is still a running process, or None where this host cannot tell.
 
@@ -372,7 +396,17 @@ def start(args, *, job_dir, cwd=None, env=None, hide_window=False):
                 f"Could not start {Path(str(args[0])).name}; check executable configuration"
             ) from exc
     record.update(status="running", pid=process.pid)
-    write_json(record_path, record)
+    try:
+        write_json(record_path, record)
+    except BaseException:
+        # Without this receipt nothing records the PID, so the session could
+        # neither be collected nor accounted for: stop the child rather than
+        # leave a game running that no record claims.
+        try:
+            _stop_owned(process, hide_window)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        raise
     return {"pid": process.pid, "log": str(log), "process_record": str(record_path)}
 
 

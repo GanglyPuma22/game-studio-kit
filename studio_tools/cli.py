@@ -58,8 +58,9 @@ def parser():
     c.add_argument("--scene", help="res:// scene to play; omitted plays the project's main scene")
     c.add_argument("--script", help="Harness script for --session driven, for example res://tests/route.gd")
     c.add_argument("--label", help="Run identity under artifacts/playtests; default is a new UUID")
-    c.add_argument("--max-minutes", type=float, default=60.0,
-                   help="Session cap in minutes; 0 runs until the player quits (handoff/attended only)")
+    c.add_argument("--max-minutes", type=float,
+                   help="Session cap in minutes; 0 runs until the player quits. "
+                        "Default 60, except attended, which is never waited for and cannot be capped")
     c.add_argument("--result", action="append", default=[], help="Project-relative file a driven harness must produce")
     c.add_argument("--scrub-env", action="append", default=[], help="Environment prefix removed from the child")
     c.add_argument("--use-host-profile", action="store_true",
