@@ -35,33 +35,57 @@ this.
    own report would be recorded as a clean `completed`.
 5. **`MAX_SECONDS`** — the harness quits itself. `--max-minutes` is the kit's
    backstop for a harness that hangs, not the plan for how long the run takes.
+   Reaching the ceiling before every step is released fails the run through a
+   built-in `route_completed` check, so a route truncated by a ceiling somebody
+   forgot to extend cannot report a passing experiment it never finished.
 
-Run it, declaring both the report path the engine writes and the same path as a
-required result:
+Run it:
 
 ```text
 python <KIT>/scripts/studio.py playtest start --project <GAME> --config <HOST> \
   --sha256 <engine sha256> --session driven \
-  --script res://tests/seam_harness.gd --max-minutes 5 \
-  --result artifacts/playtests/seam-route.json \
-  -- --studio-playtest=<absolute path to that same file>
+  --script res://tests/seam_harness.gd --max-minutes 5
 ```
+
+**Do not pass `--studio-playtest=` and do not declare the report with
+`--result`.** The kit knows the run directory, so it supplies
+`--studio-playtest=<run>/harness.json` itself, records that path in
+`playtest.json`, and hashes the report into `exit.json`. Keeping those two
+paths in sync by hand was a real trap: naming a different path in the
+passthrough produced a bare "declared result missing" with nothing to say why.
+An explicit `--studio-playtest=` in the passthrough is now refused. The
+argument is absolute because that is what `OS.get_cmdline_user_args()` hands
+the engine, matching the
+[studio-smoke-v1 protocol](../../studio-godot/references/execution.md).
+
+A report that is absent gives `harness_report_missing`, one that does not parse
+gives `harness_report_unreadable`, and one whose `ok` is not true gives
+`harness_failed`. That is a second reading of the same verdict the harness
+already pushes to the log, not the only one. Use `--result` for anything *else*
+the route is supposed to produce.
 
 A driven session takes its scene from the harness's own `SCENE_PATH`, so
 `--scene` is refused alongside `--script`: a scene named on the command line
 would be hashed into the receipt as evidence of a route the harness never drove.
 
-The user argument carries an absolute path because that is what
-`OS.get_cmdline_user_args()` hands the engine, matching the
-[studio-smoke-v1 protocol](../../studio-godot/references/execution.md);
-`--result` is project-relative because that is what the receipt records. A
-missing report makes the verdict `results_missing`, and a report whose bytes
-were already there before the run is reported as stale rather than produced.
+Re-running the emitted `relaunch` script for a driven session rewrites that
+session's `harness.json`. The hash recorded in `exit.json` is what makes such a
+rewrite visible.
 
 ## Drive the game's real input path
 
-Press the project's actual action names through `Input.action_press` and
-`Input.action_release`. Do not call movement functions directly.
+Press the project's actual action names. Do not call movement functions
+directly.
+
+The template drives each action both ways a game can read one.
+`Input.action_press` sets the polled state `Input.is_action_pressed` reports,
+which is what a game checking actions in `_process`/`_physics_process` sees; an
+`InputEventAction` pushed through `Input.parse_input_event` feeds the event
+pipeline that a game handling actions in `_input()` reads. Driving only the
+first would make a perfectly working event-driven game look like it ignored
+input a player's keyboard delivers fine. Neither form synthesises a raw key
+event, so a game reading keycodes directly instead of named actions still needs
+a person at the keyboard — which is the ordinary-controls route anyway.
 
 A harness that calls `player.move(Vector3.FORWARD)` proves that `move()` works.
 It proves nothing about whether the game is wired to it — whether the action

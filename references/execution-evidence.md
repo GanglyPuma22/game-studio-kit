@@ -192,7 +192,20 @@ its hash, harness script, engine identity before and after, profile, commit and
 whether the tree was dirty, renderer and resolution, effective cap, PID),
 `process/` with the runner's log and record, `diagnostics.json`, and `exit.json`.
 
-Two things differ from `launch`, both deliberately. A session may exceed the
+**The renderer and window size come from the game, not from the kit.**
+`launch --mode native` pins `1920x1080` and `forward_plus`, which suits a
+bounded smoke of a known configuration. A playtest exists to show what a player
+would see, and the renderer is exactly the variable that decides whether
+flicker, banding and transparency artifacts appear at all — so forcing one can
+invent a defect the player will never hit or hide one they will. `playtest`
+therefore reads `renderer/rendering_method` and the viewport size from
+`project.godot` and uses them; `--rendering-method` and `--resolution` override
+them explicitly; a project that declares neither falls back to the pinned
+defaults. `rendering_method_source` and `resolution_source` record which of
+`project`, `override` or `default` applied, so a fallback is never mistaken for
+the game's own configuration.
+
+Two further things differ from `launch`, both deliberately. A session may exceed the
 3600-second ceiling: `--max-minutes 0` runs until the player quits and is legal
 only for `handoff` and `attended`, where a human decides when it ends, while
 `driven` stays bounded because nobody is at the controls. And profile isolation
@@ -227,10 +240,23 @@ player. Liveness is answered from `/proc` on POSIX and from the same
 reports null, and because a PID can be reused, a true answer is a statement
 about the PID rather than proof the original process still holds it. Read a
 null `engine_running_at_collect` as "not established", never as "the session
-ended". It is completed by exactly one `playtest
+ended". A `collect` that finds the engine still running **refuses** instead of
+writing a receipt: recording it would spend the one collection the session
+gets, so a call that merely raced the player's last click would lock out the
+real receipt for good. It is completed by exactly one `playtest
 collect --label <label>`, run after the player says they are done; a second
 call is refused, because calling it repeatedly to discover when the game closed
 is polling.
+
+A `driven` session is told where to write. The kit appends
+`--studio-playtest=<run>/harness.json` itself, records the path in
+`playtest.json` and hashes the report into `exit.json`, so the report path and
+the recorded evidence cannot disagree; passing that argument explicitly is
+refused. A missing, unparseable or failing report gives
+`harness_report_missing`, `harness_report_unreadable` or `harness_failed`
+rather than a clean `completed`. Declaring the report through `--result` is
+neither needed nor possible, since it lives in the run directory the launcher
+owns; `--result` remains for anything else the route must produce.
 
 With `--emit-launcher` (the default) the run directory also gets `relaunch.cmd`
 on Windows or `relaunch.sh` elsewhere, generated from the exact argument array
