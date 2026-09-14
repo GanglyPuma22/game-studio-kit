@@ -37,6 +37,8 @@ Isolation is the default and throws away saves and settings between runs, which 
 
 Watch for the things a screenshot cannot hold and a log will not mention.
 
+The session runs the renderer and window size the project declares, not a pinned pair, because the renderer decides whether several of these appear at all. `--rendering-method` and `--resolution` override that deliberately, and the receipt records which of `project`, `override` or `default` applied — check it before filing a rendering defect, and say which renderer you saw it under.
+
 - **Flicker while stationary, then flicker while walking.** They have different causes — z-fighting and shadow acne stand still, LOD and shadow-cascade seams only appear once the camera moves. Report them separately.
 - **Grounded contact.** Feet meeting the surface, not hovering above it or sinking into it, on flat ground and on the steepest slope the character will accept.
 - **Camera response.** Whether it lags, snaps, clips terrain on a descent, or pitches past what the player intended.
