@@ -1,6 +1,6 @@
 # Contributing and local release preparation
 
-Keep ten discriminating entrypoints and shared contracts; avoid importing an agent framework or making generic installed skills a runtime dependency. Use Python 3.11 standard library for core helpers. New provider fields need schema evidence and contract/failure tests before expanding the allowlist. Preserve original editable assets and honest native/perceptual statuses.
+Keep eleven discriminating entrypoints and shared contracts; avoid importing an agent framework or making generic installed skills a runtime dependency. Use Python 3.11 standard library for core helpers. New provider fields need schema evidence and contract/failure tests before expanding the allowlist. Preserve original editable assets and honest native/perceptual statuses.
 
 Run helper tests and package validation, then the affected real app route. A formatting edit does not need an expensive rendering rerun; a rig/export/material change does. Do not treat mock service tests as live provider validation. Update [compatibility](compatibility.md) only with actual evidence.
 

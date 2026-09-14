@@ -14,7 +14,7 @@ git -C "$Kit" rev-parse HEAD
 
 Create the parent directory first if needed. If the destination exists, inspect its origin, revision and working tree. Reuse a suitable checkout; preserve local changes and use a fresh directory when necessary. Do not reset a user's checkout. When a task packet pins a revision, use that revision in the fresh checkout and record it. Avoid updating tools during a production run.
 
-Read [studio-director](../skills/studio-director/SKILL.md), [Windows setup](setup-windows.md) and [portability](../references/portability.md). Keep all ten skills, shared references, templates and helpers together. Copying individual skill folders loses required shared resources.
+Read [studio-director](../skills/studio-director/SKILL.md), [Windows setup](setup-windows.md) and [portability](../references/portability.md). Keep all eleven skills, shared references, templates and helpers together. Copying individual skill folders loses required shared resources.
 
 ## 2. Integrate through the active host
 
@@ -26,7 +26,7 @@ After refresh/install, test invocation in a new host conversation from the game 
 
 **Direct-file route:** if registration is unavailable, deferred, or requires a user restart that would block the authorized task, explicitly read the checkout's coordinator and the sibling skills it names. Use the absolute helper path. Record `direct_file` as the integration mode and leave registered discovery unverified. This preserves task execution without claiming installation.
 
-For future project sessions, add a small studio section to the new game's `AGENTS.md` when the host uses that file, preserving any existing instructions. State the actual KIT location and revision, coordinator path, project work-card location and external host-config path. This is a project pointer, not a replacement for the skill catalog. Do not paste the ten skills into global instructions. On other hosts, keep the same pointer in an explicit project setup note and include it when resuming.
+For future project sessions, add a small studio section to the new game's `AGENTS.md` when the host uses that file, preserving any existing instructions. State the actual KIT location and revision, coordinator path, project work-card location and external host-config path. This is a project pointer, not a replacement for the skill catalog. Do not paste the eleven skills into global instructions. On other hosts, keep the same pointer in an explicit project setup note and include it when resuming.
 
 Official host behavior: [build/install plugins](https://learn.chatgpt.com/docs/build-plugins), [skill discovery and invocation](https://learn.chatgpt.com/docs/build-skills). A Git clone cannot provide computer-use tools or sign into an app.
 
