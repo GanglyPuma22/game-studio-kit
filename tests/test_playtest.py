@@ -534,6 +534,27 @@ class LauncherTests(PlaytestCase):
         with self.assertRaisesRegex(StudioError, "quotation mark"):
             playtest._cmd_quote('say"what')
 
+    def test_windows_launcher_is_emitted_through_the_real_path(self):
+        """Exercise the .cmd branch end to end, not just its quoting helper.
+
+        On this host `_launcher` takes the shlex branch, so `_cmd_quote` is
+        reached only by the test above. If the Windows branch stopped calling
+        it, every other assertion here would still pass.
+        """
+        with patch("studio_tools.playtest.IS_WINDOWS", True):
+            result = self.execute("print('played')", label="windows-launcher",
+                                  scene="res://main.tscn", passthrough=["--", "%REGION%"])
+        path = self.root / "artifacts/playtests/windows-launcher/relaunch.cmd"
+        self.assertTrue(path.is_file())
+        self.assertEqual(result["launcher"]["path"], "artifacts/playtests/windows-launcher/relaunch.cmd")
+        text = path.read_text()
+        self.assertTrue(text.startswith("@echo off"))
+        self.assertIn('"%%REGION%%"', text)
+        self.assertIn("REM label: windows-launcher", text)
+        self.assertIn("res://main.tscn", text)
+        for key in playtest.PROFILE_KEYS:
+            self.assertNotIn(key, text)
+
     def test_no_launcher_leaves_none_behind(self):
         result = self.execute("print('played')", label="bare", emit_launcher=False)
         run_dir = self.root / "artifacts/playtests/bare"
@@ -573,6 +594,32 @@ class PlaytestCommandTests(PlaytestCase):
         self.assertEqual(code, 0)
         self.assertEqual(self.last_args[-3:], ["--", "--regional-site", "coast"])
         self.assertEqual(read_json(self.root / "artifacts/playtests/through/playtest.json")["passthrough_count"], 2)
+
+    def test_cli_flags_reach_the_session_they_name(self):
+        """Every new flag through cli.main, not just through execute().
+
+        --no-launcher is inverted on the way through (emit_launcher=not ...),
+        which is the kind of wiring that fails silently when only the function
+        underneath is tested.
+        """
+        with patch("studio_tools.playtest.run", side_effect=self.fake_child("print('played')")):
+            with contextlib.redirect_stdout(io.StringIO()):
+                code = cli.main([
+                    "playtest", "start", "--project", str(self.root), "--config", str(self.host_config),
+                    "--sha256", self.sha, "--label", "flags", "--rendering-method", "gl_compatibility",
+                    "--resolution", "800x600", "--use-host-profile", "--no-launcher",
+                ])
+        self.assertEqual(code, 0)
+        record = read_json(self.root / "artifacts/playtests/flags/playtest.json")
+        self.assertEqual(record["rendering_method"], "gl_compatibility")
+        self.assertEqual(record["rendering_method_source"], "override")
+        self.assertEqual(record["resolution"], "800x600")
+        self.assertEqual(record["resolution_source"], "override")
+        self.assertEqual(record["profile"], "host")
+        self.assertIsNone(record["launcher"])
+        self.assertEqual(sorted((self.root / "artifacts/playtests/flags").glob("relaunch.*")), [])
+        self.assertIn("gl_compatibility", self.last_args)
+        self.assertIn("800x600", self.last_args)
 
     def test_cli_reports_a_refusal_without_a_traceback(self):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
