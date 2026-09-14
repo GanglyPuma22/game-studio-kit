@@ -49,11 +49,17 @@ const ROUTE: Array = [
 var _output_path := ""
 var _seconds := 0.0
 var _events: Array = []
-var _held := {}
+## One {"pressed": bool, "released": bool} per ROUTE entry. Step state is kept
+## per step, never per action: deriving it from "is this action held right now"
+## makes a step whose press_at has passed fire again the frame after it is
+## released, so the route would loop instead of running once.
+var _steps: Array = []
 var _scene: Node = null
 var _finished := false
 
 func _initialize() -> void:
+	for step in ROUTE:
+		_steps.append({"pressed": false, "released": false})
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--studio-playtest="):
 			_output_path = argument.trim_prefix("--studio-playtest=")
@@ -68,19 +74,21 @@ func _physics_process(delta: float) -> bool:
 	if _finished:
 		return true
 	_seconds += delta
-	for step in ROUTE:
+	for index in ROUTE.size():
+		var step: Dictionary = ROUTE[index]
+		var state: Dictionary = _steps[index]
 		var action: String = step["action"]
 		if not InputMap.has_action(action):
 			# A typo here would otherwise look like a game that ignores input.
 			_fail("Project has no input action named " + action)
 			return true
-		if _seconds >= step["press_at"] and not _held.get(action, false):
+		if not state["pressed"] and _seconds >= step["press_at"]:
 			Input.action_press(action)
-			_held[action] = true
+			state["pressed"] = true
 			_record("press", action)
-		elif _seconds >= step["release_at"] and _held.get(action, false):
+		elif state["pressed"] and not state["released"] and _seconds >= step["release_at"]:
 			Input.action_release(action)
-			_held[action] = false
+			state["released"] = true
 			_record("release", action)
 	_sample()
 	if _seconds >= MAX_SECONDS or _route_complete():
@@ -89,8 +97,8 @@ func _physics_process(delta: float) -> bool:
 	return false
 
 func _route_complete() -> bool:
-	for step in ROUTE:
-		if _seconds < step["release_at"]:
+	for state in _steps:
+		if not state["released"]:
 			return false
 	return true
 
@@ -121,13 +129,16 @@ func _assertions() -> Dictionary:
 	}
 
 func _report() -> void:
-	for action in _held.keys():
-		if _held[action]:
-			Input.action_release(action)
+	for index in ROUTE.size():
+		var state: Dictionary = _steps[index]
+		if state["pressed"] and not state["released"]:
+			Input.action_release(ROUTE[index]["action"])
+			state["released"] = true
 	var checks := _assertions()
-	var passed := true
+	var failed: PackedStringArray = []
 	for name in checks.keys():
-		passed = passed and bool(checks[name])
+		if not bool(checks[name]):
+			failed.append(str(name))
 	var report := {
 		"kind": "playtest_harness_route",
 		"engine_version": Engine.get_version_info().string,
@@ -142,15 +153,22 @@ func _report() -> void:
 		"ordinary_input_review": "not_run",
 		"visual_review": "not_run",
 		"listening": "not_run",
-		"ok": passed,
+		"ok": failed.is_empty(),
 	}
 	_write(report)
 	_finished = true
+	if not failed.is_empty():
+		# The kit judges a driven run from the engine log and the exit code, not
+		# from this file, so a failed assertion has to travel that way or the
+		# session is reported as a clean `completed`.
+		push_error("Playtest harness assertions failed: " + ", ".join(failed))
+		quit(1)
 
 func _fail(message: String) -> void:
 	push_error(message)
 	_write({"kind": "playtest_harness_route", "ok": false, "error": message, "events": _events})
 	_finished = true
+	quit(1)
 
 func _write(report: Dictionary) -> void:
 	if _output_path == "":
