@@ -430,6 +430,40 @@ class DisplaySettingsTests(PlaytestCase):
             run.assert_not_called()
 
 
+class ProjectRevisionTests(PlaytestCase):
+    """The receipt names the source a session played, through the public path."""
+
+    def test_a_game_inside_a_checkout_keeps_its_commit(self):
+        # The project has no .git of its own; the checkout is a level up, which
+        # is the monorepo layout that previously recorded "not a checkout".
+        checkout = Path(self.tmp.name) / "monorepo"
+        nested = checkout / "games" / "harbor"
+        nested.mkdir(parents=True)
+        (nested / "project.godot").touch()
+        setup = [
+            ["git", "init", "-q", str(checkout)],
+            ["git", "-C", str(checkout), "-c", "user.email=t@example.com",
+             "-c", "user.name=Test", "commit", "-q", "--allow-empty", "-m", "base"],
+        ]
+        for command in setup:
+            if subprocess.run(command, capture_output=True).returncode:
+                self.skipTest("git is not usable on this host")
+        self.assertFalse((nested / ".git").exists())
+        with patch("studio_tools.playtest.run", side_effect=self.fake_child("print('played')")):
+            playtest.execute(self.config, nested, sha256_expected=self.sha, label="nested")
+        record = read_json(nested / "artifacts/playtests/nested/playtest.json")
+        self.assertRegex(record["commit"], r"^[0-9a-f]{40}$")
+        # project.godot and the run directory are untracked, so the tree is dirty.
+        self.assertIs(record["dirty"], True)
+
+    def test_a_project_outside_any_checkout_reports_no_commit(self):
+        self.execute("print('played')", label="loose")
+        record = read_json(self.root / "artifacts/playtests/loose/playtest.json")
+        self.assertIsNone(record["commit"])
+        self.assertIn("not a checkout",
+                      (self.root / "artifacts/playtests/loose/relaunch.sh").read_text())
+
+
 class DrivenHarnessReportTests(PlaytestCase):
     """The kit supplies the report path so it cannot disagree with the receipt."""
 
