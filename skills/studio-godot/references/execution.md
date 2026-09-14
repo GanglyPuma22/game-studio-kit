@@ -52,3 +52,12 @@ enumerate), so a launch that left a process behind is never `ok`.
 both receipts and the verdict, so a lower-rung result is never cited for a higher
 one. Headless modes never establish appearance, audible output or
 ordinary controls.
+
+`--mode native` is for a run an agent reads a verdict from: bounded, timed and
+gated on declared results. To hand the controls to a person instead, or to drive
+a route with synthetic input, use `playtest` and
+[studio-playtest](../../studio-playtest/SKILL.md). It shares this engine
+identity check and these native flags, but it has session modes rather than one
+blocking wait, it may run uncapped while a human plays, it can keep the real
+user profile so saves survive, and it writes a `relaunch` script the player can
+run later without the kit. Its `ok` is run health and never acceptance.

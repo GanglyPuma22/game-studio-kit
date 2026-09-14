@@ -50,7 +50,7 @@ gets no other edits.
 | 2 Source compile | root (script), via kit commands; worker analyzes | terrain/composition build owned and written by the root; worker report JSON, then `candidate new` + `validate-record` | 0 | 60, one compaction | missing report or `compile_verdict: fail` → stop stage |
 | 3 Native admission | root | `launch --mode native --timeout <remaining, max 3600> --cutoff-utc <stage deadline>` verdict JSON | 2 | 30 | second verdict not `completed` → stop (retryable) |
 | 4 Performance cleanroom | root, idle | `bench cleanroom -- launch ...` with `attributable: true` | one capture per rung plus one repeat (five for the four-rung example) | 45 | fails the frame budget → one attribution pass, no new scope (retryable) |
-| 5 Traversal | root | `launch --mode native --timeout <remaining, max 3600> --cutoff-utc <stage deadline>` with the game's route probe and synthetic input | 3 per hypothesis, 6 in total | 60 | harness bug → headless fixture, never a native relaunch; stop at 6 total launches (retryable) |
+| 5 Traversal | root | `launch --mode native --timeout <remaining, max 3600> --cutoff-utc <stage deadline>` with the game's route probe and synthetic input ([studio-playtest](../../studio-playtest/SKILL.md)) | 3 per hypothesis, 6 in total | 60 | harness bug → headless fixture, never a native relaunch; stop at 6 total launches (retryable) |
 | 6 Visual review | root, desktop | `launch --mode native --timeout <remaining, max 3600> --cutoff-utc <stage deadline>` native stills against the style reference | 2 | 45 | no defect list → stop |
 | 7 Audiovisual and human acceptance | operator, then user | `launch --mode native --timeout <remaining, max 3600> --cutoff-utc <stage deadline>` recorded route, listening notes | 1 | 30 | never claimed by the root |
 
@@ -136,7 +136,16 @@ never runs.
 
 **Stage 5 mode.** Traversal launches use `--mode native` explicitly;
 `launch`'s default mode is `import`, and no headless mode can establish
-traversal.
+traversal. The route probe and its synthetic input are defined by
+[studio-playtest](../../studio-playtest/SKILL.md): a probe is a `SceneTree`
+harness built from [the template](../../../templates/playtest-harness.gd) that
+presses the project's own input actions along a declared route, logs
+frame-stamped events, asserts named checks and quits itself. It establishes
+wiring only — no unattended stage may promote a green harness into traversal
+that a person has accepted. An unattended run drives it with `launch --mode
+native --script`, since `playtest`'s session modes all assume somebody is
+there; `playtest --session driven` is the same harness with a person available
+to look at the result.
 
 **Launch deadlines.** Every `launch` invocation — stages 3, 5, 6 and 7 above,
 and the cleanroom-wrapped launch in Section 4 — passes `--timeout <seconds

@@ -36,8 +36,8 @@ def check(root):
                 r"^name: " + re.escape(skill["name"]) + r"$", front, re.M
             ) or not re.search(r"^description: .+", front, re.M):
                 errors.append("invalid skill metadata: " + skill["path"])
-        if len(names) != 10:
-            errors.append("expected ten distinct studio entrypoints")
+        if len(names) != 11:
+            errors.append("expected eleven distinct studio entrypoints")
         for name in manifest["resources"]:
             if not relative(root, name).is_file():
                 errors.append("missing resource: " + name)

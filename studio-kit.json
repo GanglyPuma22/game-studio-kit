@@ -40,6 +40,10 @@
       "path": "skills/studio-godot/SKILL.md"
     },
     {
+      "name": "studio-playtest",
+      "path": "skills/studio-playtest/SKILL.md"
+    },
+    {
       "name": "studio-review",
       "path": "skills/studio-review/SKILL.md"
     }
@@ -61,6 +65,7 @@
     "skills/studio-godot/references/architecture.md",
     "skills/studio-godot/references/physics-and-precision.md",
     "skills/studio-godot/references/testing-and-performance.md",
+    "skills/studio-playtest/references/harness.md",
     "skills/studio-review/references/validation-loop.md",
     "skills/studio-blender/scripts/lifecycle/Ensure-SupervisedBlenderMCP.ps1",
     "skills/studio-blender/scripts/lifecycle/Test-SupervisedBlenderMCP.ps1",
@@ -118,7 +123,8 @@
     "templates/return.md",
     "templates/state.md",
     "templates/worker-brief.md",
-    "templates/work-card.md"
+    "templates/work-card.md",
+    "templates/playtest-harness.gd"
   ],
   "commands": [
     "check-package",
