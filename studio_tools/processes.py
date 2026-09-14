@@ -141,7 +141,9 @@ def alive(pid):
     """
     if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         return None
-    if os.name == "nt" or not PROC.is_dir():
+    if os.name == "nt":
+        return _windows_alive(pid)
+    if not PROC.is_dir():
         return None
     state = _proc_state(pid)
     return state is not None and state[0] != "Z"
