@@ -216,7 +216,18 @@ and voice tools while somebody plays. Nothing waits for that process, so its
 exit code, elapsed time and surviving descendants are never observed: the exit
 receipt says `status: "unobserved"` with a null return code rather than
 inventing either, and reports `engine_running_at_collect` as true, false, or
-null on a host that cannot tell. It is completed by exactly one `playtest
+null on a host that cannot tell.
+
+For the same reason an attended session takes no time cap. A `--max-minutes`
+there could only be written into a receipt, never applied, so a non-zero value
+is refused outright and `max_minutes_effective` is always null; `--cutoff-utc`
+still gates whether the session may *start*, but nothing can end it except the
+player. Liveness is answered from `/proc` on POSIX and from the same
+`Win32_Process` table the descendant walk uses on Windows; a host with neither
+reports null, and because a PID can be reused, a true answer is a statement
+about the PID rather than proof the original process still holds it. Read a
+null `engine_running_at_collect` as "not established", never as "the session
+ended". It is completed by exactly one `playtest
 collect --label <label>`, run after the player says they are done; a second
 call is refused, because calling it repeatedly to discover when the game closed
 is polling.
