@@ -238,6 +238,19 @@ class SessionTests(PlaytestCase):
         self.assertFalse(collected["ok"])
         self.assertEqual(collected["acceptance"], "not_established")
 
+    def test_collect_refuses_while_the_engine_still_runs_without_spending_it(self):
+        result = self.attend("print('attended')", label="still-playing")
+        self.settled(result["pid"])
+        run_dir = self.root / "artifacts/playtests/still-playing"
+        with patch("studio_tools.playtest.alive", return_value=True):
+            with self.assertRaisesRegex(StudioError, "still running"):
+                playtest.collect(self.config, self.root, "still-playing")
+        # Nothing was consumed: no receipt, no lingering claim, so the real
+        # collection can still happen once the player quits.
+        self.assertFalse((run_dir / "exit.json").exists())
+        self.assertFalse((run_dir / "collect.lock").exists())
+        self.assertEqual(playtest.collect(self.config, self.root, "still-playing")["verdict"], "collected")
+
     def test_collect_refuses_a_session_it_does_not_complete(self):
         self.execute("print('played')", label="blocked")
         with self.assertRaisesRegex(StudioError, "completes an attended playtest"):
@@ -360,6 +373,137 @@ class SessionTests(PlaytestCase):
             playtest.execute(self.config, empty, sha256_expected=self.sha)
 
 
+class DisplaySettingsTests(PlaytestCase):
+    """A playtest shows the game as configured, not as the kit prefers it."""
+
+    def declare(self, body):
+        (self.root / "project.godot").write_text(body, encoding="utf-8")
+
+    def test_project_renderer_and_size_are_used_rather_than_the_pinned_default(self):
+        self.declare(
+            'config_version=5\n\n[application]\n\nconfig/name="Fixture"\n\n'
+            '[display]\n\nwindow/size/viewport_width=1280\n'
+            'window/size/viewport_height=720\n\n'
+            '[rendering]\n\nrenderer/rendering_method="gl_compatibility"\n'
+            'renderer/rendering_method.mobile="mobile"\n'
+        )
+        self.execute("print('played')", label="declared")
+        self.assertIn("gl_compatibility", self.last_args)
+        self.assertIn("1280x720", self.last_args)
+        record = read_json(self.root / "artifacts/playtests/declared/playtest.json")
+        self.assertEqual(record["rendering_method"], "gl_compatibility")
+        self.assertEqual(record["rendering_method_source"], "project")
+        self.assertEqual(record["resolution"], "1280x720")
+        self.assertEqual(record["resolution_source"], "project")
+
+    def test_a_platform_override_key_is_not_read_as_the_base_setting(self):
+        self.declare('[rendering]\n\nrenderer/rendering_method.mobile="mobile"\n')
+        self.execute("print('played')", label="mobile-only")
+        record = read_json(self.root / "artifacts/playtests/mobile-only/playtest.json")
+        self.assertEqual(record["rendering_method"], "forward_plus")
+        self.assertEqual(record["rendering_method_source"], "default")
+
+    def test_a_project_that_declares_nothing_falls_back_and_says_so(self):
+        self.execute("print('played')", label="silent")
+        record = read_json(self.root / "artifacts/playtests/silent/playtest.json")
+        self.assertEqual(record["rendering_method"], "forward_plus")
+        self.assertEqual(record["resolution"], "1920x1080")
+        self.assertEqual(record["rendering_method_source"], "default")
+        self.assertEqual(record["resolution_source"], "default")
+
+    def test_explicit_flags_override_the_project_and_are_recorded_as_override(self):
+        self.declare('[rendering]\n\nrenderer/rendering_method="gl_compatibility"\n')
+        self.execute("print('played')", label="forced",
+                     rendering_method="mobile", resolution="800x600")
+        record = read_json(self.root / "artifacts/playtests/forced/playtest.json")
+        self.assertEqual(record["rendering_method"], "mobile")
+        self.assertEqual(record["rendering_method_source"], "override")
+        self.assertEqual(record["resolution"], "800x600")
+        self.assertEqual(record["resolution_source"], "override")
+        with patch("studio_tools.playtest.run") as run:
+            with self.assertRaisesRegex(StudioError, "Rendering method must be"):
+                playtest.execute(self.config, self.root, sha256_expected=self.sha,
+                                 rendering_method="raytraced", label="bad-renderer")
+            with self.assertRaisesRegex(StudioError, "WIDTHxHEIGHT"):
+                playtest.execute(self.config, self.root, sha256_expected=self.sha,
+                                 resolution="huge", label="bad-size")
+            run.assert_not_called()
+
+
+class DrivenHarnessReportTests(PlaytestCase):
+    """The kit supplies the report path so it cannot disagree with the receipt."""
+
+    def driven(self, code, **kwargs):
+        """Run a driven session with the supplied report path reaching the child.
+
+        The ordinary stand-in replaces the whole argument array, so it would
+        never see the argument this test is about.
+        """
+        def forwarding(args, **called):
+            self.last_args = args
+            self.last_kwargs = called
+            supplied = [a for a in args if a.startswith("--studio-playtest=")]
+            return processes.run([sys.executable, "-c", code] + supplied, **called)
+        with patch("studio_tools.playtest.run", side_effect=forwarding):
+            return playtest.execute(
+                self.config, self.root, sha256_expected=self.sha, session="driven",
+                script="res://tests/route.gd", max_minutes=5, **kwargs
+            )
+
+    def write_report(self, ok):
+        # The stand-in engine writes where the kit told the harness to write.
+        return (
+            "import json,sys;"
+            "p=[a for a in sys.argv if a.startswith('--studio-playtest=')][0].split('=',1)[1];"
+            f"open(p,'w').write(json.dumps({{'kind':'playtest_harness_route','ok':{ok}}}))"
+        )
+
+    def test_kit_supplies_the_path_and_reads_the_report_back(self):
+        result = self.driven(self.write_report(True), label="reported")
+        self.assertEqual(result["verdict"], "completed")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["acceptance"], "not_established")
+        supplied = [a for a in self.last_args if a.startswith("--studio-playtest=")]
+        self.assertEqual(len(supplied), 1)
+        run_dir = self.root / "artifacts/playtests/reported"
+        self.assertEqual(supplied[0].split("=", 1)[1], str((run_dir / "harness.json").resolve()))
+        # The separator has to reach the engine for user args to be visible.
+        self.assertIn("--", self.last_args)
+        self.assertEqual(
+            read_json(run_dir / "playtest.json")["harness_report"],
+            "artifacts/playtests/reported/harness.json",
+        )
+        self.assertEqual(result["harness_report"]["sha256"], sha256(run_dir / "harness.json"))
+
+    def test_a_failing_or_absent_report_is_not_a_completed_run(self):
+        failed = self.driven(self.write_report(False), label="route-failed")
+        self.assertEqual(failed["verdict"], "harness_failed")
+        self.assertFalse(failed["ok"])
+        missing = self.driven("print('wrote nothing')", label="route-silent")
+        self.assertEqual(missing["verdict"], "harness_report_missing")
+        self.assertFalse(missing["ok"])
+        self.assertIsNone(missing["harness_report"])
+        unreadable = self.driven(
+            "import sys;p=[a for a in sys.argv if a.startswith('--studio-playtest=')][0]"
+            ".split('=',1)[1];open(p,'w').write('not json')", label="route-garbled")
+        self.assertEqual(unreadable["verdict"], "harness_report_unreadable")
+
+    def test_a_hand_passed_report_path_is_refused(self):
+        with patch("studio_tools.playtest.run") as run:
+            with self.assertRaisesRegex(StudioError, "remove it from the passthrough"):
+                playtest.execute(self.config, self.root, sha256_expected=self.sha,
+                                 session="driven", script="res://tests/route.gd",
+                                 max_minutes=5, label="two-paths",
+                                 passthrough=["--", "--studio-playtest=/tmp/elsewhere.json"])
+            run.assert_not_called()
+        self.assertFalse((self.root / "artifacts/playtests/two-paths").exists())
+
+    def test_a_human_session_is_told_no_report_path(self):
+        self.execute("print('played')", label="no-harness")
+        self.assertFalse(any(a.startswith("--studio-playtest=") for a in self.last_args))
+        self.assertIsNone(read_json(self.root / "artifacts/playtests/no-harness/playtest.json")["harness_report"])
+
+
 class LauncherTests(PlaytestCase):
     def test_launcher_is_runnable_and_names_the_session_it_documents(self):
         result = self.execute("print('played')", label="relaunch", scene="res://main.tscn")
@@ -381,6 +525,14 @@ class LauncherTests(PlaytestCase):
         self.assertIn("accepted by a person", text)
         for key in playtest.PROFILE_KEYS:
             self.assertNotIn(key, text)
+
+    def test_windows_launcher_escapes_percent_expansion(self):
+        # cmd.exe expands %NAME% even inside quotes, so an unescaped launcher
+        # would run a different argument than the session did.
+        self.assertEqual(playtest._cmd_quote("%APPDATA%"), '"%%APPDATA%%"')
+        self.assertEqual(playtest._cmd_quote("res://main.tscn"), "res://main.tscn")
+        with self.assertRaisesRegex(StudioError, "quotation mark"):
+            playtest._cmd_quote('say"what')
 
     def test_no_launcher_leaves_none_behind(self):
         result = self.execute("print('played')", label="bare", emit_launcher=False)
@@ -460,6 +612,14 @@ class WindowsLivenessTests(unittest.TestCase):
              patch("studio_tools.processes.subprocess.run", side_effect=OSError):
             self.assertIsNone(processes._windows_alive(4321))
 
+    def test_alive_actually_dispatches_to_the_windows_probe(self):
+        # The probe existing is not the same as alive calling it: unwired, every
+        # Windows PID reports unknown and a running session collects as clean.
+        with patch("studio_tools.processes.os.name", "nt"), \
+             patch("studio_tools.processes._windows_alive", return_value=True) as probe:
+            self.assertIs(processes.alive(4321), True)
+        probe.assert_called_once_with(4321)
+
     def test_alive_rejects_a_pid_that_is_not_one(self):
         for value in (None, 0, -1, True, "4321"):
             self.assertIsNone(processes.alive(value))
@@ -511,6 +671,13 @@ class PlaytestDocumentationTests(unittest.TestCase):
         # recorded as a clean completed run.
         self.assertIn("push_error(\"Playtest harness assertions failed", template)
         self.assertIn("quit(1)", template)
+        # A ceiling reached mid-route must fail rather than report a passing
+        # experiment that never ran its declared route.
+        self.assertIn('checks["route_completed"] = _route_complete()', template)
+        # Actions reach a game that polls them and a game that reads them as
+        # events; driving only the first misreports an event-driven game.
+        self.assertIn("Input.parse_input_event(event)", template)
+        self.assertIn("InputEventAction.new()", template)
 
     def test_catalog_count_agrees_with_the_manifest_everywhere(self):
         count = len(read_json(ROOT / "studio-kit.json")["skills"])

@@ -11,6 +11,7 @@ and add the one claim that matters here: `ok` is run health, never acceptance.
 
 from __future__ import annotations
 from datetime import datetime, timezone
+import json
 import math
 from pathlib import Path, PurePosixPath
 import re
@@ -46,6 +47,11 @@ ATTENDED_LIMITS = LIMITS + [
     "--cutoff-utc gates only whether it may start, never when it ends",
 ]
 LAUNCHER_NOTE = "game-studio-kit playtest relaunch"
+# Godot 4 offers exactly these; a project declaring anything else is not read.
+RENDERING_METHODS = ("forward_plus", "mobile", "gl_compatibility")
+# The kit tells the harness where to write, so the two can never disagree.
+HARNESS_REPORT = "harness.json"
+HARNESS_ARGUMENT = "--studio-playtest="
 # Every field `collect` reads out of a receipt it did not write in this process.
 REQUIRED_RECEIPT_FIELDS = ("label", "engine", "expected_results", "started_utc")
 
@@ -60,6 +66,62 @@ def _scene(scene):
     if not tail or "\\" in tail or ".." in PurePosixPath(tail).parts:
         raise StudioError("Playtest scene must name a file inside the project")
     return scene
+
+
+def _setting(root, section, key):
+    """One value from `project.godot`, Godot's own INI dialect, or None.
+
+    Keys there carry `/` and `.`, values are quoted, and a per-platform
+    override such as `renderer/rendering_method.mobile` is a different key that
+    must not be read as the base setting, so the match is exact.
+    """
+    try:
+        text = (root / "project.godot").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    current = ""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(";") or not stripped:
+            continue
+        if stripped.startswith("[") and stripped.endswith("]"):
+            current = stripped[1:-1].strip()
+            continue
+        name, separator, value = stripped.partition("=")
+        if separator and current == section and name.strip() == key:
+            return value.strip().strip('"')
+    return None
+
+
+def _display(root, rendering_method, resolution):
+    """Decide the renderer and window size, preferring what the game declares.
+
+    `launch --mode native` pins both, which suits a bounded smoke of a known
+    configuration. A playtest is the opposite errand: it exists to show what a
+    player would see, and the renderer decides whether flicker, banding and
+    transparency artifacts appear at all, so substituting one can invent a
+    defect the player will never hit or hide one they will. The project's own
+    choice wins, an explicit flag overrides it, and a project that declares
+    nothing falls back to the pinned default and says so.
+    """
+    if rendering_method is not None:
+        if rendering_method not in RENDERING_METHODS:
+            raise StudioError("Rendering method must be " + ", ".join(RENDERING_METHODS))
+        method, method_source = rendering_method, "override"
+    else:
+        declared = _setting(root, "rendering", "renderer/rendering_method")
+        method = declared if declared in RENDERING_METHODS else None
+        method_source = "project" if method else "default"
+    if resolution is not None:
+        if not re.fullmatch(r"[1-9][0-9]{1,4}x[1-9][0-9]{1,4}", resolution):
+            raise StudioError("Resolution must be WIDTHxHEIGHT, for example 1920x1080")
+        size, size_source = resolution, "override"
+    else:
+        width = _setting(root, "display", "window/size/viewport_width")
+        height = _setting(root, "display", "window/size/viewport_height")
+        size = f"{width}x{height}" if (width or "").isdigit() and (height or "").isdigit() else None
+        size_source = "project" if size else "default"
+    return method, method_source, size, size_source
 
 
 def _revision(root):
@@ -97,7 +159,12 @@ def _cmd_quote(value):
             "An argument containing a quotation mark cannot be written to a .cmd launcher; "
             "rerun with --no-launcher"
         )
-    return f'"{value}"' if not value or re.search(r"[\s&|<>^()%!,;=]", value) else value
+    quoted = f'"{value}"' if not value or re.search(r"[\s&|<>^()%!,;=]", value) else value
+    # Quoting does not stop cmd.exe expanding %NAME%, so a launcher would run a
+    # different argument than the session did, and could paste an environment
+    # value into a file that deliberately carries none. In a batch file, %% is
+    # the literal per cent sign.
+    return quoted.replace("%", "%%")
 
 
 def _launcher(root, run_dir, args, playtest):
@@ -162,6 +229,7 @@ def execute(
     config, project, *, sha256_expected, session="handoff", scene=None, script=None,
     label=None, max_minutes=None, cutoff_utc=None, results=(), scrub=(),
     passthrough=(), use_host_profile=False, emit_launcher=True,
+    rendering_method=None, resolution=None,
 ):
     """Verify identity, start the game once, and record the session."""
     if session not in SESSIONS:
@@ -232,20 +300,15 @@ def execute(
         raise StudioError("Environment scrub prefixes must be non-empty strings")
     if not isinstance(passthrough, (list, tuple)) or not all(isinstance(x, str) for x in passthrough):
         raise StudioError("Passthrough arguments must be strings")
-    flags = mode_flags("native")
-    args = [str(engine_path.resolve()), "--path", app_path(config, root, "godot")] + flags
-    if script is not None:
-        args += ["--script", script]
-    if scene is not None:
-        args.append(scene)
-    args += list(passthrough)
-    if emit_launcher and IS_WINDOWS and any('"' in item for item in args):
-        # Refuse here rather than when the launcher is written, which is after
-        # the run directory exists: the advice below has to still be possible.
+    if any(item.startswith(HARNESS_ARGUMENT) for item in passthrough):
+        # The kit knows the run directory and supplies this itself. Two values
+        # would leave the report path and the recorded evidence disagreeing,
+        # with nothing to say which one the harness actually used.
         raise StudioError(
-            "An argument containing a quotation mark cannot be written to a "
-            ".cmd launcher; rerun with --no-launcher"
+            f"The playtest supplies {HARNESS_ARGUMENT}<path> for a driven session; "
+            "remove it from the passthrough"
         )
+    method, method_source, size, size_source = _display(root, rendering_method, resolution)
     label = safe_id(label) if label else uuid.uuid4().hex
     # A separate namespace from artifacts/launches, so a playtest and an owned
     # launch can never collide on the label that refuses a reused run directory.
@@ -262,6 +325,34 @@ def execute(
             "path": item, "present": present,
             "sha256": _readable_digest(target) if present else None,
         })
+    # The native flag shape is the owned launcher's, so playtest inherits any
+    # flag it gains; only the two values a player would notice are replaced.
+    flags = mode_flags("native")
+    if method is not None:
+        flags[flags.index("--rendering-method") + 1] = method
+    if size is not None:
+        flags[flags.index("--resolution") + 1] = size
+    args = [str(engine_path.resolve()), "--path", app_path(config, root, "godot")] + flags
+    if script is not None:
+        args += ["--script", script]
+    if scene is not None:
+        args.append(scene)
+    args += list(passthrough)
+    harness_report = None
+    if session == "driven":
+        # Declaring the report through --result and naming it again through the
+        # passthrough meant keeping two paths in sync by hand, and getting it
+        # wrong produced "declared result missing" with no hint why.
+        harness_report = f"artifacts/playtests/{label}/{HARNESS_REPORT}"
+        args += [] if list(passthrough)[:1] == ["--"] else ["--"]
+        args.append(HARNESS_ARGUMENT + app_path(config, run_dir / HARNESS_REPORT, "godot"))
+    if emit_launcher and IS_WINDOWS and any('"' in item for item in args):
+        # Refuse here rather than when the launcher is written, which is after
+        # the run directory exists: the advice below has to still be possible.
+        raise StudioError(
+            "An argument containing a quotation mark cannot be written to a "
+            ".cmd launcher; rerun with --no-launcher"
+        )
     try:
         run_dir.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
@@ -291,9 +382,14 @@ def execute(
         "commit": commit,
         "dirty": dirty,
         # Read back from the flags that were actually built, so a receipt can
-        # never describe a renderer or resolution the engine was not given.
+        # never describe a renderer or resolution the engine was not given, and
+        # say where each came from so nobody reads a fallback as the game's own
+        # configuration.
         "rendering_method": flags[flags.index("--rendering-method") + 1],
+        "rendering_method_source": method_source,
         "resolution": flags[flags.index("--resolution") + 1],
+        "resolution_source": size_source,
+        "harness_report": harness_report,
         "expected_results": expected,
         "results_before": results_before,
         "started_utc": now.isoformat(),
@@ -465,13 +561,40 @@ def _health(diagnostics, result_files, good):
     return good
 
 
+def _harness(root, run_dir, playtest):
+    """The driven harness's own report, which this command supplied the path for.
+
+    Returns (file record, fault). The harness also pushes a failed assertion to
+    the engine log and quits non-zero, so this is a second reading of the same
+    verdict rather than the only one; a harness that wrote nothing is the case
+    the log alone would not catch.
+    """
+    if not playtest.get("harness_report"):
+        return None, None
+    path = run_dir / HARNESS_REPORT
+    if not path.is_file():
+        return None, "harness_report_missing"
+    record = file_record(root, path)
+    try:
+        report = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except ValueError:
+        return record, "harness_report_unreadable"
+    if not isinstance(report, dict) or report.get("ok") is not True:
+        return record, "harness_failed"
+    return record, None
+
+
 def _finish(root, run_dir, playtest, record, text, verdict, failure, survivors=None):
     diagnostics = classify_log(text)
     write_json(run_dir / "diagnostics.json", diagnostics)
     result_files = _result_files(root, playtest)
+    harness_record, harness_fault = _harness(root, run_dir, playtest)
     status = record.get("status", "start_failed") if record else "refused"
     if verdict is None:
         verdict = _health(diagnostics, result_files, "completed") if status == "completed" else status
+        if verdict == "completed" and harness_fault:
+            verdict = harness_fault
+            failure = failure or "The driven harness did not report a passing route"
     log_path = run_dir / "process" / "stdout.log"
     record_path = run_dir / "process" / "process.json"
     exit_record = {
@@ -493,6 +616,7 @@ def _finish(root, run_dir, playtest, record, text, verdict, failure, survivors=N
         "combined_log_bytes": log_path.stat().st_size if log_path.is_file() else 0,
         "diagnostics": diagnostics,
         "result_files": result_files,
+        "harness_report": harness_record,
         "failure": failure,
         "finished_utc": datetime.now(timezone.utc).isoformat(),
         "limits": LIMITS,
@@ -569,6 +693,13 @@ def _collected(config, root, run_dir, record_path, playtest):
     log_path = run_dir / "process" / "stdout.log"
     text = log_path.read_bytes().decode("utf-8", errors="replace") if log_path.is_file() else ""
     running = alive(record.get("pid"))
+    if running is True:
+        # Refuse rather than record: writing exit.json here would consume the
+        # one collection this session gets, so a call that merely raced the
+        # player's last click would lock out the real receipt for good.
+        raise StudioError(
+            "The engine from this session is still running; collect once the game has been quit"
+        )
     playtest["engine_running_at_collect"] = running
     write_json(record_path, playtest)
     diagnostics = classify_log(text)
@@ -576,10 +707,7 @@ def _collected(config, root, run_dir, record_path, playtest):
     result_files = _result_files(root, playtest)
     failure = None
     after = playtest["engine"]["sha256_after_exit"]
-    if running is True:
-        verdict = "session_incomplete"
-        failure = "The engine from this session is still running; collect once the game has been quit"
-    elif after is not None and after != playtest["engine"]["sha256"]:
+    if after is not None and after != playtest["engine"]["sha256"]:
         verdict = "engine_replaced"
         failure = "Engine bytes changed during the session; the receipts describe bytes it no longer has"
     elif not record.get("pid"):
@@ -605,7 +733,7 @@ def _collected(config, root, run_dir, record_path, playtest):
         "acceptance": "not_established",
         # Nobody waited for this process, so there is no exit status to report:
         # "unobserved" is the honest word for a session with no owner.
-        "status": "running" if running is True else "unobserved",
+        "status": "unobserved",
         "returncode": None,
         "elapsed_seconds": None,
         "collected_after_seconds": round(
