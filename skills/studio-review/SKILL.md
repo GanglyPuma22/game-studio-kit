@@ -15,6 +15,8 @@ Determine the active host's real tools. Python doctor cannot discover computer u
 
 Before reserving desktop time, establish the available held-key/captured-relative-mouse input route, continuous-video inspection route and actual audio listening route. A player window plus intermittent screenshots cannot establish continuous motion or listening. If a required capability is unavailable, request the exact human check (controls/action, video intervals, or playback device and audio intervals/seams) needed to close that gap; keep those verdicts pending and finish independent background checks.
 
+Use [studio-playtest](../studio-playtest/SKILL.md) to construct and run the route itself: it decides between ordinary controls and a synthetic-input harness, picks the session mode, and leaves a recorded session with a re-runnable launcher. It issues no verdict; the acceptance decision below stays here.
+
 Walk the documented route with ordinary controls. In the original example use WASD/arrows, click for mouse look, approach within 3 m and press E; Escape releases the mouse. Capture the normal 70-degree camera, 1.8 m scale marker, close object, at least two idle loops, stress/response transition and return. Repeat input and walk away to inspect reset/feedback.
 
 Capture the audible runtime route and listen through actual available playback. Check attenuation, cue timing, clipping, overlap and loop seams. Record who listened and how. If you cannot hear or inspect audio, mark listening not_run; do not infer it from a waveform or `playing` flag.
