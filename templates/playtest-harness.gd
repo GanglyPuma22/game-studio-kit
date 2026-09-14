@@ -70,6 +70,11 @@ func _initialize() -> void:
 		return
 	_scene = packed.instantiate()
 	root.add_child(_scene)
+	# A normal scene launch sets this. Without it a game or autoload reading
+	# get_tree().current_scene -- to find the active level, or to run a scene
+	# transition -- sees null and fails in a way no player ever would, which is
+	# the harness reporting a defect that does not exist.
+	current_scene = _scene
 
 func _physics_process(delta: float) -> bool:
 	if _finished:

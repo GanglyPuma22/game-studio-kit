@@ -412,6 +412,34 @@ def start(args, *, job_dir, cwd=None, env=None, hide_window=False):
     return {"pid": process.pid, "log": str(log), "process_record": str(record_path)}
 
 
+def stop_started(pid, hide_window=False):
+    """Stop a job `start` launched, by PID, when its receipt could not be written.
+
+    `start` deliberately keeps no handle on the child, so the PID it recorded a
+    moment ago is the only way for a caller to take responsibility for what it
+    launched. A POSIX job is its own process group, so the group signal reaches
+    the leader and everything it spawned; Windows needs the tree walk taskkill
+    performs. A PID can be reused, which is why this is only ever called
+    immediately after the launch that produced it.
+    """
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            return subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                check=False, timeout=5, **_creation_options(hide_window),
+            ).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            return False
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except OSError:
+        return False
+    return True
+
+
 def record(args, *, job_dir, duration, grace=5, startup=0, cancelled=None, cwd=None):
     """Own one recorder, send FFmpeg's q on stop, then bound finalization.
 

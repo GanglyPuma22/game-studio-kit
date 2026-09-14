@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -188,6 +189,30 @@ class SessionTests(PlaytestCase):
         # There is no session left to complete, so collect has nothing to add.
         with self.assertRaisesRegex(StudioError, "already collected"):
             playtest.collect(self.config, self.root, "stillborn")
+
+    def test_attended_receipt_failure_stops_the_child_it_launched(self):
+        real_write = playtest.write_json
+        real_stop = playtest.stop_started
+
+        def failing(path, data):
+            # Only the final transition fails; the receipts before it stand.
+            if isinstance(data, dict) and data.get("status") == "launched":
+                raise OSError("no space left on device")
+            return real_write(path, data)
+
+        with patch("studio_tools.playtest.start",
+                   side_effect=self.fake_started("import time;time.sleep(30)")), \
+             patch("studio_tools.playtest.stop_started", wraps=real_stop) as stopper, \
+             patch("studio_tools.playtest.write_json", side_effect=failing):
+            with self.assertRaises(OSError):
+                playtest.execute(self.config, self.root, sha256_expected=self.sha,
+                                 session="attended", label="unrecorded")
+        pid = read_json(self.root / "artifacts/playtests/unrecorded/process/process.json")["pid"]
+        stopper.assert_called_once_with(pid)
+        # An auto-generated label is never returned, so a child left running
+        # here could not even be named; it must not be left running.
+        self.settled(pid)
+        self.assertIsNot(processes.alive(pid), True)
 
     def test_attended_refuses_a_cap_it_could_not_enforce(self):
         with patch("studio_tools.playtest.start") as started:
@@ -548,6 +573,10 @@ class LauncherTests(PlaytestCase):
         self.assertEqual(result["launcher"]["path"], f"artifacts/playtests/{'relaunch'}/{name}")
         self.assertEqual(result["launcher"]["sha256"], sha256(path))
         text = path.read_text()
+        # The session ran with the project as its working directory, so a
+        # launcher invoked from anywhere else must get there first.
+        self.assertIn(f"cd -- {shlex.quote(str(self.root))} || exit 1", text)
+        self.assertLess(text.index("cd -- "), text.index(str(Path(sys.executable).resolve())))
         self.assertIn(str(Path(sys.executable).resolve()), text)
         self.assertIn("res://main.tscn", text)
         self.assertIn("--rendering-method forward_plus", text)
@@ -583,6 +612,9 @@ class LauncherTests(PlaytestCase):
         self.assertEqual(result["launcher"]["path"], "artifacts/playtests/windows-launcher/relaunch.cmd")
         text = path.read_text()
         self.assertTrue(text.startswith("@echo off"))
+        self.assertIn("cd /d ", text)
+        self.assertIn("|| exit /b 1", text)
+        self.assertLess(text.index("cd /d "), text.index("--rendering-method"))
         self.assertIn('"%%REGION%%"', text)
         self.assertIn("REM label: windows-launcher", text)
         self.assertIn("res://main.tscn", text)
@@ -759,6 +791,9 @@ class PlaytestDocumentationTests(unittest.TestCase):
         # events; driving only the first misreports an event-driven game.
         self.assertIn("Input.parse_input_event(event)", template)
         self.assertIn("InputEventAction.new()", template)
+        # A normal scene launch sets current_scene; without it a game reading
+        # get_tree().current_scene fails in a way no player would see.
+        self.assertIn("current_scene = _scene", template)
 
     def test_catalog_count_agrees_with_the_manifest_everywhere(self):
         count = len(read_json(ROOT / "studio-kit.json")["skills"])
