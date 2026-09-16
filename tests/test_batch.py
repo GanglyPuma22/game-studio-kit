@@ -95,7 +95,7 @@ class BatchRollupTests(BatchCase):
         self.assertTrue(rollup["ok"])
         self.assertEqual(rollup["execution"], "sequential")
         self.assertIsNone(rollup["stopped_early"])
-        self.assertEqual(rollup["totals"], {"planned": 2, "ran": 2, "ok": 2, "not_ok": 0, "not_run": 0})
+        self.assertEqual(rollup["totals"], {"planned": 2, "ran": 2, "refused": 0, "ok": 2, "not_ok": 0, "not_run": 0})
         # Every run is finished when the single call returns; nothing is pending.
         self.assertEqual([run["verdict"] for run in rollup["runs"]], ["completed", "completed"])
         self.assertEqual([run["label"] for run in rollup["runs"]], ["first", "second"])
@@ -124,7 +124,7 @@ class BatchRollupTests(BatchCase):
         self.assertEqual(code, 1)
         self.assertFalse(rollup["ok"])
         self.assertIsNone(rollup["stopped_early"])
-        self.assertEqual(rollup["totals"], {"planned": 2, "ran": 2, "ok": 1, "not_ok": 1, "not_run": 0})
+        self.assertEqual(rollup["totals"], {"planned": 2, "ran": 2, "refused": 0, "ok": 1, "not_ok": 1, "not_run": 0})
         self.assertFalse(rollup["runs"][0]["ok"])
         self.assertEqual(rollup["runs"][0]["verdict"], "engine_errors")
         # The second run was still attempted and still owns a full set of receipts.
@@ -138,12 +138,44 @@ class BatchRollupTests(BatchCase):
         self.assertFalse(rollup["ok"])
         self.assertTrue(rollup["stop_on_first_failure"])
         self.assertEqual(rollup["stopped_early"], "first_failure")
-        self.assertEqual(rollup["totals"], {"planned": 2, "ran": 1, "ok": 0, "not_ok": 1, "not_run": 1})
+        self.assertEqual(rollup["totals"], {"planned": 2, "ran": 1, "refused": 0, "ok": 0, "not_ok": 1, "not_run": 1})
         self.assertEqual(rollup["runs"][1]["status"], "not_run")
         self.assertIn("stopped earlier: first_failure", rollup["runs"][1]["failure"])
         self.assertIsNone(rollup["runs"][1]["exit_record"])
         # A run that never started leaves no receipts to be mistaken for evidence.
         self.assertFalse((self.root / "artifacts/launches/never").exists())
+
+    def test_a_failing_last_run_does_not_claim_the_batch_stopped_early(self):
+        # Nothing was skipped, so a stop reason here would contradict not_run: 0.
+        plan = self.plan({"label": "green"}, {"label": "broken"})
+        _, rollup = self.rollup(plan, "--label", "lastfails", "--stop-on-first-failure",
+                                codes=(OK, FAILS))
+        self.assertFalse(rollup["ok"])
+        self.assertEqual(rollup["totals"]["not_run"], 0)
+        self.assertIsNone(rollup["stopped_early"])
+
+    def test_the_rollup_marks_a_run_in_flight_before_the_launcher_is_called(self):
+        # The file is a crash record: a host that dies inside a launch must not
+        # leave a row claiming the batch never reached a run whose receipts are
+        # already on disk beside it. Read from inside the call, which is where
+        # a post-crash reader would find it.
+        seen = []
+        real = launch.execute
+
+        def observing(*args, **kwargs):
+            record = read_json(self.root / "artifacts/batches/crashy/batch.json")
+            seen.append([(run["status"], run["failure"]) for run in record["runs"]])
+            return real(*args, **kwargs)
+
+        plan = self.plan({"label": "one"}, {"label": "two"})
+        with patch("studio_tools.batch.launch.execute", side_effect=observing):
+            _, rollup = self.rollup(plan, "--label", "crashy")
+        self.assertEqual(seen[0][0][0], "in_flight")
+        self.assertIn("inside this launch", seen[0][0][1])
+        self.assertEqual(seen[0][1][0], "not_run")
+        # The finished row of the earlier run survives into the next snapshot.
+        self.assertEqual([status for status, _ in seen[1]], ["ran", "in_flight"])
+        self.assertTrue(rollup["ok"])
 
     def test_acceptance_stays_not_established_when_every_run_is_green(self):
         plan = self.plan({"label": "green-one"}, {"label": "green-two"})
@@ -243,6 +275,46 @@ class BatchRefusalTests(BatchCase):
         shapeless = self.plan(document={"schema_version": 1, "runs": {"label": "first"}})
         self.assertEqual(self.refusal(shapeless), 'Batch plan must be a JSON object with a "runs" list')
 
+    def test_a_plan_that_does_not_declare_this_format_is_refused(self):
+        # A mistyped kind or a version this code does not know must be refused,
+        # never reinterpreted with the semantics it happens to be read by.
+        run = {"label": "first"}
+        wrong_kind = self.plan(document={"schema_version": 1, "kind": "launch-plan", "runs": [run]})
+        self.assertEqual(self.refusal(wrong_kind), 'Batch plan must declare kind "launch-batch-plan"')
+        future = self.plan(document={"schema_version": 2, "kind": "launch-batch-plan", "runs": [run]})
+        self.assertEqual(self.refusal(future), "Batch plan schema_version must be 1")
+        self.assertFalse((self.root / "artifacts").exists())
+
+    def test_a_result_the_launcher_writes_or_one_outside_the_project_is_refused(self):
+        # The launcher applies both rules, but only once that run starts. Found
+        # here, they cost nothing; found there, they cost every earlier window.
+        owned = self.plan({"label": "first"},
+                          {"label": "second", "results": ["artifacts/launches/second/exit.json"]})
+        self.assertEqual(
+            self.refusal(owned),
+            'Batch plan run 2 (label "second") declares a result the launcher writes itself; '
+            "name a file the run produces",
+        )
+        escaping = self.plan({"label": "first"}, {"label": "second", "results": ["../elsewhere.json"]})
+        self.assertEqual(
+            self.refusal(escaping),
+            'Batch plan run 2 (label "second") declares a result outside the project; '
+            "use a portable project-relative path",
+        )
+        self.assertFalse((self.root / "artifacts/launches/first").exists())
+
+    def test_labels_that_differ_only_in_case_collide(self):
+        # One directory on Windows, so the second run would be refused only
+        # after the first had already spent its window.
+        self.assertEqual(self.refusal(self.plan({"label": "Run"}, {"label": "run"})),
+                         'Batch plan run 2 (label "run") reuses the label of run 1')
+
+    def test_a_present_but_empty_cutoff_is_refused_rather_than_dropped(self):
+        # Dropping it would silently hand the run the far later batch deadline.
+        for value in ("", False, 0):
+            plan = self.plan({"label": "first"}, {"label": "second", "cutoff_utc": value})
+            self.assertIn("has a cutoff_utc that is not an ISO 8601", self.refusal(plan))
+
     def test_an_unbounded_or_oversized_total_cap_is_refused(self):
         plan = self.plan({"label": "first"})
         for value in ("0", "1441", "-5"):
@@ -252,9 +324,13 @@ class BatchRefusalTests(BatchCase):
             )
         self.assertFalse((self.root / "artifacts").exists())
 
-    def test_a_missing_plan_file_is_refused(self):
+    def test_a_missing_or_unparsable_plan_file_is_refused(self):
         missing = Path(self.tmp.name) / "absent.json"
-        self.assertEqual(self.refusal(missing), "Batch needs an existing --plan file listing the runs")
+        self.assertEqual(self.refusal(missing),
+                         "Batch needs an existing, readable --plan file listing the runs")
+        broken = Path(self.tmp.name) / "broken.json"
+        broken.write_text("{not json", encoding="utf-8")
+        self.assertEqual(self.refusal(broken), "Cannot read JSON record: broken.json")
 
 
 class BatchBudgetTests(BatchCase):
@@ -281,7 +357,7 @@ class BatchBudgetTests(BatchCase):
         self.assertEqual(code, 1)
         self.assertFalse(rollup["ok"])
         self.assertEqual(rollup["stopped_early"], "budget_exhausted")
-        self.assertEqual(rollup["totals"], {"planned": 2, "ran": 1, "ok": 1, "not_ok": 0, "not_run": 1})
+        self.assertEqual(rollup["totals"], {"planned": 2, "ran": 1, "refused": 0, "ok": 1, "not_ok": 0, "not_run": 1})
         self.assertEqual(rollup["runs"][1]["status"], "not_run")
         self.assertIn("budget was spent", rollup["runs"][1]["failure"])
         self.assertFalse((self.root / "artifacts/launches/outside").exists())
@@ -358,8 +434,14 @@ class BatchDiscoverabilityTests(BatchCase):
     def test_the_overnight_rules_name_batch_as_the_replacement_for_a_wait_loop(self):
         for path in (PROCEDURE, BLOCK):
             text = path.read_text(encoding="utf-8")
-            self.assertIn("studio batch", text)
             self.assertIn("hand-rolled wait loop", text)
+            # Both keep the one case a fixed plan cannot express.
+            self.assertIn("depend on an earlier run's verdict", text)
+        # The procedure resolves the helper the way every other stage does;
+        # the installed global block is prose about the command's name.
+        self.assertIn("python <KIT>/scripts/studio.py batch --project <run> --plan <file>",
+                      PROCEDURE.read_text(encoding="utf-8"))
+        self.assertIn("`studio batch --plan <file>`", BLOCK.read_text(encoding="utf-8"))
 
     def test_batch_is_a_declared_command_with_its_plan_template(self):
         manifest = read_json(ROOT / "studio-kit.json")
@@ -393,7 +475,9 @@ class BatchDirectTests(BatchCase):
         self.assertFalse(result["ok"])
         self.assertEqual([run["status"] for run in result["runs"]], ["refused", "refused"])
         self.assertIn("identity mismatch", result["runs"][0]["failure"])
-        self.assertEqual(result["totals"]["not_ok"], 2)
+        # No engine started, so nothing may be counted as having run.
+        self.assertEqual(result["totals"], {"planned": 2, "ran": 0, "refused": 2,
+                                            "ok": 0, "not_ok": 2, "not_run": 0})
 
 
 if __name__ == "__main__":

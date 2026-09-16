@@ -16,13 +16,17 @@ order, under which total cap, and whether every one of them was ok.
 
 from __future__ import annotations
 from datetime import datetime, timedelta, timezone
+import hashlib
+import json
 import math
 from pathlib import Path
 import uuid
 from . import launch
-from .common import StudioError, outside_package, read_json, relative, safe_id, sha256, write_json
+from .common import StudioError, outside_package, relative, safe_id, write_json
 from .launch import MODES, parse_utc
 
+PLAN_KIND = "launch-batch-plan"
+PLAN_SCHEMA_VERSION = 1
 DEFAULT_MAX_MINUTES = 60
 # A batch has nobody watching it, so it stays bounded like every other
 # unattended wait; a night is the longest window one of them is authorized for.
@@ -69,12 +73,17 @@ def _run_entry(root, index, entry, seen):
             f"{_where(index, entry)} has a label that is not an ID; "
             "use letters, digits, hyphens or underscores"
         ) from None
-    if label in seen:
-        raise StudioError(f"{_where(index, entry)} reuses the label of run {seen[label] + 1}")
+    # Two labels differing only in case name one directory on Windows, so the
+    # collision is caught here rather than by whichever run reaches the
+    # filesystem second, after the first has already spent its window.
+    folded = label.casefold()
+    if folded in seen:
+        raise StudioError(f"{_where(index, entry)} reuses the label of run {seen[folded] + 1}")
     # `launch` refuses a run directory that already exists. Finding that out on
     # the last run, after every earlier one has spent its window, is exactly the
     # failure an unattended batch cannot afford, so it is found here instead.
-    if relative(root, f"artifacts/launches/{label}").exists():
+    owned = relative(root, f"artifacts/launches/{label}")
+    if owned.exists():
         raise StudioError(f"{_where(index, entry)} names a launch directory that exists; choose a new label")
     mode = entry.get("mode", "import")
     if mode not in MODES:
@@ -100,16 +109,36 @@ def _run_entry(root, index, entry, seen):
         value = entry.get(field, [])
         if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
             raise StudioError(f"{_where(index, entry)} has a {field} that is not a list of nonempty strings")
+    # The launcher applies these same two rules to a declared result, but only
+    # once that run starts. A path that escapes the project, or that names a
+    # receipt the launcher writes, would otherwise be refused after every
+    # earlier run had already spent its window, which is the failure the
+    # up-front validation exists to prevent.
+    for item in entry.get("results", []):
+        try:
+            target = relative(root, item)
+        except StudioError:
+            raise StudioError(
+                f"{_where(index, entry)} declares a result outside the project; "
+                "use a portable project-relative path"
+            ) from None
+        if target == owned or target.is_relative_to(owned):
+            raise StudioError(
+                f"{_where(index, entry)} declares a result the launcher writes itself; "
+                "name a file the run produces"
+            )
     # Parsed here so a malformed instant is refused with the rest of the plan
-    # rather than after the runs before it have already been spent.
+    # rather than after the runs before it have already been spent. A present
+    # but falsey value is malformed, not absent: silently dropping `""` or
+    # `false` would let the run inherit the far later batch deadline instead.
     try:
-        cutoff = parse_utc(entry["cutoff_utc"]) if entry.get("cutoff_utc") else None
+        cutoff = parse_utc(entry["cutoff_utc"]) if entry.get("cutoff_utc") is not None else None
     except StudioError:
         raise StudioError(
             f"{_where(index, entry)} has a cutoff_utc that is not an ISO 8601 "
             "timestamp with a UTC offset"
         ) from None
-    seen[label] = index
+    seen[folded] = index
     return {**entry, "label": label, "mode": mode, "cutoff": cutoff}
 
 
@@ -118,19 +147,32 @@ def _plan(root, path):
 
     The plan file itself is hashed, never copied into the receipts: it carries
     the passthrough arguments each run hands the engine, and those are values a
-    receipt may not hold.
+    receipt may not hold. The bytes are read once and both the entries and the
+    digest come from that one snapshot, so the receipt can never record the
+    hash of a plan other than the one that ran.
     """
     plan_path = Path(path).expanduser()
-    if not plan_path.is_file():
-        raise StudioError("Batch needs an existing --plan file listing the runs")
-    document = read_json(plan_path)
+    try:
+        raw = plan_path.read_bytes()
+        document = json.loads(raw.decode("utf-8"))
+    except OSError:
+        raise StudioError("Batch needs an existing, readable --plan file listing the runs") from None
+    except ValueError:
+        raise StudioError(f"Cannot read JSON record: {plan_path.name}") from None
     if not isinstance(document, dict) or not isinstance(document.get("runs"), list):
         raise StudioError('Batch plan must be a JSON object with a "runs" list')
+    # A plan says which format it is in. Reading a mistyped kind, or a version
+    # this code does not know, with version-1 semantics would reinterpret the
+    # file rather than refuse it as the format grows.
+    if document.get("kind") != PLAN_KIND:
+        raise StudioError(f'Batch plan must declare kind "{PLAN_KIND}"')
+    if document.get("schema_version") != PLAN_SCHEMA_VERSION:
+        raise StudioError(f"Batch plan schema_version must be {PLAN_SCHEMA_VERSION}")
     if not document["runs"]:
         raise StudioError("Batch plan lists no runs; a batch of nothing has nothing to report")
     seen = {}
     entries = [_run_entry(root, index, entry, seen) for index, entry in enumerate(document["runs"])]
-    return entries, {"path": str(plan_path.resolve()), "sha256": sha256(plan_path)}
+    return entries, {"path": str(plan_path.resolve()), "sha256": hashlib.sha256(raw).hexdigest()}
 
 
 def _paths(root, result):
@@ -185,10 +227,13 @@ def _summary(index, entry, status, **fields):
 
 def _rollup(root, label, plan_record, started, deadline, max_minutes,
             stop_on_first_failure, runs, planned, stopped, finished=None):
-    ran = [run for run in runs if run["status"] != "not_run"]
     totals = {
         "planned": planned,
-        "ran": len(ran),
+        # Only a row whose engine actually started counts as having run; a
+        # refusal is reported as one, so a batch where nothing launched can
+        # never claim every entry ran.
+        "ran": sum(run["status"] == "ran" for run in runs),
+        "refused": sum(run["status"] == "refused" for run in runs),
         "ok": sum(run["ok"] for run in runs),
         "not_ok": sum(run["status"] != "not_run" and not run["ok"] for run in runs),
         "not_run": sum(run["status"] == "not_run" for run in runs),
@@ -279,6 +324,12 @@ def execute(
         # The run's own cutoff never outlives the batch's: whichever instant
         # comes first is the one the launcher is allowed to wait until.
         cutoff = min(deadline, entry["cutoff"]) if entry["cutoff"] else deadline
+        # Recorded before the call, because this file is the crash record: a
+        # host that dies mid-launch must not leave a row saying the batch never
+        # reached a run whose receipts are already on disk beside it.
+        runs[index] = _summary(index, entry, "in_flight",
+                               failure="batch was inside this launch when it last wrote this record")
+        save()
         try:
             result = launch.execute(
                 config, root, sha256_expected=sha256_expected, mode=entry["mode"],
@@ -308,7 +359,9 @@ def execute(
                 elapsed_seconds=result["elapsed_seconds"], timed_out=result["timed_out"],
                 failure=result["failure"], **_paths(root, result),
             )
-        if not runs[index]["ok"] and stop_on_first_failure:
+        # Only a failure that actually prevents a later run stopped the batch;
+        # saying so about the last run would contradict `not_run: 0`.
+        if not runs[index]["ok"] and stop_on_first_failure and index + 1 < len(entries):
             stopped = "first_failure"
         save()
     finished = datetime.now(timezone.utc)
