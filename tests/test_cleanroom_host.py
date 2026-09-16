@@ -1009,17 +1009,22 @@ class HostPreflightTests(unittest.TestCase):
         self.assertEqual(result["checks"]["active_hours"]["window_hours_local"], [1, 3])
 
     def test_preflight_with_fake_reader_writes_receipt_and_refuses_half_window(self):
+        # `preflight` refuses a window that has already ended, so the window
+        # here is derived from now: a hard-coded date makes this test pass
+        # until that date arrives and fail on every host afterwards.
+        start = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=1)
+        end = start + timedelta(hours=4)
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "preflight.json"
-            result = host.preflight(load(), window_start="2026-09-15T02:00:00Z", window_end="2026-09-15T06:00:00Z", output=output, reader=self.state)
+            result = host.preflight(load(), window_start=start.isoformat(), window_end=end.isoformat(), output=output, reader=self.state)
             self.assertEqual(result["kind"], "host-preflight")
-            self.assertEqual(read_json(output)["window"]["start_utc"], "2026-09-15T02:00:00+00:00")
+            self.assertEqual(read_json(output)["window"]["start_utc"], start.isoformat())
             with self.assertRaisesRegex(StudioError, "exists"):
                 host.preflight(load(), output=output, reader=self.state)
         with self.assertRaisesRegex(StudioError, "both"):
-            host.preflight(load(), window_start="2026-09-15T02:00:00Z", reader=self.state)
+            host.preflight(load(), window_start=start.isoformat(), reader=self.state)
         with self.assertRaisesRegex(StudioError, "after"):
-            host.preflight(load(), window_start="2026-09-15T06:00:00Z", window_end="2026-09-15T02:00:00Z", reader=self.state)
+            host.preflight(load(), window_start=end.isoformat(), window_end=start.isoformat(), reader=self.state)
 
     def test_receipt_paths_inside_the_installed_toolkit_are_refused(self):
         # The installed package is read-only during production; evidence belongs
