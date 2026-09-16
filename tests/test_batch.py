@@ -95,7 +95,7 @@ class BatchRollupTests(BatchCase):
         self.assertTrue(rollup["ok"])
         self.assertEqual(rollup["execution"], "sequential")
         self.assertIsNone(rollup["stopped_early"])
-        self.assertEqual(rollup["totals"], {"planned": 2, "ran": 2, "refused": 0, "ok": 2, "not_ok": 0, "not_run": 0})
+        self.assertEqual(rollup["totals"], {"planned": 2, "ran": 2, "not_started": 0, "ok": 2, "not_ok": 0, "not_run": 0})
         # Every run is finished when the single call returns; nothing is pending.
         self.assertEqual([run["verdict"] for run in rollup["runs"]], ["completed", "completed"])
         self.assertEqual([run["label"] for run in rollup["runs"]], ["first", "second"])
@@ -124,7 +124,7 @@ class BatchRollupTests(BatchCase):
         self.assertEqual(code, 1)
         self.assertFalse(rollup["ok"])
         self.assertIsNone(rollup["stopped_early"])
-        self.assertEqual(rollup["totals"], {"planned": 2, "ran": 2, "refused": 0, "ok": 1, "not_ok": 1, "not_run": 0})
+        self.assertEqual(rollup["totals"], {"planned": 2, "ran": 2, "not_started": 0, "ok": 1, "not_ok": 1, "not_run": 0})
         self.assertFalse(rollup["runs"][0]["ok"])
         self.assertEqual(rollup["runs"][0]["verdict"], "engine_errors")
         # The second run was still attempted and still owns a full set of receipts.
@@ -138,7 +138,7 @@ class BatchRollupTests(BatchCase):
         self.assertFalse(rollup["ok"])
         self.assertTrue(rollup["stop_on_first_failure"])
         self.assertEqual(rollup["stopped_early"], "first_failure")
-        self.assertEqual(rollup["totals"], {"planned": 2, "ran": 1, "refused": 0, "ok": 0, "not_ok": 1, "not_run": 1})
+        self.assertEqual(rollup["totals"], {"planned": 2, "ran": 1, "not_started": 0, "ok": 0, "not_ok": 1, "not_run": 1})
         self.assertEqual(rollup["runs"][1]["status"], "not_run")
         self.assertIn("stopped earlier: first_failure", rollup["runs"][1]["failure"])
         self.assertIsNone(rollup["runs"][1]["exit_record"])
@@ -153,6 +153,40 @@ class BatchRollupTests(BatchCase):
         self.assertFalse(rollup["ok"])
         self.assertEqual(rollup["totals"]["not_run"], 0)
         self.assertIsNone(rollup["stopped_early"])
+
+    def test_a_verdict_with_no_engine_behind_it_is_not_counted_as_a_launch(self):
+        # A cutoff that had already passed returns an ordinary verdict with a
+        # null PID; counting it as a run would inflate the batch's own tally.
+        past = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        plan = self.plan({"label": "late", "cutoff_utc": past}, {"label": "ontime"})
+        code, rollup = self.rollup(plan, "--label", "cutoffs")
+        self.assertEqual(code, 1)
+        self.assertFalse(rollup["ok"])
+        self.assertEqual(rollup["runs"][0]["verdict"], "cutoff_passed")
+        self.assertEqual(rollup["runs"][0]["status"], "not_started")
+        # The second run was unaffected: only the first had no engine behind it.
+        self.assertEqual(rollup["totals"], {"planned": 2, "ran": 1, "not_started": 1,
+                                            "ok": 1, "not_ok": 1, "not_run": 0})
+        # The launcher still wrote its own receipts for the run it refused.
+        self.assertTrue((self.root / rollup["runs"][0]["exit_record"]).is_file())
+
+    def test_an_interrupted_run_keeps_the_receipts_the_launcher_already_wrote(self):
+        # The launcher finishes its receipts before it re-raises, and this
+        # record is the recovery record, so it must not disown them.
+        plan = self.plan({"label": "cut"}, {"label": "after"})
+        with patch("studio_tools.launch.run", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                batch.execute(self.config, self.root, plan=plan,
+                              sha256_expected=self.sha, label="stopped")
+        record = read_json(self.root / "artifacts/batches/stopped/batch.json")
+        row = record["runs"][0]
+        self.assertEqual(row["status"], "interrupted")
+        self.assertEqual(row["run_dir"], "artifacts/launches/cut")
+        self.assertEqual(row["launch_record"], "artifacts/launches/cut/owned-launch.json")
+        self.assertEqual(row["exit_record"], "artifacts/launches/cut/exit.json")
+        self.assertTrue((self.root / row["exit_record"]).is_file())
+        self.assertEqual(record["stopped_early"], "interrupted")
+        self.assertEqual(record["runs"][1]["status"], "not_run")
 
     def test_the_rollup_marks_a_run_in_flight_before_the_launcher_is_called(self):
         # The file is a crash record: a host that dies inside a launch must not
@@ -292,8 +326,8 @@ class BatchRefusalTests(BatchCase):
                           {"label": "second", "results": ["artifacts/launches/second/exit.json"]})
         self.assertEqual(
             self.refusal(owned),
-            'Batch plan run 2 (label "second") declares a result the launcher writes itself; '
-            "name a file the run produces",
+            'Batch plan run 2 (label "second") declares a result the launcher or this batch '
+            "writes itself; name a file the run produces",
         )
         escaping = self.plan({"label": "first"}, {"label": "second", "results": ["../elsewhere.json"]})
         self.assertEqual(
@@ -302,6 +336,19 @@ class BatchRefusalTests(BatchCase):
             "use a portable project-relative path",
         )
         self.assertFalse((self.root / "artifacts/launches/first").exists())
+
+    def test_a_result_inside_the_batch_record_directory_is_refused(self):
+        # The rollup is rewritten between runs, so a run declaring a file in
+        # there would have its output overwritten by the receipt that then
+        # reports it completed, carrying a hash for bytes that are gone.
+        plan = self.plan({"label": "first"},
+                         {"label": "second", "results": ["artifacts/batches/nightly/batch.json"]})
+        self.assertEqual(
+            self.refusal(plan, "--label", "nightly"),
+            'Batch plan run 2 (label "second") declares a result the launcher or this batch '
+            "writes itself; name a file the run produces",
+        )
+        self.assertFalse((self.root / "artifacts/batches/nightly").exists())
 
     def test_labels_that_differ_only_in_case_collide(self):
         # One directory on Windows, so the second run would be refused only
@@ -357,7 +404,7 @@ class BatchBudgetTests(BatchCase):
         self.assertEqual(code, 1)
         self.assertFalse(rollup["ok"])
         self.assertEqual(rollup["stopped_early"], "budget_exhausted")
-        self.assertEqual(rollup["totals"], {"planned": 2, "ran": 1, "refused": 0, "ok": 1, "not_ok": 0, "not_run": 1})
+        self.assertEqual(rollup["totals"], {"planned": 2, "ran": 1, "not_started": 0, "ok": 1, "not_ok": 0, "not_run": 1})
         self.assertEqual(rollup["runs"][1]["status"], "not_run")
         self.assertIn("budget was spent", rollup["runs"][1]["failure"])
         self.assertFalse((self.root / "artifacts/launches/outside").exists())
@@ -439,9 +486,17 @@ class BatchDiscoverabilityTests(BatchCase):
             self.assertIn("depend on an earlier run's verdict", text)
         # The procedure resolves the helper the way every other stage does;
         # the installed global block is prose about the command's name.
-        self.assertIn("python <KIT>/scripts/studio.py batch --project <run> --plan <file>",
-                      PROCEDURE.read_text(encoding="utf-8"))
-        self.assertIn("`studio batch --plan <file>`", BLOCK.read_text(encoding="utf-8"))
+        procedure = PROCEDURE.read_text(encoding="utf-8")
+        # Executable as written: the resolved helper, the project, the host
+        # config and the engine digest argparse requires.
+        self.assertIn("python <KIT>/scripts/studio.py batch --project <run> --config <host config>",
+                      procedure)
+        self.assertIn("--sha256 <engine> --plan <plan>", procedure)
+        block = BLOCK.read_text(encoding="utf-8")
+        self.assertIn("`studio batch --plan <file>`", block)
+        # The block names commands; it says once how all of them are invoked.
+        self.assertIn("There is no `studio` on PATH", block)
+        self.assertIn("python <KIT>/scripts/studio.py <command>", block)
 
     def test_batch_is_a_declared_command_with_its_plan_template(self):
         manifest = read_json(ROOT / "studio-kit.json")
@@ -473,10 +528,11 @@ class BatchDirectTests(BatchCase):
         result = batch.execute(self.config, self.root, plan=plan, sha256_expected="0" * 64,
                                label="mismatched")
         self.assertFalse(result["ok"])
-        self.assertEqual([run["status"] for run in result["runs"]], ["refused", "refused"])
+        self.assertEqual([run["status"] for run in result["runs"]], ["not_started", "not_started"])
+        self.assertEqual([run["verdict"] for run in result["runs"]], ["refused", "refused"])
         self.assertIn("identity mismatch", result["runs"][0]["failure"])
         # No engine started, so nothing may be counted as having run.
-        self.assertEqual(result["totals"], {"planned": 2, "ran": 0, "refused": 2,
+        self.assertEqual(result["totals"], {"planned": 2, "ran": 0, "not_started": 2,
                                             "ok": 0, "not_ok": 2, "not_run": 0})
 
 
