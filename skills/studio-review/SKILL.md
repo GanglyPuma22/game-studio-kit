@@ -1,6 +1,6 @@
 ---
 name: studio-review
-description: Review a concrete game candidate using ordinary player input and native visual, motion, audio and performance evidence, keeping technical checks and human acceptance distinct.
+description: Review a concrete game candidate using ordinary player input and native visual, motion, audio and performance evidence, indexed with `studio evidence launches`, keeping technical checks and human acceptance distinct.
 ---
 
 # Studio review

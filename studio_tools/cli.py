@@ -44,6 +44,18 @@ def parser():
     c.add_argument("--result", action="append", default=[], help="Project-relative file the run must produce")
     c.add_argument("--scrub-env", action="append", default=[], help="Environment prefix removed from the child")
     c.add_argument("passthrough", nargs=argparse.REMAINDER, help="-- and the arguments after it go to the engine unchanged")
+    # Several launches, one blocking call. This is a command of its own rather
+    # than a `launch` sub-verb because `launch`'s passthrough is a remainder
+    # positional and argparse cannot put another positional in front of one.
+    c = command("batch", True)
+    c.add_argument("--plan", required=True, help="JSON plan listing the runs; see templates/batch-plan.json")
+    c.add_argument("--sha256", required=True, help="Expected SHA-256 of executables.godot from the host config")
+    c.add_argument("--label", help="Batch identity under artifacts/batches; default is a new UUID")
+    c.add_argument("--max-minutes", type=float,
+                   help="Total wall clock for the whole batch, separate from each run's own timeout; "
+                        "default 60, maximum 1440")
+    c.add_argument("--stop-on-first-failure", action="store_true",
+                   help="Stop after the first run that is not ok; by default every run is attempted")
     # A remainder positional cannot follow another positional, so playtest nests
     # its operation the way bench does: `start` carries the engine passthrough,
     # and `collect` completes one attended session.
@@ -273,6 +285,18 @@ def dispatch(a):
             config, Path(a.project).resolve(), sha256_expected=a.sha256, mode=a.mode,
             script=a.script, timeout=a.timeout, cutoff_utc=a.cutoff_utc, label=a.label,
             scope=a.scope, results=a.result, scrub=a.scrub_env, passthrough=list(a.passthrough),
+        )
+    if a.command == "batch":
+        from .batch import execute as batch_execute
+
+        # Like launch, a batch needs a game project that already exists, and it
+        # reuses that launcher for every run rather than starting anything here.
+        # The runs live in the plan file because N launches, each with its own
+        # script, results and passthrough, do not fit one argument list.
+        return batch_execute(
+            config, Path(a.project).resolve(), plan=a.plan, sha256_expected=a.sha256,
+            label=a.label, max_minutes=a.max_minutes,
+            stop_on_first_failure=a.stop_on_first_failure,
         )
     if a.command == "playtest":
         from .playtest import collect as playtest_collect, execute as playtest_execute

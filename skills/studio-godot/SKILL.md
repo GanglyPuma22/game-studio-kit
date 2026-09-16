@@ -1,6 +1,6 @@
 ---
 name: studio-godot
-description: Import explicit game assets into Godot, recreate materials, wire bounded player interaction, animation and audio, and build a reviewable runtime candidate.
+description: Import explicit game assets into Godot, recreate materials, wire bounded player interaction, animation and audio, and build a reviewable runtime candidate, running the engine through `studio launch` for one bounded run or `studio batch` for several.
 ---
 
 # Studio Godot

@@ -35,8 +35,12 @@ There is no ledger script: the machine ledgers are the receipts the kit
 commands already write (preflight receipts, `owned-launch.json`,
 `exit.json`, `cleanroom.json`, identity `verify-*.json`) plus the inventory
 `evidence launches` builds from them. Never hand-write or poll for a ledger
-or heartbeat; a blocking launch replaces polling. `STATE.md` and `RETURN.md`
-are the only hand-maintained run records: `RETURN.md` is write-once, at the
+or heartbeat; a blocking launch replaces polling. When a stage owes more than
+one launch, `studio batch --plan <file>` is what replaces a hand-rolled wait loop:
+it runs the planned launches in order, blocks until the last one has finished,
+and returns one verdict under a total cap separate from each run's own timeout.
+Its rollup is a crash record, never a file to read for progress.
+`STATE.md` and `RETURN.md` are the only hand-maintained run records: `RETURN.md` is write-once, at the
 end (Section 6). `STATE.md` is rewritten atomically from its template only at
 defined checkpoints: after each preflight attempt, at each stage transition,
 after the third compaction (Section 5, root refresh), and at handback. It

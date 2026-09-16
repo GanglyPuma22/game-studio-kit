@@ -1,6 +1,6 @@
 ---
 name: studio-playtest
-description: Play a game build to find out how it actually feels, choosing between a human at the controls and a synthetic-input harness, and leaving a recorded session plus a re-runnable launcher behind.
+description: Play a game build with `studio playtest start` and `studio playtest collect` to find out how it actually feels, choosing between a human at the controls and a synthetic-input harness, and leaving a recorded session plus a re-runnable launcher behind.
 ---
 
 # Studio playtest
