@@ -36,9 +36,10 @@ commands already write (preflight receipts, `owned-launch.json`,
 `exit.json`, `cleanroom.json`, identity `verify-*.json`) plus the inventory
 `evidence launches` builds from them. Never hand-write or poll for a ledger
 or heartbeat; a blocking launch replaces polling. When a stage owes more than
-one launch, `python <KIT>/scripts/studio.py batch --project <run> --plan <file>`
-is what replaces a hand-rolled wait loop: it runs the planned launches in order,
-blocks until the last one has finished, and returns one verdict under a total cap
+one launch, the command that replaces a hand-rolled wait loop is
+`python <KIT>/scripts/studio.py batch --project <run> --config <host config>
+--sha256 <engine> --plan <plan>`. It runs the planned launches in order, blocks
+until the last one has finished, and returns one verdict under a total cap
 separate from each run's own timeout. Separate `launch` calls are right only when
 a run's arguments depend on an earlier run's verdict, which a fixed plan cannot
 express. The batch rollup is a crash record, never a file to read for progress.

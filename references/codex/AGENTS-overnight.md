@@ -1,7 +1,7 @@
 <!-- game-studio-kit overnight-rules begin -->
 # Overnight and production runs
 
-These rules apply whenever a prompt names an overnight, unattended, production or ledger-driven run, or hands you a production contract for a game project. They exist because one such run spent hundreds of millions of tokens and delivered zero playable minutes. The full procedure is `skills/studio-director/references/overnight-run.md` in the installed Game Studio Kit; its commands enforce what this text asks for.
+These rules apply whenever a prompt names an overnight, unattended, production or ledger-driven run, or hands you a production contract for a game project. They exist because one such run spent hundreds of millions of tokens and delivered zero playable minutes. The full procedure is `skills/studio-director/references/overnight-run.md` in the installed Game Studio Kit; its commands enforce what this text asks for. There is no `studio` on PATH: every `studio ...` command named below is run as `python <KIT>/scripts/studio.py <command>` through an absolute path to the installed kit, with an explicit `--project`, as that procedure spells out.
 
 ## Root session
 - You are the only desktop and GPU owner. Never spawn a worker with desktop, GPU or provider access.

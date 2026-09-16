@@ -37,6 +37,10 @@ MAX_BATCH_MINUTES = 1440
 RUN_FIELDS = ("label", "scope", "mode", "script", "timeout", "cutoff_utc",
               "results", "scrub_env", "passthrough")
 STRING_LISTS = ("results", "scrub_env", "passthrough")
+# Statuses the launcher returns when no engine ever started: a cutoff that had
+# already passed, an engine replaced before it could run, a child that failed to
+# start. Each is an ordinary verdict with a null PID behind it, never a launch.
+NOT_STARTED = ("refused", "start_failed")
 LIMITS = [
     "exit zero is not acceptance; a green batch is a batch of runs that ran",
     "runs execute sequentially in plan order, so their elapsed times are comparable "
@@ -53,7 +57,7 @@ def _where(index, entry):
     return f"Batch plan run {index + 1}{named}"
 
 
-def _run_entry(root, index, entry, seen):
+def _run_entry(root, index, entry, seen, reserved):
     """Validate one planned run completely, before any engine starts."""
     if not isinstance(entry, dict):
         raise StudioError(f"{_where(index, entry)} is not a JSON object")
@@ -109,11 +113,14 @@ def _run_entry(root, index, entry, seen):
         value = entry.get(field, [])
         if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
             raise StudioError(f"{_where(index, entry)} has a {field} that is not a list of nonempty strings")
-    # The launcher applies these same two rules to a declared result, but only
+    # The launcher applies the first two rules to a declared result, but only
     # once that run starts. A path that escapes the project, or that names a
     # receipt the launcher writes, would otherwise be refused after every
     # earlier run had already spent its window, which is the failure the
-    # up-front validation exists to prevent.
+    # up-front validation exists to prevent. The third rule is this command's
+    # own: the rollup is rewritten between runs, so a result declared inside
+    # the batch record directory would be overwritten by the receipt that then
+    # reports the run as completed, with a hash for bytes that are gone.
     for item in entry.get("results", []):
         try:
             target = relative(root, item)
@@ -122,10 +129,10 @@ def _run_entry(root, index, entry, seen):
                 f"{_where(index, entry)} declares a result outside the project; "
                 "use a portable project-relative path"
             ) from None
-        if target == owned or target.is_relative_to(owned):
+        if any(target == kept or target.is_relative_to(kept) for kept in (owned, reserved)):
             raise StudioError(
-                f"{_where(index, entry)} declares a result the launcher writes itself; "
-                "name a file the run produces"
+                f"{_where(index, entry)} declares a result the launcher or this batch "
+                "writes itself; name a file the run produces"
             )
     # Parsed here so a malformed instant is refused with the rest of the plan
     # rather than after the runs before it have already been spent. A present
@@ -142,7 +149,7 @@ def _run_entry(root, index, entry, seen):
     return {**entry, "label": label, "mode": mode, "cutoff": cutoff}
 
 
-def _plan(root, path):
+def _plan(root, path, reserved):
     """Read and fully validate the plan before the first engine starts.
 
     The plan file itself is hashed, never copied into the receipts: it carries
@@ -171,7 +178,8 @@ def _plan(root, path):
     if not document["runs"]:
         raise StudioError("Batch plan lists no runs; a batch of nothing has nothing to report")
     seen = {}
-    entries = [_run_entry(root, index, entry, seen) for index, entry in enumerate(document["runs"])]
+    entries = [_run_entry(root, index, entry, seen, reserved)
+               for index, entry in enumerate(document["runs"])]
     return entries, {"path": str(plan_path.resolve()), "sha256": hashlib.sha256(raw).hexdigest()}
 
 
@@ -194,6 +202,25 @@ def _paths(root, result):
         "process_record": under(result["process_record"]),
         "log": under(result["log"]),
     }
+
+
+def _receipts_on_disk(root, label):
+    """Point at whatever the launcher had already written for this run.
+
+    An interrupted launch finishes its own receipts before it re-raises, so the
+    paths are deterministic; the row would otherwise disown durable evidence
+    sitting beside the record that is meant to explain the interruption.
+    """
+    base = Path("artifacts/launches") / label
+    files = {
+        "launch_record": "owned-launch.json", "exit_record": "exit.json",
+        "diagnostics_record": "diagnostics.json",
+        "process_record": "process/process.json", "log": "process/stdout.log",
+    }
+    found = {"run_dir": base.as_posix() if (root / base).is_dir() else None}
+    for field, name in files.items():
+        found[field] = (base / name).as_posix() if (root / base / name).is_file() else None
+    return found
 
 
 def _summary(index, entry, status, **fields):
@@ -229,11 +256,10 @@ def _rollup(root, label, plan_record, started, deadline, max_minutes,
             stop_on_first_failure, runs, planned, stopped, finished=None):
     totals = {
         "planned": planned,
-        # Only a row whose engine actually started counts as having run; a
-        # refusal is reported as one, so a batch where nothing launched can
-        # never claim every entry ran.
+        # Only a row whose engine actually started counts as having run, so a
+        # batch where nothing launched can never claim every entry ran.
         "ran": sum(run["status"] == "ran" for run in runs),
-        "refused": sum(run["status"] == "refused" for run in runs),
+        "not_started": sum(run["status"] == "not_started" for run in runs),
         "ok": sum(run["ok"] for run in runs),
         "not_ok": sum(run["status"] != "not_run" and not run["ok"] for run in runs),
         "not_run": sum(run["status"] == "not_run" for run in runs),
@@ -275,7 +301,13 @@ def execute(
     root = Path(project).resolve()
     if not root.is_dir():
         raise StudioError("Batch needs an existing game project directory")
-    entries, plan_record = _plan(root, plan)
+    label = safe_id(label) if label else uuid.uuid4().hex
+    # Its own namespace beside artifacts/launches, so a batch rollup and the
+    # runs it indexes can never collide on the label that refuses a reused dir.
+    # Resolved before the plan is read, because no run may declare a result
+    # inside it.
+    run_dir = outside_package(relative(root, f"artifacts/batches/{label}"))
+    entries, plan_record = _plan(root, plan, run_dir)
     if max_minutes is None:
         max_minutes = DEFAULT_MAX_MINUTES
     if (type(max_minutes) not in (int, float) or not math.isfinite(max_minutes)
@@ -283,10 +315,6 @@ def execute(
         # There is no uncapped batch: nobody is watching it, so `0` would mean
         # a run of unknown length rather than a run until the player quits.
         raise StudioError(f"Batch --max-minutes must be 1-{MAX_BATCH_MINUTES}; an unattended batch stays bounded")
-    label = safe_id(label) if label else uuid.uuid4().hex
-    # Its own namespace beside artifacts/launches, so a batch rollup and the
-    # runs it indexes can never collide on the label that refuses a reused dir.
-    run_dir = outside_package(relative(root, f"artifacts/batches/{label}"))
     try:
         run_dir.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
@@ -342,20 +370,26 @@ def execute(
             # A refusal is this run's verdict, not the batch's. The remaining
             # runs still have their own windows, and the message is already a
             # safe string naming the fix, so it is recorded rather than raised.
-            runs[index] = _summary(index, entry, "refused", verdict="refused", failure=str(exc))
+            runs[index] = _summary(index, entry, "not_started", verdict="refused", failure=str(exc))
         except KeyboardInterrupt:
             # The launcher has already stopped its child and written its own
             # receipts; the rollup records the same honestly before re-raising.
             runs[index] = _summary(index, entry, "interrupted", verdict="interrupted",
-                                   failure="batch interrupted while this run was in flight")
+                                   failure="batch interrupted while this run was in flight",
+                                   **_receipts_on_disk(root, entry["label"]))
             stopped = "interrupted"
             for later in runs[index + 1:]:
                 later["failure"] = "batch stopped earlier: interrupted"
             save(datetime.now(timezone.utc))
             raise
         else:
+            # A verdict is not a launch. A cutoff that had already passed, an
+            # engine replaced before it started and a child that never started
+            # all come back here with no process behind them.
+            engine_started = result["status"] not in NOT_STARTED
             runs[index] = _summary(
-                index, entry, "ran", verdict=result["verdict"], ok=result["ok"],
+                index, entry, "ran" if engine_started else "not_started",
+                verdict=result["verdict"], ok=result["ok"],
                 elapsed_seconds=result["elapsed_seconds"], timed_out=result["timed_out"],
                 failure=result["failure"], **_paths(root, result),
             )
