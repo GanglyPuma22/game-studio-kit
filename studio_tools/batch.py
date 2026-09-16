@@ -41,6 +41,11 @@ STRING_LISTS = ("results", "scrub_env", "passthrough")
 # already passed, an engine replaced before it could run, a child that failed to
 # start. Each is an ordinary verdict with a null PID behind it, never a launch.
 NOT_STARTED = ("refused", "start_failed")
+# Where the kit writes receipts. No run may declare a result in either: the
+# launcher owns one launch's directory, but a result under any of them is
+# either a receipt, another run's directory, or bytes this batch will itself
+# overwrite when it rewrites the rollup between runs.
+RECEIPT_ROOTS = ("artifacts/launches", "artifacts/batches")
 LIMITS = [
     "exit zero is not acceptance; a green batch is a batch of runs that ran",
     "runs execute sequentially in plan order, so their elapsed times are comparable "
@@ -86,8 +91,7 @@ def _run_entry(root, index, entry, seen, reserved):
     # `launch` refuses a run directory that already exists. Finding that out on
     # the last run, after every earlier one has spent its window, is exactly the
     # failure an unattended batch cannot afford, so it is found here instead.
-    owned = relative(root, f"artifacts/launches/{label}")
-    if owned.exists():
+    if relative(root, f"artifacts/launches/{label}").exists():
         raise StudioError(f"{_where(index, entry)} names a launch directory that exists; choose a new label")
     mode = entry.get("mode", "import")
     if mode not in MODES:
@@ -113,14 +117,14 @@ def _run_entry(root, index, entry, seen, reserved):
         value = entry.get(field, [])
         if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
             raise StudioError(f"{_where(index, entry)} has a {field} that is not a list of nonempty strings")
-    # The launcher applies the first two rules to a declared result, but only
-    # once that run starts. A path that escapes the project, or that names a
-    # receipt the launcher writes, would otherwise be refused after every
-    # earlier run had already spent its window, which is the failure the
-    # up-front validation exists to prevent. The third rule is this command's
-    # own: the rollup is rewritten between runs, so a result declared inside
-    # the batch record directory would be overwritten by the receipt that then
-    # reports the run as completed, with a hash for bytes that are gone.
+    # The launcher rejects a result that escapes the project or names a file it
+    # writes itself, but only once that run starts, so a bad path in the last
+    # entry would cost every earlier window first. Checked here instead, and
+    # against both receipt namespaces rather than this one run's directory: a
+    # result under a *later* run's directory would create that directory and
+    # get the later launch refused by its own mkdir, and one under this batch's
+    # record directory would be overwritten by the rollup that then reports the
+    # run completed, carrying a hash for bytes that are gone.
     for item in entry.get("results", []):
         try:
             target = relative(root, item)
@@ -129,10 +133,11 @@ def _run_entry(root, index, entry, seen, reserved):
                 f"{_where(index, entry)} declares a result outside the project; "
                 "use a portable project-relative path"
             ) from None
-        if any(target == kept or target.is_relative_to(kept) for kept in (owned, reserved)):
+        if any(target == kept or target.is_relative_to(kept) for kept in reserved):
             raise StudioError(
-                f"{_where(index, entry)} declares a result the launcher or this batch "
-                "writes itself; name a file the run produces"
+                f"{_where(index, entry)} declares a result under {RECEIPT_ROOTS[0]} or "
+                f"{RECEIPT_ROOTS[1]}, where the kit writes receipts; "
+                "name a file the run produces"
             )
     # Parsed here so a malformed instant is refused with the rest of the plan
     # rather than after the runs before it have already been spent. A present
@@ -223,6 +228,21 @@ def _receipts_on_disk(root, label):
     return found
 
 
+def _engine_started(root, label):
+    """Did an engine actually start? Only the process receipt can say so.
+
+    An interrupted launch never returns its result, so the durable receipt the
+    launcher wrote before re-raising is the only account of whether there was a
+    process behind the row at all.
+    """
+    path = root / "artifacts" / "launches" / label / "process" / "process.json"
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(record, dict) and bool(record.get("pid"))
+
+
 def _summary(index, entry, status, **fields):
     """One rollup row. Passthrough values and scrub prefixes never appear here:
     the count is what a receipt may say about what the child was handed."""
@@ -304,10 +324,8 @@ def execute(
     label = safe_id(label) if label else uuid.uuid4().hex
     # Its own namespace beside artifacts/launches, so a batch rollup and the
     # runs it indexes can never collide on the label that refuses a reused dir.
-    # Resolved before the plan is read, because no run may declare a result
-    # inside it.
     run_dir = outside_package(relative(root, f"artifacts/batches/{label}"))
-    entries, plan_record = _plan(root, plan, run_dir)
+    entries, plan_record = _plan(root, plan, tuple(relative(root, name) for name in RECEIPT_ROOTS))
     if max_minutes is None:
         max_minutes = DEFAULT_MAX_MINUTES
     if (type(max_minutes) not in (int, float) or not math.isfinite(max_minutes)
@@ -374,9 +392,16 @@ def execute(
         except KeyboardInterrupt:
             # The launcher has already stopped its child and written its own
             # receipts; the rollup records the same honestly before re-raising.
-            runs[index] = _summary(index, entry, "interrupted", verdict="interrupted",
-                                   failure="batch interrupted while this run was in flight",
-                                   **_receipts_on_disk(root, entry["label"]))
+            # Status answers whether an engine started, verdict answers what
+            # happened to it. A process receipt with a PID proves this one ran,
+            # whatever interrupted it afterwards.
+            runs[index] = _summary(
+                index, entry,
+                "ran" if _engine_started(root, entry["label"]) else "not_started",
+                verdict="interrupted",
+                failure="batch interrupted while this run was in flight",
+                **_receipts_on_disk(root, entry["label"]),
+            )
             stopped = "interrupted"
             for later in runs[index + 1:]:
                 later["failure"] = "batch stopped earlier: interrupted"

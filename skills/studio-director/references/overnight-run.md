@@ -42,7 +42,10 @@ one launch, the command that replaces a hand-rolled wait loop is
 until the last one has finished, and returns one verdict under a total cap
 separate from each run's own timeout. Separate `launch` calls are right only when
 a run's arguments depend on an earlier run's verdict, which a fixed plan cannot
-express. The batch rollup is a crash record, never a file to read for progress.
+express, and when each launch needs its own `bench cleanroom` window: stage 4
+wants one capture per rung, each with its own snapshot pair, and a batch inside
+one wrapper produces a single attribution window instead. The batch rollup is a
+crash record, never a file to read for progress.
 `STATE.md` and `RETURN.md` are the only hand-maintained run records: `RETURN.md` is write-once, at the
 end (Section 6). `STATE.md` is rewritten atomically from its template only at
 defined checkpoints: after each preflight attempt, at each stage transition,

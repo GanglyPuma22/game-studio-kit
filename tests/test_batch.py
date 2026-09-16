@@ -180,13 +180,34 @@ class BatchRollupTests(BatchCase):
                               sha256_expected=self.sha, label="stopped")
         record = read_json(self.root / "artifacts/batches/stopped/batch.json")
         row = record["runs"][0]
-        self.assertEqual(row["status"], "interrupted")
+        # No engine ever started here, so the row does not claim one did.
+        self.assertEqual(row["status"], "not_started")
+        self.assertEqual(row["verdict"], "interrupted")
         self.assertEqual(row["run_dir"], "artifacts/launches/cut")
         self.assertEqual(row["launch_record"], "artifacts/launches/cut/owned-launch.json")
         self.assertEqual(row["exit_record"], "artifacts/launches/cut/exit.json")
         self.assertTrue((self.root / row["exit_record"]).is_file())
         self.assertEqual(record["stopped_early"], "interrupted")
         self.assertEqual(record["runs"][1]["status"], "not_run")
+
+    def test_an_interrupted_engine_that_started_is_still_counted_as_a_launch(self):
+        # The process receipt carries the PID, and it is the only account of
+        # whether anything ran once the launcher re-raises instead of returning.
+        def interrupt_after_start(args, **kwargs):
+            processes.run([sys.executable, "-c", "print('started')"], **kwargs)
+            raise KeyboardInterrupt
+
+        plan = self.plan({"label": "cut"})
+        with patch("studio_tools.launch.run", side_effect=interrupt_after_start):
+            with self.assertRaises(KeyboardInterrupt):
+                batch.execute(self.config, self.root, plan=plan,
+                              sha256_expected=self.sha, label="midflight")
+        record = read_json(self.root / "artifacts/batches/midflight/batch.json")
+        self.assertGreater(read_json(self.root / "artifacts/launches/cut/process/process.json")["pid"], 0)
+        self.assertEqual(record["runs"][0]["status"], "ran")
+        self.assertEqual(record["runs"][0]["verdict"], "interrupted")
+        self.assertEqual(record["totals"]["ran"], 1)
+        self.assertFalse(record["ok"])
 
     def test_the_rollup_marks_a_run_in_flight_before_the_launcher_is_called(self):
         # The file is a crash record: a host that dies inside a launch must not
@@ -324,11 +345,13 @@ class BatchRefusalTests(BatchCase):
         # here, they cost nothing; found there, they cost every earlier window.
         owned = self.plan({"label": "first"},
                           {"label": "second", "results": ["artifacts/launches/second/exit.json"]})
-        self.assertEqual(
-            self.refusal(owned),
-            'Batch plan run 2 (label "second") declares a result the launcher or this batch '
-            "writes itself; name a file the run produces",
-        )
+        self.assertEqual(self.refusal(owned), 'Batch plan run 2 (label "second") declares a result under artifacts/launches or artifacts/batches, where the kit writes receipts; name a file the run produces')
+        # A result under a *later* run's directory would create that directory
+        # and get the later launch refused by its own mkdir, after this run had
+        # already spent its window.
+        neighbour = self.plan({"label": "first", "results": ["artifacts/launches/second/out.json"]},
+                              {"label": "second"})
+        self.assertEqual(self.refusal(neighbour), 'Batch plan run 1 (label "first") declares a result under artifacts/launches or artifacts/batches, where the kit writes receipts; name a file the run produces')
         escaping = self.plan({"label": "first"}, {"label": "second", "results": ["../elsewhere.json"]})
         self.assertEqual(
             self.refusal(escaping),
@@ -343,11 +366,8 @@ class BatchRefusalTests(BatchCase):
         # reports it completed, carrying a hash for bytes that are gone.
         plan = self.plan({"label": "first"},
                          {"label": "second", "results": ["artifacts/batches/nightly/batch.json"]})
-        self.assertEqual(
-            self.refusal(plan, "--label", "nightly"),
-            'Batch plan run 2 (label "second") declares a result the launcher or this batch '
-            "writes itself; name a file the run produces",
-        )
+        self.assertEqual(self.refusal(plan, "--label", "nightly"),
+                         'Batch plan run 2 (label "second") declares a result under artifacts/launches or artifacts/batches, where the kit writes receipts; name a file the run produces')
         self.assertFalse((self.root / "artifacts/batches/nightly").exists())
 
     def test_labels_that_differ_only_in_case_collide(self):
@@ -493,10 +513,17 @@ class BatchDiscoverabilityTests(BatchCase):
                       procedure)
         self.assertIn("--sha256 <engine> --plan <plan>", procedure)
         block = BLOCK.read_text(encoding="utf-8")
-        self.assertIn("`studio batch --plan <file>`", block)
-        # The block names commands; it says once how all of them are invoked.
+        # The rule most often read on its own spells its own invocation, and the
+        # preamble says once how every other command in the block is invoked.
+        self.assertIn("python <KIT>/scripts/studio.py batch --project <run> --plan <file>", block)
         self.assertIn("There is no `studio` on PATH", block)
-        self.assertIn("python <KIT>/scripts/studio.py <command>", block)
+        self.assertNotIn("with an explicit `--project`, as that procedure", block)
+
+    def test_the_rules_keep_the_stage_that_cannot_be_batched(self):
+        # Stage 4 wants one cleanroom capture per rung; one batch inside one
+        # wrapper is one attribution window, not five.
+        for path in (PROCEDURE, BLOCK):
+            self.assertIn("`bench cleanroom` window", path.read_text(encoding="utf-8"))
 
     def test_batch_is_a_declared_command_with_its_plan_template(self):
         manifest = read_json(ROOT / "studio-kit.json")
