@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "kind": "launch-batch-plan",
+  "runs": [
+    {
+      "label": "run-id-stage-1",
+      "scope": "macro-terrain",
+      "mode": "native",
+      "script": "res://tests/route.gd",
+      "timeout": 600,
+      "results": [
+        "artifacts/route-summary.json"
+      ]
+    },
+    {
+      "label": "run-id-stage-2",
+      "scope": "three-sites",
+      "mode": "check",
+      "script": "res://tests/compile_check.gd",
+      "timeout": 120,
+      "scrub_env": [],
+      "passthrough": []
+    }
+  ]
+}
