@@ -32,6 +32,7 @@ def audit(meshes, numpy):
                     "boundary_edges": None,
                     "nonmanifold_edges": None,
                     "inconsistent_winding_edges": None,
+            "nonmanifold_vertices": None,
                     "uv_layers": len(mesh.uv_layers),
                 }
             )

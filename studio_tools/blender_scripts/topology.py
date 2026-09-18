@@ -15,14 +15,25 @@ vertex. An intentional walk-through opening stays an opening, and it is counted
 honestly as boundary edges, because only the person who modelled it knows
 whether it is a defect.
 
+Edge counts alone are not enough. Two closed shells that meet at a single
+welded vertex have no boundary edge and no edge shared by three faces, so every
+edge count calls them clean while the surface still cannot be rigged, unwrapped
+or given collision at that point. `nonmanifold_vertices` is the connectivity
+test that catches it.
+
 The module is plain Python so the arithmetic can be tested without Blender. It
 uses numpy when numpy is present, because the meshes this was written for hold
 millions of triangles; `numpy_module()` lets a caller decide what to do when it
 is absent instead of discovering it mid-audit.
 """
 
-# The three defects that disqualify a mesh for rigging, collision or baking.
-DEFECTS = ("boundary_edges", "nonmanifold_edges", "inconsistent_winding_edges")
+# The four defects that disqualify a mesh for rigging, collision or baking.
+DEFECTS = (
+    "boundary_edges",
+    "nonmanifold_edges",
+    "inconsistent_winding_edges",
+    "nonmanifold_vertices",
+)
 
 UNAVAILABLE = {
     "status": "unavailable",
@@ -39,15 +50,22 @@ def numpy_module():
     return numpy
 
 
-def _numpy_counts(numpy, vertices, triangles):
+def _numpy_welded(numpy, vertices, triangles):
+    """Vertex indices per triangle after welding by position, as a numpy array."""
     points = numpy.asarray(vertices, dtype=numpy.float32).reshape(-1, 3)
     faces = numpy.asarray(triangles, dtype=numpy.int64).reshape(-1, 3)
     if not len(faces):
-        return 0, 0, 0
+        return faces, 0
     unique, inverse = numpy.unique(points, axis=0, return_inverse=True)
     # numpy has returned this as (n,) and as (n, 1) across versions.
-    welded = numpy.asarray(inverse).reshape(-1)[faces].astype(numpy.uint64)
-    count = numpy.uint64(len(unique))
+    return numpy.asarray(inverse).reshape(-1)[faces], len(unique)
+
+
+def _numpy_edge_counts(numpy, welded, vertex_count):
+    if not len(welded):
+        return 0, 0, 0
+    welded = welded.astype(numpy.uint64)
+    count = numpy.uint64(vertex_count)
     edges = numpy.concatenate(
         (welded[:, [0, 1]], welded[:, [1, 2]], welded[:, [2, 0]])
     )
@@ -65,15 +83,18 @@ def _numpy_counts(numpy, vertices, triangles):
     )
 
 
-def _python_counts(vertices, triangles):
+def _python_welded(vertices, triangles):
     positions = {}
     welded = []
     for point in vertices:
         welded.append(positions.setdefault(tuple(point), len(positions)))
+    return [tuple(welded[int(i)] for i in triangle) for triangle in triangles]
+
+
+def _python_edge_counts(welded):
     shared = {}
     winding = {}
-    for triangle in triangles:
-        first, second, third = (welded[int(i)] for i in triangle)
+    for first, second, third in welded:
         for start, end in ((first, second), (second, third), (third, first)):
             key = (start, end) if start < end else (end, start)
             shared[key] = shared.get(key, 0) + 1
@@ -85,8 +106,59 @@ def _python_counts(vertices, triangles):
     )
 
 
+def nonmanifold_vertex_count(welded):
+    """Vertices whose incident faces do not form one edge-connected fan.
+
+    Walk the faces around each welded vertex, joining two of them whenever they
+    share an edge that vertex lies on, and count the vertices whose faces end up
+    in more than one group. A closed fan and an open fan are both one group; a
+    bowtie, or two shells touching at a point, is two.
+
+    This is the one step that stays plain Python even when numpy is present. A
+    vectorized union-find is not arithmetic that can be checked by inspection,
+    and this environment has no numpy to run it against, so the choice is
+    between a slower answer and an unverified one. It is called with the welded
+    index list both paths already produce, so there is a single implementation
+    and a single set of tests behind the `clean` verdict.
+    """
+    incident = {}
+    shared = {}
+    for index, triangle in enumerate(welded):
+        first, second, third = triangle
+        for vertex in triangle:
+            incident.setdefault(vertex, set()).add(index)
+        for start, end in ((first, second), (second, third), (third, first)):
+            if start == end:
+                # A degenerate edge joins nothing; the edge counts report it.
+                continue
+            key = (start, end) if start < end else (end, start)
+            shared.setdefault(key, []).append(index)
+    parent = {}
+
+    def find(corner):
+        root = corner
+        while parent.setdefault(root, root) != root:
+            root = parent[root]
+        while parent[corner] != root:
+            parent[corner], corner = root, parent[corner]
+        return root
+
+    for (start, end), faces in shared.items():
+        for vertex in (start, end):
+            anchor = find((vertex, faces[0]))
+            for face in faces[1:]:
+                other = find((vertex, face))
+                if other != anchor:
+                    parent[other] = anchor
+    return sum(
+        1
+        for vertex, faces in incident.items()
+        if len({find((vertex, face)) for face in faces}) > 1
+    )
+
+
 def audit_triangles(vertices, triangles, uv_layers=0, numpy=None):
-    """Count the triangles and the three defects of one triangulated mesh.
+    """Count the triangles and the four defects of one triangulated mesh.
 
     `vertices` is a sequence (or numpy array) of x/y/z positions and
     `triangles` a sequence of three vertex indices each. Pass `numpy=False` to
@@ -96,23 +168,26 @@ def audit_triangles(vertices, triangles, uv_layers=0, numpy=None):
     if numpy is None:
         numpy = numpy_module()
     if numpy is False or numpy is None:
-        counts = _python_counts(vertices, triangles)
-        total = len(triangles)
+        welded = _python_welded(vertices, triangles)
+        boundary, nonmanifold, inconsistent = _python_edge_counts(welded)
     else:
-        counts = _numpy_counts(numpy, vertices, triangles)
-        total = len(numpy.asarray(triangles).reshape(-1, 3))
-    boundary, nonmanifold, inconsistent = counts
+        array, vertex_count = _numpy_welded(numpy, vertices, triangles)
+        boundary, nonmanifold, inconsistent = _numpy_edge_counts(
+            numpy, array, vertex_count
+        )
+        welded = [tuple(triangle) for triangle in array.tolist()]
     return {
-        "triangles": int(total),
+        "triangles": len(welded),
         "boundary_edges": boundary,
         "nonmanifold_edges": nonmanifold,
         "inconsistent_winding_edges": inconsistent,
+        "nonmanifold_vertices": nonmanifold_vertex_count(welded),
         "uv_layers": int(uv_layers),
     }
 
 
 def clean(record):
-    """True only when a measured record reports none of the three defects."""
+    """True only when a measured record reports none of the four defects."""
     if not isinstance(record, dict):
         return False
     return all(record.get(name) == 0 for name in DEFECTS)
