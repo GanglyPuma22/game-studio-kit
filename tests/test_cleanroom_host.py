@@ -23,10 +23,11 @@ MB = 1024 * 1024
 
 
 def snap(processes_, at="2026-09-10T10:00:00+00:00", gpu=None, power=None, battery=None, recorder=(),
-         process_status="ok", helper_pids=()):
+         process_status="ok", helper_pids=(), helper_processes=()):
     return {
         "at_utc": at, "monotonic": 0.0, "processes": processes_, "process_count": len(processes_),
         "process_status": process_status, "process_reason": None, "helper_pids": list(helper_pids),
+        "helper_processes": list(helper_processes),
         "gpu": gpu or {"status": "unavailable"}, "power_scheme": power or {"status": "unavailable"},
         "battery": battery or {"status": "unavailable"}, "recorder": list(recorder),
     }
@@ -66,7 +67,8 @@ class StubSampler:
     def observation(self):
         return {
             "sampler": {"mode": "stub", "pid": os.getpid(), "command": "stub",
-                        "interval_seconds": self.kwargs.get("interval"), "helper_pids": [], "owned_pids": []},
+                        "interval_seconds": self.kwargs.get("interval"), "helper_pids": [],
+                        "helper_processes": [], "owned_pids": []},
             "samples": self.samples, "failed_samples": 0,
             "first_sample_utc": "2026-09-10T10:00:02+00:00", "last_sample_utc": "2026-09-10T10:05:00+00:00",
             "recorders": [dict(entry) for entry in self.recorders],
@@ -104,6 +106,45 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(result["reasons"], [])
         self.assertIn("GPU counters unavailable for this window", result["limits"])
         self.assertIsNone(result["contamination"]["agent_log"])
+
+    def test_system_idle_cpu_is_excluded_but_real_background_load_is_counted(self):
+        before = snap([
+            proc(0, "System Idle Process", cpu=1000.0),
+            proc(10, "WmiPrvSE", cpu=2.0),
+            proc(11, "Chrome", cpu=4.0),
+        ])
+        after = snap([
+            proc(0, "System Idle Process", cpu=5800.0),
+            proc(10, "WmiPrvSE", cpu=4.5),
+            proc(11, "Chrome", cpu=8.0),
+        ])
+        result = cleanroom.compare(before, after, WINDOW, busy_cpu_seconds=1.0,
+                                   heavy_working_set_bytes=200 * MB)
+        self.assertEqual(
+            result["contamination"]["busy"],
+            [
+                {"pid": 11, "name": "Chrome", "cpu_delta_seconds": 4.0},
+                {"pid": 10, "name": "WmiPrvSE", "cpu_delta_seconds": 2.5},
+            ],
+        )
+        self.assertNotIn("System Idle Process", json.dumps(result["contamination"]))
+        self.assertFalse(result["attributable"])
+
+    def test_genuine_newcomer_is_counted_while_exact_helpers_are_separated(self):
+        before_helper = {"pid": 500, "name": "powershell", "created": "a"}
+        after_helper = {"pid": 600, "name": "powershell", "created": "b"}
+        before = snap([proc(500, "powershell", ws=900 * MB, created="a")], helper_pids=[500],
+                      helper_processes=[before_helper])
+        after = snap([
+            proc(600, "powershell", ws=900 * MB, created="b"),
+            proc(700, "Chrome", ws=900 * MB, created="c"),
+        ], helper_pids=[600], helper_processes=[after_helper])
+        result = cleanroom.compare(before, after, WINDOW, busy_cpu_seconds=1.0,
+                                   heavy_working_set_bytes=200 * MB)
+        self.assertEqual([p["name"] for p in result["contamination"]["new_heavy"]], ["Chrome"])
+        self.assertEqual(result["contamination"]["exited_heavy"], [])
+        self.assertEqual(result["contamination"]["observer_helpers"], [before_helper, after_helper])
+        self.assertFalse(result["attributable"])
 
     def test_agent_log_timestamps_inside_window_break_attribution(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -374,6 +415,24 @@ class SamplerTests(unittest.TestCase):
         self.assertEqual([n["pid"] for n in result["during"]["heavy_newcomers"]], [77])
         self.assertFalse(result["during"]["heavy_newcomers"][0]["present_after"])
 
+    def test_seeded_identity_with_missing_creation_is_reported_as_unknown(self):
+        tables = [
+            [proc(1, "idle", created="1"), proc(4, "System", created=None), proc(5, "Secure System", created=None)],
+            [proc(1, "idle", created="1"), proc(77, "worker", created="900", ws=900 * MB)],
+        ]
+        sampler = self.sampler(tables, baseline={(1, "idle", "1"), (4, "System", "100"),
+                                                  (5, "Secure System", None), (77, "worker", "100")})
+        for _ in tables:
+            sampler.sample()
+        during = sampler.observation()
+        self.assertEqual([(p["pid"], p["name"]) for p in during["identity_unknown"]],
+                         [(5, "Secure System"), (4, "System")])
+        self.assertEqual([(p["pid"], p["created"]) for p in during["newcomers"]], [(77, "900")])
+        result = cleanroom.compare(snap([]), snap([]), WINDOW, busy_cpu_seconds=1.0,
+                                   heavy_working_set_bytes=200 * MB, during=during)
+        self.assertIn("some sampled process identities lacked a creation time; pid reuse could not be resolved",
+                      result["limits"])
+
     def test_a_recorder_started_by_the_owned_capture_is_still_contamination(self):
         # The capture's own tree is excluded from the newcomer count, but a
         # recorder it starts is exactly what invalidates a frame-time number.
@@ -499,6 +558,32 @@ class SamplerTests(unittest.TestCase):
         during = sampler.observation()
         self.assertEqual([n["name"] for n in during["newcomers"]], ["unrelated-newcomer"])
         self.assertEqual(during["sampler"]["helper_pids"], [500])
+
+
+class WindowsProcessIdentityTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Windows process readers")
+    def test_cim_and_native_creation_tokens_match_for_the_same_pid(self):
+        boundary = cleanroom.read_processes_windows()
+        sampled = cleanroom.read_processes_windows_native()
+        self.assertEqual(boundary["status"], "ok", boundary)
+        self.assertEqual(sampled["status"], "ok", sampled)
+        before = {p["pid"]: p for p in boundary["processes"]}
+        during = {p["pid"]: p for p in sampled["processes"]}
+        self.assertIn(os.getpid(), before)
+        self.assertIn(os.getpid(), during)
+        self.assertIsNotNone(before[os.getpid()]["created"])
+        self.assertEqual(before[os.getpid()]["created"], during[os.getpid()]["created"])
+
+    def test_cim_fixture_uses_the_same_microsecond_filetime_token_as_native(self):
+        raw_ticks = 134030123456789017
+        row = [{
+            "ProcessId": 42, "ParentProcessId": 1, "Name": "worker.exe", "WorkingSetSize": 10,
+            "KernelModeTime": 0, "UserModeTime": 0, "CreationFileTime": raw_ticks,
+        }]
+        with patch("studio_tools.cleanroom._powershell", return_value="powershell"), \
+                patch("studio_tools.cleanroom._query", return_value=json.dumps(row)):
+            cim = cleanroom.read_processes_windows()["processes"][0]
+        self.assertEqual(cim["created"], cleanroom._windows_creation_token(raw_ticks))
 
 
 class ExecuteTests(unittest.TestCase):
@@ -761,15 +846,9 @@ class ExecuteTests(unittest.TestCase):
         self.assertIn("Sample interval", err.getvalue())
 
     def test_failed_process_enumeration_reports_a_status_instead_of_an_empty_host(self):
-        with patch("studio_tools.cleanroom._powershell", return_value=None):
-            self.assertEqual(cleanroom.read_processes_windows()["status"], "unavailable")
-        with patch("studio_tools.cleanroom._powershell", return_value="pwsh"), \
-                patch("studio_tools.cleanroom._query", return_value=None):
-            self.assertEqual(cleanroom.read_processes_windows()["processes"], [])
-        with patch("studio_tools.cleanroom._powershell", return_value="pwsh"), \
-                patch("studio_tools.cleanroom._query", return_value="[]"):
-            self.assertEqual(cleanroom.read_processes_windows()["status"], "unavailable")
-        with patch("studio_tools.cleanroom.os.sysconf", side_effect=OSError):
+        with patch("ctypes.WinDLL", side_effect=OSError("no Windows APIs"), create=True):
+            self.assertEqual(cleanroom.read_processes_windows_native()["status"], "unavailable")
+        with patch("studio_tools.cleanroom.os.sysconf", side_effect=OSError, create=True):
             self.assertEqual(cleanroom.read_processes_posix()["status"], "unavailable")
         blind = cleanroom.snapshot(process_reader=lambda on_pid=None: {"status": "unavailable", "reason": "no ps", "processes": []},
                                    gpu_reader=lambda: {"status": "unavailable"},
@@ -797,33 +876,18 @@ class ExecuteTests(unittest.TestCase):
         self.assertEqual(result["compute_apps"], [{"pid": 4321, "name": "godot", "used_memory_mib": "512"}])
 
     def test_windows_reader_carries_parent_pids_and_process_identity(self):
-        # Get-Process exposes no parent pid, so the owned capture's descendants
-        # could not be excluded; Win32_Process carries both ppid and a creation
-        # time, and its Name keeps the extension the recorder list does not use.
-        rows = json.dumps([
-            {"ProcessId": 4242, "ParentProcessId": 4000, "Name": "obs64.exe", "WorkingSetSize": 400 * MB,
-             "KernelModeTime": 20000000, "UserModeTime": 30000000, "CreationDate": "2026-09-10T09:59:00+00:00"},
-            {"ProcessId": 4, "ParentProcessId": None, "Name": "System", "WorkingSetSize": None,
-             "KernelModeTime": None, "UserModeTime": None, "CreationDate": None},
-        ])
-        calls = []
-
-        def fake_query(args, timeout=15, on_pid=None):
-            calls.append(" ".join(str(a) for a in args))
-            return rows
-
-        with patch("studio_tools.cleanroom._powershell", return_value="pwsh"), \
-                patch("studio_tools.cleanroom._query", side_effect=fake_query):
-            result = cleanroom.read_processes_windows()
+        if os.name != "nt":
+            self.skipTest("native Windows process APIs")
+        helpers = []
+        result = cleanroom.read_processes_windows_native(on_pid=helpers.append)
         self.assertEqual(result["status"], "ok")
-        recorder, system = result["processes"]
-        self.assertEqual(recorder, {"pid": 4242, "ppid": 4000, "name": "obs64", "cpu_seconds": 5.0,
-                                    "working_set_bytes": 400 * MB, "created": "2026-09-10T09:59:00+00:00"})
-        self.assertTrue(cleanroom._is_recorder(recorder["name"]))
-        self.assertEqual((system["ppid"], system["created"], system["working_set_bytes"], system["cpu_seconds"]),
-                         (None, None, 0, 0.0))
-        for field in ("Win32_Process", "ParentProcessId", "CreationDate", "KernelModeTime", "UserModeTime"):
-            self.assertIn(field, calls[0], field)
+        current = next(p for p in result["processes"] if p["pid"] == os.getpid())
+        self.assertIsInstance(current["ppid"], int)
+        self.assertTrue(current["name"])
+        self.assertGreaterEqual(current["cpu_seconds"], 0)
+        self.assertGreater(current["working_set_bytes"], 0)
+        self.assertIsNotNone(current["created"])
+        self.assertEqual(helpers, [])  # direct APIs create no sampler helper
 
     def test_recorder_matching_is_an_explicit_set_not_a_prefix(self):
         # "obs" is also the start of Obsidian's executable name; a prefix
