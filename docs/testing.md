@@ -108,8 +108,11 @@ the source hash, `ok` refused when the *source* audit was dirty, when the
 reduction introduced a defect, when nothing was saved and when the build could
 not measure topology at all, an existing `--output` and an out-of-range
 `--target-triangles` refused before launch, a repeated label refused with the
-earlier receipt intact, and no argv value reaching any receipt. Every flag runs
-through `cli.main`. No Blender and no mesh are involved.
+earlier receipt intact, and no argv value reaching any receipt. Each shared
+option is exercised before and after the operation name with the operation's
+value winning, what the command needs is named by dispatch rather than by
+argparse, and a mistyped `--project` is refused without being created. Every
+flag runs through `cli.main`. No Blender and no mesh are involved.
 
 `test_credential_files.py` covers the optional `credential_files` host
 declaration: the environment still winning over a declared file, a file
