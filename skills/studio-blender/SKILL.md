@@ -1,6 +1,6 @@
 ---
 name: studio-blender
-description: Create, inspect, render and explicitly export game asset hierarchies in Blender, run a bake or export script headlessly with `studio blender run`, keeping editable source and verifying geometry, materials and animation after GLB round trip.
+description: Create, inspect, render and explicitly export game asset hierarchies in Blender, run a bake or export script headlessly with `studio blender run`, reduce a dense mesh to a triangle budget with `studio blender reduce`, keeping editable source and verifying geometry, materials, topology and animation after GLB round trip.
 ---
 
 # Studio Blender
@@ -31,6 +31,22 @@ It runs `blender --background --factory-startup <source> --python-exit-code 1 --
 ## `run` or the interactive MCP
 
 Use `run` when the work is a script: baking, exporting, repairing, measuring or batch-editing a file that already exists, in an unattended process that must leave evidence and be repeatable tomorrow. Use the optional native-Windows [MCP lifecycle](references/mcp.md) only when the decision needs an interactive session on an open scene — looking at a viewport, trying something and judging it. The MCP route needs a matched addon/server pair, a supervised host and a connected app client; `run` needs a Blender executable in the host config.
+
+## Qualify before collision or rig
+
+`blender inspect` reports, for every mesh object, `triangles`, `boundary_edges`, `nonmanifold_edges`, `inconsistent_winding_edges` and `uv_layers`, and a top-level `topology` carrying those totals and `clean`. Vertices are welded by position for the count only: duplicated texture-seam vertices are a correct part of an exported mesh and would otherwise read as thousands of holes. Nothing is modified by inspecting. On a Blender build without numpy, `topology` is `{"status": "unavailable", ...}` and the three edge counts are `null` — unmeasured, never assumed clean.
+
+The loop before anything is rigged, baked or given collision is: inspect, reduce if it is too dense, inspect again.
+
+```text
+python <KIT>/scripts/studio.py blender reduce --project <GAME> --source source/tree-original.blend --target-triangles 300000 --output source/tree-300k.blend --label tree-300k --config <HOST>
+```
+
+It opens the `.blend` or imports the `.glb`, welds coincident vertices at 1e-7, then applies Decimate (collapse, triangulate) at `target / current triangles` to each mesh object, skipping any object already at or below the target; `--object NAME` reduces one object instead of all of them. `--output` is a `.blend` that must not already exist, so the intact original is never the file a reduction overwrites. `artifacts/blender/reduce/<label>/reduce.json` holds the Blender and source hashes, the audit before and after per object and in total, the target, the achieved ratio and `ok`. `ok` is true only when the source audit was clean **and** the saved mesh still is; a reduction cannot qualify a mesh that arrived defective, and `reason` says which of the two failed.
+
+Nothing in this path repairs. Holes are never filled and openings are never closed, because an intentional walk-through gap and a defect are the same thing to the arithmetic and different things to the person who modelled it. Both are counted as boundary edges and left alone.
+
+Collision is a separate simplified surface aligned to the load-bearing parts — trunk and roots for a tree — authored or reduced on its own. It is never the render mesh, however cheap the render mesh has become, and intentional openings the player walks through stay open in it.
 
 Author with a metric scale, declared ground/center pivot and intentional transforms. Keep cameras, lights, render helpers and unrelated collections outside the runtime collection. Include every weighted mesh, required armature and hierarchy node. The collection exporter rejects missing armature dependencies and exports NLA tracks; name and stage clips with [animation](../studio-animation/SKILL.md) first.
 

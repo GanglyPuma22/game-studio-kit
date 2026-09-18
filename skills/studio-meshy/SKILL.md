@@ -1,6 +1,6 @@
 ---
 name: studio-meshy
-description: Generate or transform a game-asset candidate with Meshy using durable task records, explicit budgets, supported profiles and local output archival, checking what is left with the read-only `studio meshy balance` before asking for spend approval.
+description: Generate or transform a game-asset candidate with Meshy using durable task records, explicit budgets, supported profiles and local output archival, checking what is left with the read-only `studio meshy balance` before asking for spend approval and qualifying the returned mesh's topology in Blender before anything is built on it.
 ---
 
 # Studio Meshy
@@ -32,6 +32,26 @@ For a game asset, always send `should_remesh: true` with an explicit `target_pol
 | Prop, set dressing, background object | 5000–15000 |
 
 Those are starting points to adjust after inspecting the first import against the scene's budget, not provider recommendations; the helper accepts 100–300000 and sets no default, because the request has to state the size it wants. Use `topology: "triangle"` when the mesh goes straight to the engine and `"quad"` when Blender sculpt or retopology follows. `symmetry_mode` is `off`, `auto` or `on`; leave it at the provider's `auto` unless the reference is deliberately asymmetric.
+
+## Polycount and topology: what was measured
+
+Measured on one hero tree and one creature. Triangle and edge counts are what `studio blender inspect` now reports for every mesh object.
+
+| Mesh | Request | Triangles | Boundary edges | Nonmanifold edges |
+|---|---|---|---|---|
+| Hero tree | image-to-3d, no polycount asked for | 4,853,274 | 0 | 0 |
+| Hero tree | provider remesh of that tree, `target_polycount: 120000`, 5 credits | 125,485 | 91 | 87 |
+| Creature | image-to-3d, `target_polycount: 30000` | 30,816 | 83 | 90 |
+| Hero tree | `studio blender reduce` from the intact 4.85M original, no credits | 300,000 | 0 | 0 |
+
+The dense original was clean: once duplicated texture-seam vertices are welded by position, no boundary edges and no edge shared by more than two faces. Dense, but nothing wrong with it. Both polycount-constrained provider meshes were defective, and not recoverably: a coincident weld plus conservative degenerate cleanup fixed neither, and removing the unambiguous dangling faces left 11 boundary / 47 nonmanifold edges on the tree and 27 / 62 on the creature. The tree's pores were visibly angular underneath at 125K. Neither is ready for rigging or collision. The local weld-and-decimate from the intact original reported zero of all three defects and kept better underside detail than the paid 125K mesh.
+
+So:
+
+- **Request the polycount at generation, for cost.** A raw sculpt is millions of triangles, and every route out of it costs credits or time.
+- **Treat every provider mesh as unqualified until `studio blender inspect` reports clean topology.** A triangle count inside budget is not a usable mesh, and a viewport that looks right is not evidence: the defects above were underneath.
+- **When a provider mesh is defective, prefer `studio blender reduce` from the intact archived original over a paid remesh.** One remesh at 120K came back defective; paying again buys another sample of the same process, while the local reduction is free, repeatable and audited before and after.
+- **A dense clean original is an asset to archive, not a failure.** It is the only input a local reduction can be qualified from, and `reduce` refuses to call its result ok when the source it started from was already defective.
 
 Choose image generation for an exact reference; preview then a separately authorized refine when text generation needs shape approval. Retexture changes appearance; remesh changes topology and needs new deformation/UV checks. The supported rig profile requires a checked textured humanoid biped. Nonhumanoid or unchecked assets route to [studio-animation](../studio-animation/SKILL.md) **before any paid call**, even if a newer provider offers other experimental rig types.
 
