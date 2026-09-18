@@ -191,16 +191,17 @@ class ReduceCase(unittest.TestCase):
         self.last_kwargs = kwargs
         return processes.run([sys.executable, str(self.shim), *list(args)[1:]], **kwargs)
 
-    def cli_reduce(self, *argv):
+    def raw_cli(self, *argv):
         with patch.dict(os.environ, {"STUDIO_FAKE_REDUCE": str(self.plan)}):
             with patch("studio_tools.adapters.blender.run", side_effect=self.fake_blender):
                 with contextlib.redirect_stdout(io.StringIO()) as out:
                     with contextlib.redirect_stderr(io.StringIO()) as err:
-                        code = cli.main([
-                            "blender", "reduce", "--project", str(self.root),
-                            "--config", str(self.host_config), *argv,
-                        ])
+                        code = cli.main(list(argv))
         return code, out.getvalue(), err.getvalue()
+
+    def cli_reduce(self, *argv):
+        return self.raw_cli("blender", "reduce", "--project", str(self.root),
+                            "--config", str(self.host_config), *argv)
 
     def reduce_dir(self, label):
         return self.root / "artifacts/blender/reduce" / label
@@ -375,7 +376,73 @@ class ReduceTests(ReduceCase):
         self.assertIn("PrivateObjectName",
                       (self.reduce_dir("quiet") / "process/stdout.log").read_text(encoding="utf-8"))
 
-    def test_the_reduce_argument_surface_requires_source_target_and_output(self):
+    def test_a_shared_option_is_accepted_on_either_side_of_the_operation_name(self):
+        for side, before, after in (
+            ("after", [], ["--project", str(self.root), "--config", str(self.host_config),
+                           "--source", "source/original.blend"]),
+            ("before", ["--project", str(self.root), "--config", str(self.host_config),
+                        "--source", "source/original.blend"], []),
+        ):
+            with self.subTest(side=side):
+                code, out, err = self.raw_cli(
+                    "blender", *before, "reduce", *after,
+                    "--target-triangles", "300000",
+                    "--output", "source/%s.blend" % side, "--label", side,
+                )
+                self.assertEqual(err, "")
+                self.assertEqual(code, 0)
+                self.assertTrue(json.loads(out)["ok"])
+                self.assertEqual(json.loads(out)["source"]["path"], "source/original.blend")
+
+    def test_the_operation_side_wins_when_a_shared_option_is_given_twice(self):
+        code, out, err = self.raw_cli(
+            "blender", "--project", str(self.root), "--config", str(self.host_config),
+            "--source", "source/missing.blend", "reduce",
+            "--source", "source/original.blend", "--target-triangles", "300000",
+            "--output", "source/wins.blend", "--label", "wins",
+        )
+        self.assertEqual(err, "")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["source"]["path"], "source/original.blend")
+
+    def test_what_reduce_needs_is_named_where_it_runs_rather_than_by_argparse(self):
+        # Nothing is `required` on the subparser, because that would refuse a
+        # shared option spelled before the operation name.
+        shared = ["--project", str(self.root), "--config", str(self.host_config)]
+        with patch("studio_tools.adapters.blender.run") as runner:
+            for arguments in (
+                ["--target-triangles", "300000", "--output", "source/a.blend"],
+                ["--source", "source/original.blend", "--output", "source/a.blend"],
+                ["--source", "source/original.blend", "--target-triangles", "300000"],
+            ):
+                with self.subTest(arguments=arguments):
+                    code, _, err = self.raw_cli("blender", "reduce", *shared, *arguments)
+                    self.assertEqual(code, 1)
+                    self.assertIn("needs --source, --target-triangles and --output",
+                                  json.loads(err)["error"])
+            code, _, err = self.raw_cli(
+                "blender", "reduce", "--config", str(self.host_config),
+                "--source", "source/original.blend", "--target-triangles", "300000",
+                "--output", "source/a.blend",
+            )
+            self.assertEqual(code, 1)
+            self.assertIn("needs --project", json.loads(err)["error"])
+            runner.assert_not_called()
+
+    def test_a_project_that_does_not_exist_is_refused_without_being_created(self):
+        absent = Path(self.tmp.name) / "mistyped"
+        with patch("studio_tools.adapters.blender.run") as runner:
+            code, _, err = self.raw_cli(
+                "blender", "reduce", "--project", str(absent), "--config", str(self.host_config),
+                "--source", "source/original.blend", "--target-triangles", "300000",
+                "--output", "source/a.blend",
+            )
+            runner.assert_not_called()
+        self.assertEqual(code, 1)
+        self.assertIn("existing game project", json.loads(err)["error"])
+        self.assertFalse(absent.exists())
+
+    def test_the_reduce_argument_surface_parses_and_refuses_a_nonnumeric_budget(self):
         parsed = parser().parse_args([
             "blender", "reduce", "--project", "game", "--source", "source/a.glb",
             "--target-triangles", "300000", "--output", "source/a-300k.blend",
@@ -384,20 +451,12 @@ class ReduceTests(ReduceCase):
         self.assertEqual((parsed.command, parsed.operation), ("blender", "reduce"))
         self.assertEqual(parsed.target_triangles, 300000)
         self.assertEqual(parsed.object, "Tree")
-        for argv in (
-            ["blender", "reduce", "--project", "game", "--target-triangles", "1000",
-             "--output", "a.blend"],
-            ["blender", "reduce", "--project", "game", "--source", "a.glb",
-             "--output", "a.blend"],
-            ["blender", "reduce", "--project", "game", "--source", "a.glb",
-             "--target-triangles", "1000"],
-            ["blender", "reduce", "--project", "game", "--source", "a.glb",
-             "--target-triangles", "many", "--output", "a.blend"],
-        ):
-            with self.subTest(refused=argv):
-                with self.assertRaises(SystemExit):
-                    with contextlib.redirect_stderr(io.StringIO()):
-                        parser().parse_args(argv)
+        with self.assertRaises(SystemExit):
+            with contextlib.redirect_stderr(io.StringIO()):
+                parser().parse_args([
+                    "blender", "reduce", "--project", "game", "--source", "a.glb",
+                    "--target-triangles", "many", "--output", "a.blend",
+                ])
 
 
 class ReduceGuidanceTests(unittest.TestCase):
