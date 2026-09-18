@@ -83,7 +83,12 @@ declared result and a failing script returned as a verdict rather than an
 exception, a declared result whose bytes predate the run reported as stale
 instead of produced while a rewritten one is accepted, shared options given
 before or after the operation name, a mistyped project that is refused without
-being created, a timeout with owned cleanup, a refused label collision that leaves
+being created, a declared result that cannot be read before the run refused for
+want of a baseline, a helper the script left running stopped and reported with
+`ok` false, an unenumerable process tree treated the same way, a
+KeyboardInterrupt writing an interrupted receipt before it continues, the
+staged script copy being what the receipt hashes when the original is edited
+during the run, a timeout with owned cleanup, a refused label collision that leaves
 the first run's receipt untouched, a declared result inside the run's own
 directory refused before launch, and every input check running before anything
 starts. Every flag is exercised through `cli.main`. No Blender is involved.

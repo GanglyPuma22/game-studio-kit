@@ -127,8 +127,12 @@ class BlenderRunTests(BlenderRunCase):
                          {"path": str(Path(sys.executable).resolve()), "sha256": sha256(sys.executable)})
         self.assertEqual(receipt["source"],
                          {"path": "source/asset.blend", "sha256": sha256(self.root / "source/asset.blend")})
-        self.assertEqual(receipt["script"],
-                         {"path": "tools/rebake.py", "sha256": sha256(self.root / "tools/rebake.py")})
+        self.assertEqual(receipt["script"], {
+            "path": "tools/rebake.py", "staged": "script.py",
+            "sha256": sha256(run_dir / "script.py"),
+        })
+        self.assertEqual(sha256(run_dir / "script.py"), sha256(self.root / "tools/rebake.py"))
+        self.assertEqual(receipt["survivors"], {"status": "ok", "pids": [], "stopped": True})
         self.assertEqual(receipt["passthrough_count"], 2)
         self.assertEqual(receipt["result_files"], [{
             "path": "artifacts/bakes/normal.png", "present": True, "stale": False,
@@ -153,7 +157,7 @@ class BlenderRunTests(BlenderRunCase):
             str(Path(sys.executable).resolve()), "--background", "--factory-startup",
             str((self.root / "source/asset.blend").resolve()),
             "--python-exit-code", "1",
-            "--python", str((self.root / "tools/rebake.py").resolve()),
+            "--python", str(self.run_dir("line") / "script.py"),
             "--", "--samples", "8",
         ])
         self.assertEqual(self.last_kwargs["cwd"], str(self.root))
@@ -416,6 +420,135 @@ class BlenderRunReviewTests(BlenderRunCase):
                         code = cli.main(argv)
                 self.assertEqual(code, 1)
                 self.assertIn(message, json.loads(err.getvalue())["error"])
+
+
+class BlenderRunOwnershipTests(BlenderRunCase):
+    """Round two of review: the baseline, the tree, the interrupt and the script."""
+
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                     "an unreadable baseline needs POSIX permissions and a non-root user")
+    def test_a_declared_result_without_a_readable_baseline_is_refused_before_launch(self):
+        locked = self.root / "artifacts/bakes/normal.png"
+        locked.parent.mkdir(parents=True)
+        locked.write_text("unreadable bake", encoding="utf-8")
+        locked.chmod(0)
+        self.addCleanup(locked.chmod, 0o644)
+        with patch("studio_tools.adapters.blender.run") as runner:
+            code, _, err = self.cli_run(
+                "--source", "source/asset.blend", "--script", "tools/rebake.py",
+                "--label", "no-baseline", "--result", "artifacts/bakes/normal.png",
+            )
+            runner.assert_not_called()
+        self.assertEqual(code, 1)
+        error = json.loads(err)["error"]
+        self.assertIn("cannot be read before the run", error)
+        self.assertIn("artifacts/bakes/normal.png", error)
+        self.assertFalse(self.run_dir("no-baseline").exists())
+
+    @unittest.skipUnless(os.name != "nt" and Path("/proc").is_dir(),
+                         "descendant enumeration needs POSIX /proc")
+    def test_a_helper_the_script_left_running_is_stopped_and_reported(self):
+        self.script("tools/spawn.py",
+                    "import subprocess,sys\n"
+                    "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+                    "print(child.pid)\n")
+        code, out, _ = self.cli_run("--source", "source/asset.blend",
+                                    "--script", "tools/spawn.py", "--label", "helper")
+        verdict = json.loads(out)
+        pid = int(Path(verdict["log"]).read_text(encoding="utf-8").split()[-1])
+        self.addCleanup(self._reap, pid)
+        self.assertEqual(code, 1)
+        self.assertFalse(verdict["ok"])
+        self.assertEqual(verdict["status"], "completed")
+        self.assertEqual(verdict["returncode"], 0)
+        self.assertEqual(verdict["survivors"]["status"], "ok")
+        self.assertIn(pid, verdict["survivors"]["pids"])
+        self.assertTrue(verdict["survivors"]["stopped"])
+        self.assertIn("outlived Blender", verdict["failure"])
+        self.assertEqual(read_json(self.run_dir("helper") / "run.json")["survivors"]["pids"], [pid])
+        self.assertFalse(self._running(pid))
+
+    def test_an_unverifiable_process_tree_is_not_ok(self):
+        with patch("studio_tools.adapters.blender.stop_survivors",
+                   return_value={"status": "unavailable", "pids": [], "stopped": False}):
+            code, out, _ = self.cli_run("--source", "source/asset.blend",
+                                        "--script", "tools/rebake.py", "--label", "unverified")
+        self.assertEqual(code, 1)
+        verdict = json.loads(out)
+        self.assertFalse(verdict["ok"])
+        self.assertEqual(verdict["status"], "completed")
+        self.assertIn("could not be enumerated", verdict["failure"])
+        self.assertEqual(verdict["survivors"]["status"], "unavailable")
+
+    def test_an_interrupted_run_writes_its_receipt_before_it_re_raises(self):
+        def interrupted(args, **kwargs):
+            job_dir = Path(kwargs["job_dir"])
+            job_dir.mkdir(parents=True, exist_ok=False)
+            write_json(job_dir / "process.json", {
+                "schema_version": 1, "status": "interrupted", "pid": 4242,
+                "started_utc": "2026-01-01T00:00:00+00:00", "returncode": None,
+                "cleanup": "owned_tree_stopped",
+            })
+            raise KeyboardInterrupt()
+
+        with patch("studio_tools.adapters.blender.run", side_effect=interrupted):
+            with patch("studio_tools.adapters.blender.stop_survivors") as survivors:
+                with self.assertRaises(KeyboardInterrupt):
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        cli.main(["blender", "run", "--project", str(self.root),
+                                  "--config", str(self.host_config), "--source", "source/asset.blend",
+                                  "--script", "tools/rebake.py", "--label", "ctrl-c",
+                                  "--result", "artifacts/bakes/normal.png"])
+                # The runner stopped its own child; nothing else is signalled here.
+                survivors.assert_not_called()
+        receipt = read_json(self.run_dir("ctrl-c") / "run.json")
+        self.assertEqual(receipt["status"], "interrupted")
+        self.assertFalse(receipt["ok"])
+        self.assertIsNone(receipt["survivors"])
+        self.assertIn("interrupted before the script finished", receipt["failure"])
+        self.assertEqual(receipt["cleanup"], "owned_tree_stopped")
+        self.assertEqual(receipt["result_files"][0]["path"], "artifacts/bakes/normal.png")
+
+    def test_the_receipt_describes_the_copy_that_ran_not_the_file_edited_after(self):
+        self.script("tools/selfedit.py",
+                    "from pathlib import Path\n"
+                    "print('bake ran')\n"
+                    "Path('tools/selfedit.py').write_text('print(\\'edited after launch\\')\\n')\n")
+        original = sha256(self.root / "tools/selfedit.py")
+        code, out, _ = self.cli_run("--source", "source/asset.blend",
+                                    "--script", "tools/selfedit.py", "--label", "immutable")
+        self.assertEqual(code, 0)
+        verdict = json.loads(out)
+        staged = self.run_dir("immutable") / "script.py"
+        self.assertEqual(verdict["script"]["staged"], "script.py")
+        self.assertEqual(verdict["script"]["path"], "tools/selfedit.py")
+        # What ran is what is hashed, and the edit the run made is not it.
+        self.assertEqual(verdict["script"]["sha256"], sha256(staged))
+        self.assertEqual(verdict["script"]["sha256"], original)
+        self.assertNotEqual(sha256(self.root / "tools/selfedit.py"), original)
+        self.assertIn("bake ran", (self.run_dir("immutable") / "process/stdout.log").read_text())
+
+    @staticmethod
+    def _running(pid):
+        """True only while a PID is a live process; a zombie holds nothing."""
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        try:
+            state = Path("/proc", str(pid), "stat").read_text().rpartition(")")[2].split()[0]
+        except OSError:
+            return False
+        return state != "Z"
+
+    def _reap(self, pid):
+        """Leave no test process behind, whatever the assertions above did."""
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
 
 
 class BlenderRunDiscoverabilityTests(unittest.TestCase):
