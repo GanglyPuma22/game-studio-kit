@@ -99,10 +99,18 @@ failure returned as an error *type* rather than a provider message, a missing
 credential refused before any request, and the operations that write still
 requiring their project and record. No network call is made.
 
+`test_meshy_image_profile.py` covers the image-to-3d profile's game-ready
+fields: a request carrying `should_remesh`, `target_polycount`, `topology` and
+`symmetry_mode` reaching the provider payload unchanged through `meshy submit`,
+each of them refused at the bounds the other profiles already used, no polycount
+invented by the helper, and an out-of-range request refused before any transport
+is constructed.
+
 ```text
 python -m unittest discover -s tests -p test_blender_run.py -v
 python -m unittest discover -s tests -p test_credential_files.py -v
 python -m unittest discover -s tests -p test_meshy_balance.py -v
+python -m unittest discover -s tests -p test_meshy_image_profile.py -v
 ```
 
 ## Interactive playtest

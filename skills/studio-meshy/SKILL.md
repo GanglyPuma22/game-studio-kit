@@ -23,6 +23,16 @@ The credential is read from the configured environment variable. A host that kee
 
 Each listed file is `KEY=VALUE` lines, tolerating a leading `export `, surrounding quotes, blank lines and `#` comments. The environment wins when both are set, and a listed file that is missing is skipped. Never copy the key into a request, budget, task record or command argument.
 
+For a game asset, always send `should_remesh: true` with an explicit `target_polycount`, and choose the topology the next step needs. An image-to-3d request without them returns the raw dense sculpt — millions of triangles — and the only ways out are a second paid remesh task or a decimation pass in Blender, which is the wrong place to discover it.
+
+| Role of the asset | Starting `target_polycount` |
+|---|---|
+| Hero landmark the player walks up to | 40000–60000 |
+| Creature or character that will be rigged | 20000–30000 |
+| Prop, set dressing, background object | 5000–15000 |
+
+Those are starting points to adjust after inspecting the first import against the scene's budget, not provider recommendations; the helper accepts 100–300000 and sets no default, because the request has to state the size it wants. Use `topology: "triangle"` when the mesh goes straight to the engine and `"quad"` when Blender sculpt or retopology follows. `symmetry_mode` is `off`, `auto` or `on`; leave it at the provider's `auto` unless the reference is deliberately asymmetric.
+
 Choose image generation for an exact reference; preview then a separately authorized refine when text generation needs shape approval. Retexture changes appearance; remesh changes topology and needs new deformation/UV checks. The supported rig profile requires a checked textured humanoid biped. Nonhumanoid or unchecked assets route to [studio-animation](../studio-animation/SKILL.md) **before any paid call**, even if a newer provider offers other experimental rig types.
 
 1. Create a request and budget JSON in the game project. Budget records prior authorization, work card, checked date, units, estimated single-request cost and maximum. Configure the credential as above; do not put keys in records.
