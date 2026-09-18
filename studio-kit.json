@@ -92,6 +92,7 @@
     "studio_tools/blender_scripts/fixture.py",
     "studio_tools/blender_scripts/inspect.py",
     "studio_tools/blender_scripts/render.py",
+    "studio_tools/blender_scripts/topology.py",
     "studio_tools/blender_mcp.py",
     "studio_tools/blender_mcp_lifecycle.py",
     "studio_tools/cleanroom.py",
