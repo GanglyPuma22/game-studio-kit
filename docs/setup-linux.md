@@ -3,8 +3,10 @@
 Use Python 3.11+ and explicit Blender/Godot executables. The helpers use only the standard library. From a complete source checkout, `python -m studio_tools` works; from another working directory use the absolute `scripts/studio.py` entrypoint. No Bash scripts or global Python package install are required by the package.
 
 ```json
-{"executables":{"blender":"/opt/blender/blender","godot":"/opt/godot/godot"},"timeout":300}
+{"executables":{"blender":"/opt/blender/blender","godot":"/opt/godot/godot"},"timeout":300,"credential_files":["/home/you/.keys/meshy.env"]}
 ```
+
+`credential_files` is optional: each entry is a host file of `KEY=VALUE` lines (a leading `export `, quotes, blank lines and `#` comments are accepted) holding the variables named in `credentials`. The environment is read first, a missing file is skipped, and a value read from a file is never exported into the environment or inherited by a child process. Keep those files outside the kit and the game project.
 
 ```text
 python /path/to/game-studio-kit/scripts/studio.py doctor --config /path/to/host.json

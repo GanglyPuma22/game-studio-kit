@@ -1,6 +1,6 @@
 ---
 name: studio-blender
-description: Create, inspect, render and explicitly export game asset hierarchies in Blender, keeping editable source and verifying geometry, materials and animation after GLB round trip.
+description: Create, inspect, render and explicitly export game asset hierarchies in Blender, run a bake or export script headlessly with `studio blender run`, keeping editable source and verifying geometry, materials and animation after GLB round trip.
 ---
 
 # Studio Blender
@@ -19,6 +19,18 @@ For project-owned sources:
 python <KIT>/scripts/studio.py blender export --project <GAME> --source source/asset.blend --collection RuntimeAsset --output assets/asset.glb --config <HOST>
 python <KIT>/scripts/studio.py blender inspect --project <GAME> --source assets/asset.glb --output artifacts/asset-roundtrip.json --config <HOST>
 ```
+
+For a bake, export, mesh-repair or measurement script the game project owns, `studio blender run` executes it headlessly inside a declared `.blend`:
+
+```text
+python <KIT>/scripts/studio.py blender run --project <GAME> --source source/asset.blend --script tools/rebake_normals.py --label arch-normal --result artifacts/bakes/arch_normal.png --config <HOST> -- --samples 8
+```
+
+It runs `blender --background --factory-startup <source> --python-exit-code 1 --python <script> -- <arguments>`, waits (default 600 seconds, maximum 3600 with `--timeout`) and writes `artifacts/blender/runs/<label>/` holding `run.json`, `process/process.json` and the combined `process/stdout.log`. `run.json` records the Blender executable, the source and script hashes, how many arguments followed `--` (never their values), the return code, the elapsed time, whether the run timed out and whether each declared `--result` now exists. `ok` means the script exited zero and produced every declared result; it is not visual acceptance. A repeated `--label` is refused instead of overwriting the earlier run, and a `--result` inside the run's own directory is refused because this command writes those files itself. Do not hand-roll a Python wrapper around `processes.run` for this; it produces no receipt anyone can read afterwards.
+
+## `run` or the interactive MCP
+
+Use `run` when the work is a script: baking, exporting, repairing, measuring or batch-editing a file that already exists, in an unattended process that must leave evidence and be repeatable tomorrow. Use the optional native-Windows [MCP lifecycle](references/mcp.md) only when the decision needs an interactive session on an open scene — looking at a viewport, trying something and judging it. The MCP route needs a matched addon/server pair, a supervised host and a connected app client; `run` needs a Blender executable in the host config.
 
 Author with a metric scale, declared ground/center pivot and intentional transforms. Keep cameras, lights, render helpers and unrelated collections outside the runtime collection. Include every weighted mesh, required armature and hierarchy node. The collection exporter rejects missing armature dependencies and exports NLA tracks; name and stage clips with [animation](../studio-animation/SKILL.md) first.
 

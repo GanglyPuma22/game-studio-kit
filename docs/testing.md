@@ -71,6 +71,40 @@ is unexercised. No engine, provider or desktop is involved.
 python -m unittest discover -s tests -p test_launch_evidence.py -v
 ```
 
+## Headless Blender script runs and provider credentials
+
+`test_blender_run.py` covers `blender run`, the command for a project-owned
+bake/export/repair script, with a small Python shim standing in for
+`blender.exe`: the exact headless argument line including Blender's own `--`
+separator, receipts that hold the executable, source and script hashes and the
+passthrough *count* while the combined log holds the values, a private marker
+passed through argv appearing in `stdout.log` and in no JSON receipt, a missing
+declared result and a failing script returned as a verdict rather than an
+exception, a timeout with owned cleanup, a refused label collision that leaves
+the first run's receipt untouched, a declared result inside the run's own
+directory refused before launch, and every input check running before anything
+starts. Every flag is exercised through `cli.main`. No Blender is involved.
+
+`test_credential_files.py` covers the optional `credential_files` host
+declaration: the environment still winning over a declared file, a file
+answering when the environment is unset, `export`/quote/comment/blank-line
+parsing, missing files skipped and the first declared hit winning, a value that
+reaches neither `os.environ` nor a task record, and a malformed declaration
+refused when the host config loads.
+
+`test_meshy_balance.py` covers the read-only `meshy balance` command with the
+provider transport replaced: the number and nothing else about the account
+printed, a declared credential file used with no file written anywhere, every
+failure returned as an error *type* rather than a provider message, a missing
+credential refused before any request, and the operations that write still
+requiring their project and record. No network call is made.
+
+```text
+python -m unittest discover -s tests -p test_blender_run.py -v
+python -m unittest discover -s tests -p test_credential_files.py -v
+python -m unittest discover -s tests -p test_meshy_balance.py -v
+```
+
 ## Interactive playtest
 
 `playtest` and `launch --mode native` start the same engine with the same
