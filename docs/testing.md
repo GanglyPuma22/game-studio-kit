@@ -105,17 +105,22 @@ reporting one nonmanifold edge, two faces traversing a shared edge the same way
 reporting one inconsistently wound edge, two closed shells touching at a single
 welded vertex reporting one nonmanifold vertex while every edge count stays
 zero, a flat collinear solid reporting every face degenerate while every edge
-count stays zero, and a duplicated texture-seam vertex welded by position
-rather than counted as a hole.
+count stays zero, a closed but coplanar tetrahedron reporting one zero-volume
+component while every edge, winding and face count stays zero, and a
+duplicated texture-seam vertex welded by position rather than counted as a
+hole.
 
 Every measurement has two implementations: a readable one used without numpy
 and on small meshes, and an array-based one for meshes with millions of
 triangles. They are checked against each other on a tetrahedron, an open
 triangle, an edge shared by three faces, opposed winding, a bowtie, a flat
-solid, a closed torus, an empty mesh and sixty seeded random index soups; those
-comparisons skip when numpy is absent, so run the suite once in a virtualenv
-with numpy to exercise the array path. A closed torus is audited on whichever
-path is available and must report no defect at all.
+solid, a coplanar closed tetrahedron, a closed torus, an empty mesh and sixty
+seeded random index soups; those comparisons skip when numpy is absent, so run
+the suite once in a virtualenv with numpy to exercise the array path. A closed
+torus and a genuine (non-coplanar) tetrahedron are audited on whichever path
+is available and must report no defect at all, while the coplanar tetrahedron
+-- closed, manifold and consistently wound but folded flat onto itself --
+must report one `zero_volume_components` and therefore not be clean.
 
 Measured once on this box (Linux, Python 3.12, numpy 2.5.3), auditing a
 synthetic closed torus of 2,000,000 triangles and 1,000,000 vertices through

@@ -25,24 +25,16 @@ def audit(meshes, numpy):
         if numpy is None:
             # Triangle and UV counts are free; the edge arithmetic is not, and
             # guessing it on a multi-million-triangle mesh is worse than saying so.
-            records.append(
-                {
-                    "name": obj.name,
-                    "triangles": len(mesh.loop_triangles),
-                    "boundary_edges": None,
-                    "nonmanifold_edges": None,
-                    "inconsistent_winding_edges": None,
-            "nonmanifold_vertices": None,
-                    "uv_layers": len(mesh.uv_layers),
-                }
-            )
-            continue
-        points = numpy.empty(len(mesh.vertices) * 3, dtype=numpy.float32)
-        mesh.vertices.foreach_get("co", points)
-        faces = numpy.empty(len(mesh.loop_triangles) * 3, dtype=numpy.int32)
-        mesh.loop_triangles.foreach_get("vertices", faces)
-        records.append(
-            {
+            record = {
+                "name": obj.name,
+                **topology.unavailable_mesh_record(len(mesh.loop_triangles), len(mesh.uv_layers)),
+            }
+        else:
+            points = numpy.empty(len(mesh.vertices) * 3, dtype=numpy.float32)
+            mesh.vertices.foreach_get("co", points)
+            faces = numpy.empty(len(mesh.loop_triangles) * 3, dtype=numpy.int32)
+            mesh.loop_triangles.foreach_get("vertices", faces)
+            record = {
                 "name": obj.name,
                 **topology.audit_triangles(
                     points.reshape(-1, 3),
@@ -51,7 +43,11 @@ def audit(meshes, numpy):
                     numpy=numpy,
                 ),
             }
-        )
+        if not record["triangles"]:
+            # A GLB primitive of only points or lines reports zero of every
+            # defect, which reads as clean rather than as never triangulated.
+            record["reason"] = "no triangles"
+        records.append(record)
     return records
 
 
