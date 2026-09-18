@@ -31,19 +31,28 @@ lets a caller decide what to do when numpy is absent instead of discovering it
 mid-audit.
 """
 
-# The five defects that disqualify a mesh for rigging, collision or baking.
+# The six defects that disqualify a mesh for rigging, collision or baking.
 DEFECTS = (
     "boundary_edges",
     "nonmanifold_edges",
     "inconsistent_winding_edges",
     "nonmanifold_vertices",
     "degenerate_faces",
+    "zero_volume_components",
 )
 
 # A triangle counts as degenerate when twice its area is below this fraction of
 # the squared bounding-box scale: relative, so it means the same thing on a
 # mesh measured in metres and one measured in centimetres.
 DEGENERATE_TOLERANCE = 1e-12
+
+# A closed component's enclosed volume counts as zero when it is below this
+# fraction of the cube of that component's own bounding-box diagonal: the same
+# relative reasoning as DEGENERATE_TOLERANCE, one dimension higher, so a
+# coplanar closed tetrahedron -- four nonzero-area faces, no boundary, no
+# nonmanifold edge, consistent winding, and nothing to enclose -- is not read
+# as a solid just because every edge count came back clean.
+VOLUME_TOLERANCE = 1e-12
 
 UNAVAILABLE = {
     "status": "unavailable",
@@ -301,10 +310,136 @@ def _python_degenerate_faces(points, welded):
 
 
 # --------------------------------------------------------------------------
+# Components: a closed one must enclose something, not merely look shut.
+# --------------------------------------------------------------------------
+#
+# Edge and winding counts only see two faces at a time, so a closed shape
+# folded flat onto itself -- every vertex coplanar, every face still nonzero
+# area -- passes all of them while enclosing nothing. The divergence theorem
+# turns a closed, consistently wound surface into a volume without needing to
+# know it is a sphere or a torus: sum a corner's own vector dotted with the
+# cross product of the other two, over every face, and divide by six. A
+# genuine solid never sums to zero; a shape with no inside always does.
+
+
+def _python_component_labels(welded, vertex_count):
+    parent = list(range(vertex_count))
+
+    def find(vertex):
+        root = vertex
+        while parent[root] != root:
+            root = parent[root]
+        while parent[vertex] != root:
+            parent[vertex], vertex = root, parent[vertex]
+        return root
+
+    for first, second, third in welded:
+        for a, b in ((first, second), (second, third)):
+            root_a, root_b = find(a), find(b)
+            if root_a != root_b:
+                parent[root_b] = root_a
+    return [find(vertex) for vertex in range(vertex_count)]
+
+
+def _python_zero_volume_components(points, welded):
+    if not welded or not points:
+        return 0
+    labels = _python_component_labels(welded, len(points))
+    shared = {}
+    for triangle in welded:
+        first, second, third = triangle
+        for start, end in ((first, second), (second, third), (third, first)):
+            key = (start, end) if start < end else (end, start)
+            shared[key] = shared.get(key, 0) + 1
+    open_components = {labels[start] for (start, _), count in shared.items() if count == 1}
+    faces_by_component = {}
+    for triangle in welded:
+        faces_by_component.setdefault(labels[triangle[0]], []).append(triangle)
+    count = 0
+    for component, faces in faces_by_component.items():
+        if component in open_components:
+            continue
+        members = {vertex for triangle in faces for vertex in triangle}
+        member_points = [points[vertex] for vertex in members]
+        extents = [
+            max(point[axis] for point in member_points)
+            - min(point[axis] for point in member_points)
+            for axis in range(3)
+        ]
+        diagonal = sum(extent * extent for extent in extents) ** 0.5
+        tolerance = VOLUME_TOLERANCE * diagonal ** 3
+        signed = 0.0
+        for first, second, third in faces:
+            a, b, c = points[first], points[second], points[third]
+            cross = (
+                b[1] * c[2] - b[2] * c[1],
+                b[2] * c[0] - b[0] * c[2],
+                b[0] * c[1] - b[1] * c[0],
+            )
+            signed += a[0] * cross[0] + a[1] * cross[1] + a[2] * cross[2]
+        if abs(signed) / 6.0 <= tolerance:
+            count += 1
+    return count
+
+
+def _numpy_component_labels(numpy, welded, vertex_count):
+    faces = numpy.asarray(welded, dtype=numpy.int64).reshape(-1, 3)
+    label = numpy.arange(vertex_count, dtype=numpy.int64)
+    if not len(faces):
+        return label
+    pairs = numpy.concatenate((faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]))
+    left, right = pairs[:, 0], pairs[:, 1]
+    while True:
+        lowest = numpy.minimum(label[left], label[right])
+        updated = label.copy()
+        numpy.minimum.at(updated, left, lowest)
+        numpy.minimum.at(updated, right, lowest)
+        # Every label points at a smaller vertex index, so one indexing pass
+        # is a step of path compression rather than an arbitrary permutation.
+        updated = updated[updated]
+        if numpy.array_equal(updated, label):
+            break
+        label = updated
+    return label
+
+
+def _numpy_zero_volume_components(numpy, points, welded, vertex_count):
+    if not len(welded) or not len(points):
+        return 0
+    faces = numpy.asarray(welded, dtype=numpy.int64).reshape(-1, 3)
+    labels = _numpy_component_labels(numpy, welded, vertex_count)
+    face_component = labels[faces[:, 0]]
+    edges = numpy.sort(
+        numpy.concatenate((faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]])), axis=1
+    )
+    keys = edges[:, 0] * numpy.int64(vertex_count) + edges[:, 1]
+    _, index, shared = numpy.unique(keys, return_inverse=True, return_counts=True)
+    boundary = shared[numpy.asarray(index).reshape(-1)] == 1
+    # Either endpoint names an edge's component: the two vertices of one edge
+    # always share a label, because a face unions its own vertices together.
+    open_components = set(int(v) for v in labels[edges[boundary][:, 0]])
+    points = numpy.asarray(points, dtype=numpy.float64)
+    a, b, c = points[faces[:, 0]], points[faces[:, 1]], points[faces[:, 2]]
+    signed = numpy.sum(a * numpy.cross(b, c), axis=1)
+    count = 0
+    for component in numpy.unique(face_component):
+        component = int(component)
+        if component in open_components:
+            continue
+        mask = face_component == component
+        volume = abs(float(numpy.sum(signed[mask]))) / 6.0
+        member_points = points[numpy.unique(faces[mask].reshape(-1))]
+        diagonal = float(numpy.sqrt(numpy.sum(numpy.ptp(member_points, axis=0) ** 2)))
+        if volume <= VOLUME_TOLERANCE * diagonal ** 3:
+            count += 1
+    return count
+
+
+# --------------------------------------------------------------------------
 
 
 def audit_triangles(vertices, triangles, uv_layers=0, numpy=None):
-    """Count the triangles and the five defects of one triangulated mesh.
+    """Count the triangles and the six defects of one triangulated mesh.
 
     `vertices` is a sequence (or numpy array) of x/y/z positions and
     `triangles` a sequence of three vertex indices each. Pass `numpy=False` to
@@ -318,6 +453,7 @@ def audit_triangles(vertices, triangles, uv_layers=0, numpy=None):
         boundary, nonmanifold, inconsistent = _python_edge_counts(welded)
         vertices_split = _python_nonmanifold_vertices(welded)
         degenerate = _python_degenerate_faces(points, welded)
+        hollow = _python_zero_volume_components(points, welded)
         total = len(welded)
     else:
         points, welded = _numpy_welded(numpy, vertices, triangles)
@@ -326,6 +462,7 @@ def audit_triangles(vertices, triangles, uv_layers=0, numpy=None):
         )
         vertices_split = _numpy_nonmanifold_vertices(numpy, welded, len(points))
         degenerate = _numpy_degenerate_faces(numpy, points, welded)
+        hollow = _numpy_zero_volume_components(numpy, points, welded, len(points))
         total = len(welded)
     return {
         "triangles": int(total),
@@ -334,25 +471,48 @@ def audit_triangles(vertices, triangles, uv_layers=0, numpy=None):
         "inconsistent_winding_edges": inconsistent,
         "nonmanifold_vertices": vertices_split,
         "degenerate_faces": degenerate,
+        "zero_volume_components": hollow,
         "uv_layers": int(uv_layers),
     }
 
 
+def unavailable_mesh_record(triangles, uv_layers):
+    """The per-mesh fields when numpy cannot measure topology.
+
+    Every defect is reported as unmeasured rather than guessed at zero, so
+    the key set matches `audit_triangles` exactly and a caller cannot read a
+    missing field as a clean one.
+    """
+    record = {"triangles": int(triangles)}
+    record.update(dict.fromkeys(DEFECTS))
+    record["uv_layers"] = int(uv_layers)
+    return record
+
+
 def clean(record):
-    """True only when a measured record reports none of the five defects."""
+    """True only when a measured record reports none of the six defects."""
     if not isinstance(record, dict):
         return False
     return all(record.get(name) == 0 for name in DEFECTS)
 
 
 def totals(records):
-    """Sum per-mesh audits into the one verdict a caller can act on."""
+    """Sum per-mesh audits into the one verdict a caller can act on.
+
+    A mesh with zero triangles reports zero of every defect, which is not the
+    same thing as a mesh that was qualified: a GLB primitive of only points or
+    lines would otherwise read as clean. One such mesh among many is enough to
+    keep the whole total from being called clean.
+    """
     total = {"status": "measured", "meshes_measured": len(records), "triangles": 0}
     for name in DEFECTS:
         total[name] = 0
+    nonempty = True
     for record in records:
         total["triangles"] += int(record.get("triangles") or 0)
+        if not record.get("triangles"):
+            nonempty = False
         for name in DEFECTS:
             total[name] += int(record.get(name) or 0)
-    total["clean"] = clean(total)
+    total["clean"] = clean(total) and nonempty
     return total

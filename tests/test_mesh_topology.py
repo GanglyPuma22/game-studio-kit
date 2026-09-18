@@ -32,11 +32,19 @@ ROOT = Path(__file__).resolve().parents[1]
 BLENDER_SKILL = ROOT / "skills/studio-blender/SKILL.md"
 MESHY_SKILL = ROOT / "skills/studio-meshy/SKILL.md"
 DIRECTOR = ROOT / "skills/studio-director/SKILL.md"
+REDUCE_SCRIPT = ROOT / "studio_tools/blender_scripts/reduce.py"
+INSPECT_SCRIPT = ROOT / "studio_tools/blender_scripts/inspect.py"
 
 # A closed, consistently wound tetrahedron: every edge shared by exactly two
 # faces that traverse it in opposite directions.
 TETRAHEDRON = ([(0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 1)],
                [(0, 2, 1), (0, 1, 3), (0, 3, 2), (1, 2, 3)])
+
+# The same four-triangle topology, folded flat onto z=0: every edge, winding
+# and vertex count stays exactly as clean as the real tetrahedron above, but
+# the solid it describes encloses nothing.
+COPLANAR_TETRAHEDRON = ([(0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0)],
+                         [(0, 2, 1), (0, 1, 3), (0, 3, 2), (1, 2, 3)])
 
 
 def torus(rings, segments):
@@ -215,6 +223,51 @@ class TopologyArithmeticTests(unittest.TestCase):
         self.assertEqual(record["triangles"], 2 * 24 * 16)
         self.assertTrue(topology.clean(record), record)
 
+    def test_a_closed_but_coplanar_solid_encloses_no_volume_and_is_not_clean(self):
+        # Every edge, winding and vertex count is exactly as clean as the real
+        # tetrahedron in TETRAHEDRON, and every face still has nonzero area,
+        # but folded flat onto z=0 the solid it describes encloses nothing.
+        record = topology.audit_triangles(*COPLANAR_TETRAHEDRON, numpy=False)
+        self.assertEqual(record["boundary_edges"], 0)
+        self.assertEqual(record["nonmanifold_edges"], 0)
+        self.assertEqual(record["inconsistent_winding_edges"], 0)
+        self.assertEqual(record["nonmanifold_vertices"], 0)
+        self.assertEqual(record["degenerate_faces"], 0)
+        self.assertEqual(record["zero_volume_components"], 1)
+        self.assertFalse(topology.clean(record))
+        self.assertIn("zero_volume_components", topology.DEFECTS)
+
+    def test_a_genuine_solid_encloses_nonzero_volume(self):
+        self.assertEqual(
+            topology.audit_triangles(*TETRAHEDRON, numpy=False)["zero_volume_components"], 0
+        )
+        vertices, triangles = torus(24, 16)
+        self.assertEqual(
+            topology.audit_triangles(vertices, triangles, numpy=False)["zero_volume_components"],
+            0,
+        )
+
+    def test_totals_reject_a_zero_triangle_mesh_as_clean(self):
+        # A GLB primitive of only points or lines yields zero triangles and
+        # zero of every defect, which is not the same thing as qualified.
+        good = topology.audit_triangles(*TETRAHEDRON, numpy=False)
+        empty = topology.audit_triangles([], [], numpy=False)
+        self.assertEqual(empty["triangles"], 0)
+        total = topology.totals([good, empty])
+        self.assertFalse(total["clean"])
+        self.assertEqual(total["triangles"], 4)
+        self.assertTrue(topology.totals([good, good])["clean"])
+
+    def test_the_unavailable_record_carries_every_documented_field_as_none(self):
+        measured = topology.audit_triangles(*TETRAHEDRON, 2, numpy=False)
+        unavailable = topology.unavailable_mesh_record(4, 2)
+        self.assertEqual(set(unavailable), set(measured))
+        for name in topology.DEFECTS:
+            self.assertIsNone(unavailable[name])
+        self.assertEqual(unavailable["triangles"], 4)
+        self.assertEqual(unavailable["uv_layers"], 2)
+        self.assertFalse(topology.clean(unavailable))
+
     @unittest.skipIf(topology.numpy_module() is None, "numpy is not installed here")
     def test_the_array_path_agrees_with_the_readable_one(self):
         vertices = [(0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 1), (0, -1, 0)]
@@ -222,6 +275,7 @@ class TopologyArithmeticTests(unittest.TestCase):
                   list(TETRAHEDRON[1]) + [(4 + a, 4 + b, 4 + c) for a, b, c in TETRAHEDRON[1]])
         for name, mesh in (
             ("tetrahedron", TETRAHEDRON),
+            ("coplanar tetrahedron", COPLANAR_TETRAHEDRON),
             ("open triangle", (vertices, [(0, 1, 2)])),
             ("edge shared by three", (vertices, [(0, 1, 2), (0, 1, 3), (0, 1, 4)])),
             ("opposed winding", (vertices, [(0, 1, 2), (0, 1, 3)])),
@@ -254,7 +308,7 @@ class TopologyArithmeticTests(unittest.TestCase):
                 )
 
 
-CLEAN = (0, 0, 0, 0, 0)
+CLEAN = (0, 0, 0, 0, 0, 0)
 
 
 def report(before=CLEAN, after=CLEAN, status="measured", saved=True,
@@ -404,7 +458,7 @@ class ReduceTests(ReduceCase):
 
     def test_a_defective_source_cannot_be_qualified_by_reducing_it(self):
         # The measured provider remesh: 125k triangles, 91 boundary, 87 nonmanifold.
-        self.canned(report(before=(91, 87, 0, 0, 0), before_triangles=125485))
+        self.canned(report(before=(91, 87, 0, 0, 0, 0), before_triangles=125485))
         code, out, _ = self.default("--label", "provider")
         self.assertEqual(code, 1)
         verdict = json.loads(out)
@@ -416,7 +470,7 @@ class ReduceTests(ReduceCase):
         self.assertFalse(read_json(self.reduce_dir("provider") / "reduce.json")["ok"])
 
     def test_a_reduction_that_introduces_a_defect_is_not_ok(self):
-        self.canned(report(after=(0, 12, 0, 0, 0)))
+        self.canned(report(after=(0, 12, 0, 0, 0, 0)))
         code, out, _ = self.default("--label", "torn")
         self.assertEqual(code, 1)
         verdict = json.loads(out)
@@ -436,7 +490,7 @@ class ReduceTests(ReduceCase):
     def test_a_nonmanifold_vertex_in_the_result_is_not_ok(self):
         # Zero boundary, zero nonmanifold and zero inconsistent edges: only the
         # vertex test sees this one.
-        self.canned(report(after=(0, 0, 0, 3, 0)))
+        self.canned(report(after=(0, 0, 0, 3, 0, 0)))
         code, out, _ = self.default("--label", "bowtie")
         self.assertEqual(code, 1)
         self.assertIn("nonmanifold vertex", json.loads(out)["reason"])
@@ -832,14 +886,50 @@ class ReduceGuidanceTests(unittest.TestCase):
         self.assertNotIn('"name": obj.name', source)
         # The stack the source already carried is applied before anything is
         # measured, so what is measured is what gets saved.
-        self.assertIn("applied = apply_existing_stack(obj)", source)
-        self.assertLess(source.index("apply_existing_stack(obj)"),
-                        source.index("before = measure(obj, numpy)"))
+        self.assertIn("applied = apply_existing_stack(owner)", source)
+        self.assertLess(source.index("apply_existing_stack(owner)"),
+                        source.index("before = measure(owner, numpy)"))
         # Every mesh in the file, not only the ones the active scene links, and
         # the scene count recorded so a reader can see what the file held.
         self.assertIn("for o in bpy.data.objects if o.type ==", source)
         self.assertNotIn("bpy.context.scene.objects if o.type ==", source)
         self.assertIn('"scenes": len(bpy.data.scenes)', source)
+
+    def test_the_packaged_reducer_unlinks_before_saving_what_it_temporarily_linked(self):
+        # reduce.py imports bpy, so this too is a source check: an object
+        # linked into the active scene only so this script could reach it must
+        # be unlinked again before save_as_mainfile, or the receipt's scene
+        # count would no longer describe what the saved file holds.
+        source = REDUCE_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("temporarily_linked", source)
+        self.assertIn("scene_collection.objects.unlink(obj)", source)
+        self.assertLess(
+            source.index("scene_collection.objects.unlink(obj)"),
+            source.index("bpy.ops.wm.save_as_mainfile"),
+        )
+        self.assertIn('report["temporarily_linked_objects"] = len(temporarily_linked)', source)
+
+    def test_the_packaged_reducer_keeps_shared_mesh_datablocks_as_instances(self):
+        # Also bpy-only: objects sharing one mesh datablock are processed once,
+        # on their first user, and the rest are pointed at the result rather
+        # than each getting its own copy of an applied modifier stack.
+        source = REDUCE_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("key = id(obj.data)", source)
+        self.assertIn("sibling.data = owner.data", source)
+        # The stack was applied into the shared datablock once; a sibling that
+        # kept its own copy would evaluate it again on top of the result.
+        self.assertIn("sibling.modifiers.remove(sibling.modifiers[name])", source)
+        self.assertIn("declare different modifier", source)
+        self.assertIn('"shared_datablocks"', source)
+        self.assertIn('"datablock_user_counts"', source)
+
+    def test_the_packaged_inspector_refuses_to_call_a_zero_triangle_mesh_clean(self):
+        # inspect.py also imports bpy: the fallback and measured branches both
+        # route through the shared, bpy-free helpers this file tests directly.
+        source = INSPECT_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("topology.unavailable_mesh_record", source)
+        self.assertIn('record["reason"] = "no triangles"', source)
+        self.assertIn("if not record[\"triangles\"]:", source)
 
     def test_the_packaged_scripts_ship_with_the_kit(self):
         resources = read_json(ROOT / "studio-kit.json")["resources"]

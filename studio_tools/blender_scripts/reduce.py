@@ -12,6 +12,13 @@ order, before anything is measured. Auditing the base mesh while saving the
 evaluated one would qualify a surface nobody ever sees; applying first means
 what is measured is what is written. The applied names are recorded.
 
+Several objects can point at one mesh datablock. The stack is applied once,
+on that datablock's first user, and the rest are pointed at the result
+afterward with their own copies of that stack removed, so a shared tree mesh
+stays one datablock with many instances rather than becoming one copy per
+object and nothing is applied twice; instances whose stacks disagree are
+refused rather than reduced to a guess about which one was meant.
+
 Objects are identified in the audit by index and by a digest of their name,
 never by the name itself: `--object` is a value the caller passed in, and a
 receipt is not the place to echo one back.
@@ -19,7 +26,10 @@ receipt is not the place to echo one back.
 Every mesh in `bpy.data` is reduced, not only the ones the active scene happens
 to link. A .blend with a second scene, or with a mesh linked to no scene at
 all, would otherwise be saved with objects that were audited by nobody; the
-scene count is recorded so a reader can see what the file held.
+scene count is recorded so a reader can see what the file held. An object
+linked into the active scene only so this script could reach it is unlinked
+again before the file is saved, so that scene membership does not leak into
+the saved result; the audit already made of its mesh is unaffected.
 """
 
 import bpy
@@ -49,14 +59,7 @@ def measure(obj, numpy):
     mesh = obj.data
     mesh.calc_loop_triangles()
     if numpy is None:
-        return {
-            "triangles": len(mesh.loop_triangles),
-            "boundary_edges": None,
-            "nonmanifold_edges": None,
-            "inconsistent_winding_edges": None,
-            "nonmanifold_vertices": None,
-            "uv_layers": len(mesh.uv_layers),
-        }
+        return topology.unavailable_mesh_record(len(mesh.loop_triangles), len(mesh.uv_layers))
     points = numpy.empty(len(mesh.vertices) * 3, dtype=numpy.float32)
     mesh.vertices.foreach_get("co", points)
     faces = numpy.empty(len(mesh.loop_triangles) * 3, dtype=numpy.int32)
@@ -115,11 +118,15 @@ if selected:
 if not meshes:
     raise RuntimeError("No mesh object to reduce; check --source and --object")
 # An object no scene links has no view layer, so it can be neither unhidden nor
-# handed to modifier_apply. Linking it here is what lets it be measured at all.
+# handed to modifier_apply. Linking it here is what lets it be measured at
+# all; every object this links is unlinked again below, before the file is
+# saved, so scene membership added only for that reason does not persist.
 scene_collection = bpy.context.scene.collection
+temporarily_linked = []
 for obj in meshes:
     if obj.name not in bpy.context.scene.objects:
         scene_collection.objects.link(obj)
+        temporarily_linked.append(obj)
 
 numpy = topology.numpy_module()
 report = {
@@ -140,35 +147,98 @@ if numpy is None:
     audit_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     raise SystemExit(0)
 
-for index, obj in enumerate(meshes):
+index_of = {id(obj): index for index, obj in enumerate(meshes)}
+
+# Group by datablock, not by object: several objects can point at one mesh,
+# and applying a stack per object would give each of them its own copy.
+groups = {}
+group_order = []
+for obj in meshes:
+    key = id(obj.data)
+    if key not in groups:
+        groups[key] = []
+        group_order.append(key)
+    groups[key].append(obj)
+
+for key in group_order:
+    users = groups[key]
+    if len(users) < 2:
+        continue
+    stack = [(modifier.name, modifier.type) for modifier in users[0].modifiers]
+    if any(
+        [(modifier.name, modifier.type) for modifier in other.modifiers] != stack
+        for other in users[1:]
+    ):
+        raise RuntimeError(
+            "Objects sharing one mesh datablock declare different modifier "
+            "stacks; reduce them separately"
+        )
+
+for obj in meshes:
     obj.hide_set(False)
-    applied = apply_existing_stack(obj)
-    before = measure(obj, numpy)
-    weld = obj.modifiers.new(name="StudioWeld", type="WELD")
+
+processed = {}
+for key in group_order:
+    users = groups[key]
+    owner = users[0]
+    # Every other user gets a throwaway datablock first, so applying the
+    # stack below sees a datablock only `owner` holds and edits it in place
+    # instead of `apply_modifier`'s own users>1 guard silently copying it.
+    detached = []
+    for sibling in users[1:]:
+        placeholder = bpy.data.meshes.new(sibling.data.name + ".StudioPlaceholder")
+        detached.append((sibling, placeholder))
+        sibling.data = placeholder
+    applied = apply_existing_stack(owner)
+    before = measure(owner, numpy)
+    weld = owner.modifiers.new(name="StudioWeld", type="WELD")
     weld.merge_threshold = WELD_DISTANCE
-    apply_modifier(obj, weld)
-    current = triangles(obj.data)
+    apply_modifier(owner, weld)
+    current = triangles(owner.data)
     collapse = 1.0
     decimated = False
     if current > target:
         collapse = target / current
-        decimate = obj.modifiers.new(name="StudioDecimate", type="DECIMATE")
+        decimate = owner.modifiers.new(name="StudioDecimate", type="DECIMATE")
         decimate.decimate_type = "COLLAPSE"
         decimate.use_collapse_triangulate = True
         decimate.ratio = collapse
-        apply_modifier(obj, decimate)
+        apply_modifier(owner, decimate)
         decimated = True
-    report["objects"].append(
-        {
+    for sibling, placeholder in detached:
+        # The other users point at the one processed result, so a stack
+        # applied once still leaves every one of them a linked instance. The
+        # stack is now baked into that datablock, so a sibling keeping its own
+        # copy of the same modifiers would evaluate it a second time.
+        sibling.data = owner.data
+        bpy.data.meshes.remove(placeholder)
+        for name in applied:
+            sibling.modifiers.remove(sibling.modifiers[name])
+    processed[key] = {
+        "applied": applied,
+        "before": before,
+        "welded_triangles": current,
+        "collapse_ratio": collapse,
+        "decimated": decimated,
+    }
+
+entries = {}
+for key in group_order:
+    result = processed[key]
+    for obj in groups[key]:
+        index = index_of[id(obj)]
+        entries[index] = {
             **identify(obj, index),
-            "applied_modifiers": applied,
-            "before": before,
-            "welded_triangles": current,
-            "collapse_ratio": collapse,
-            "decimated": decimated,
+            "applied_modifiers": result["applied"],
+            "before": result["before"],
+            "welded_triangles": result["welded_triangles"],
+            "collapse_ratio": result["collapse_ratio"],
+            "decimated": result["decimated"],
             "after": measure(obj, numpy),
         }
-    )
+report["objects"] = [entries[index] for index in range(len(meshes))]
+report["shared_datablocks"] = sum(1 for key in group_order if len(groups[key]) > 1)
+report["datablock_user_counts"] = [len(groups[key]) for key in group_order]
 
 report["before"] = topology.totals([o["before"] for o in report["objects"]])
 report["after"] = topology.totals([o["after"] for o in report["objects"]])
@@ -178,6 +248,12 @@ report["ratio"] = (
     if report["before"]["triangles"]
     else None
 )
+# The scene link above was only so modifier_apply had a view layer to work
+# through; the receipt already holds everything measured about these
+# objects, so only the scene membership it added needs to be undone.
+for obj in temporarily_linked:
+    scene_collection.objects.unlink(obj)
+report["temporarily_linked_objects"] = len(temporarily_linked)
 output.parent.mkdir(parents=True, exist_ok=True)
 bpy.ops.wm.save_as_mainfile(filepath=str(output))
 report["saved"] = output.is_file()
