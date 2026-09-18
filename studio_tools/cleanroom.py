@@ -57,7 +57,10 @@ def _is_idle_process(entry):
     their names, or an executable that merely borrows the name, stay visible
     to the contamination classifier.
     """
-    return entry.get("pid") == 0 and str(entry.get("name", "")).casefold() == "system idle process"
+    name = str(entry.get("name", "")).casefold()
+    # CIM names pid 0 "System Idle Process"; Toolhelp's szExeFile for the same
+    # entry is "[System Process]".  Both are the one pseudo-process.
+    return entry.get("pid") == 0 and name in {"system idle process", "[system process]"}
 
 
 def _identity(entry):
@@ -232,6 +235,7 @@ def read_processes_windows_native(*, on_pid=None):
                 # unknown, not zero.  A protected process that appears inside a
                 # window with unreadable counters must still break attribution.
                 counters = "unavailable"
+                times_read = memory_read = False
                 # VM_READ can be denied for system/protected processes even
                 # when their CPU counters are readable.  Fall back to limited
                 # query access so genuine kernel/background CPU is not silently
@@ -247,19 +251,30 @@ def read_processes_windows_native(*, on_pid=None):
                             ticks = lambda value: (int(value.high) << 32) | int(value.low)
                             created = _windows_creation_token(ticks(creation))
                             cpu = (ticks(kernel) + ticks(user)) / 1e7
-                            counters = "ok"
+                            times_read = True
                         memory = ProcessMemoryCounters()
                         memory.cb = ctypes.sizeof(memory)
                         if psapi.GetProcessMemoryInfo(handle, ctypes.byref(memory), memory.cb):
                             working_set = int(memory.WorkingSetSize)
+                            memory_read = True
                     finally:
                         kernel32.CloseHandle(handle)
+                # The limited-query fallback handle can read times but not
+                # memory; a zero working set from a failed read is not a
+                # measurement, so the whole counter set stays unavailable.
+                if times_read and memory_read:
+                    counters = "ok"
                 entries.append({
                     "pid": pid, "ppid": int(row.th32ParentProcessID), "name": name,
                     "cpu_seconds": round(cpu, 3), "working_set_bytes": working_set, "created": created,
                     "counters": counters,
                 })
                 ok = kernel32.Process32NextW(snap, ctypes.byref(row))
+            # Iteration ends normally with ERROR_NO_MORE_FILES (18).  Any other
+            # error means the table was cut short, and a partial table is not
+            # a sample: a recorder or a heavy newcomer may sit in the missing part.
+            if ctypes.get_last_error() != 18:
+                return {"status": "unavailable", "reason": "Windows process enumeration ended early", "processes": []}
         finally:
             kernel32.CloseHandle(snap)
     except (AttributeError, OSError, TypeError, ValueError) as exc:
@@ -544,11 +559,17 @@ class Sampler:
                 "first_seen_utc": at, "last_seen_utc": at,
                 "samples": 1, "cpu_seconds": entry["cpu_seconds"], "working_set_bytes": entry["working_set_bytes"],
             }
+            if entry.get("counters") == "unavailable":
+                # Unknown usage stays unknown in the observation, so compare()
+                # can still treat a transient protected process conservatively.
+                store[key]["counters"] = "unavailable"
             return
         seen["last_seen_utc"] = at
         seen["samples"] += 1
         seen["cpu_seconds"] = max(seen["cpu_seconds"], entry["cpu_seconds"])
         seen["working_set_bytes"] = max(seen["working_set_bytes"], entry["working_set_bytes"])
+        if entry.get("counters") == "unavailable":
+            seen["counters"] = "unavailable"
 
     def _baseline_state(self, entry):
         """Return same, new, or unknown without guessing across missing ids."""
