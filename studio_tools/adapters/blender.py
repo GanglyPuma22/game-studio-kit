@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import struct
 import uuid
@@ -522,59 +523,99 @@ def reduce_mesh(
     destination = outside_package(relative(root, output))
     if destination.suffix.lower() != ".blend":
         raise StudioError("Blender reduce --output must be a .blend this command writes")
-    if destination.exists():
-        # The intact original is the asset; overwriting a .blend to save a
-        # reduction is how the thing worth keeping gets lost.
-        raise StudioError("Blender reduce --output already exists; choose a new file")
     if object_name is not None and (not isinstance(object_name, str) or not object_name):
         raise StudioError("Blender reduce --object must name one mesh object")
     label = safe_id(label) if label else uuid.uuid4().hex
-    # Everything that can be refused is refused before a directory exists: a
-    # host without Blender configured must not leave a receipt directory
-    # behind for a reduction that never started.
+    # Everything that can be refused is refused before anything is created: a
+    # host without Blender configured must not leave a reservation or a receipt
+    # directory behind for a reduction that never started.
     executable = Path(require_executable(config, "blender"))
+    blender_digest = _readable_digest(executable)
+    if blender_digest is None:
+        # Without a digest there is no identity to record or to re-check below.
+        raise StudioError("Blender executable could not be read to record its identity")
     # The source as it was before launch is the record; comparing to it
     # afterwards is what proves the reduction did not edit its own input.
     source_record = file_record(root, original)
+    # Two reductions with different labels and the same --output would both
+    # test-then-save and the second would silently overwrite the first. The
+    # destination is claimed here, in one atomic step, and Blender saves over
+    # the claim. Testing for the file and hoping is the bug this replaces.
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.close(os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644))
+    except FileExistsError:
+        # The intact original is the asset; overwriting a .blend to save a
+        # reduction is how the thing worth keeping gets lost.
+        raise StudioError("Blender reduce --output already exists; choose a new file") from None
+    except OSError as exc:
+        raise StudioError("Blender reduce --output could not be created") from exc
     reduce_dir = outside_package(relative(root, f"artifacts/blender/reduce/{label}"))
     try:
         reduce_dir.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
+        # The claim belongs to a reduction that is not going to happen.
+        destination.unlink(missing_ok=True)
         raise StudioError("Blender reduce directory exists; choose a new label") from None
     audit_path = reduce_dir / "audit.json"
     started = datetime.now(timezone.utc)
     failure = None
-    try:
-        run(
-            command(
-                config,
-                "reduce.py",
-                [
-                    app_path(config, original, "blender"),
-                    str(target_triangles),
-                    app_path(config, destination, "blender"),
-                    app_path(config, audit_path, "blender"),
-                    object_name or "",
-                ],
-            ),
-            cwd=str(root),
-            timeout=float(max(config["timeout"], REDUCE_TIMEOUT)),
-            hide_window=True,
-            job_dir=reduce_dir / "process",
+    interrupt = None
+    record = {"status": "start_failed"}
+    blender_after = None
+    # The digest above described bytes that could have been replaced while this
+    # reduction was prepared, so the executable is read again here: only the
+    # verified identity may start, and a mismatch is a receipt, not a launch.
+    if _readable_digest(executable) != blender_digest:
+        failure = (
+            "Blender executable changed before the reduction; "
+            "the verified identity did not start"
         )
-    except StudioError as exc:
-        # A failed or timed-out reduction is this command's answer, not a crash:
-        # the receipt explaining it is more useful than the exception.
-        failure = str(exc)
-    record_path = reduce_dir / "process" / "process.json"
-    record = read_json(record_path) if record_path.is_file() else {"status": "start_failed"}
-    status = record.get("status", "start_failed")
+        status = "refused"
+    else:
+        try:
+            run(
+                command(
+                    config,
+                    "reduce.py",
+                    [
+                        app_path(config, original, "blender"),
+                        str(target_triangles),
+                        app_path(config, destination, "blender"),
+                        app_path(config, audit_path, "blender"),
+                        object_name or "",
+                    ],
+                ),
+                cwd=str(root),
+                timeout=float(max(config["timeout"], REDUCE_TIMEOUT)),
+                hide_window=True,
+                job_dir=reduce_dir / "process",
+            )
+        except StudioError as exc:
+            # A failed or timed-out reduction is this command's answer, not a
+            # crash: the receipt explaining it is more useful than the exception.
+            failure = str(exc)
+        except KeyboardInterrupt as exc:
+            # The runner has already stopped its own child; the receipt for the
+            # label and the destination this run claimed is still written, and
+            # then the interrupt goes on.
+            interrupt = exc
+            failure = "Blender reduce interrupted before the reduction finished"
+        record_path = reduce_dir / "process" / "process.json"
+        if record_path.is_file():
+            record = read_json(record_path)
+        blender_after = _readable_digest(executable)
+        status = "interrupted" if interrupt is not None else record.get("status", "start_failed")
     audit = None
     if audit_path.is_file():
         try:
             audit = read_json(audit_path)
         except StudioError:
             audit = None
+    # An untouched claim is an empty file: it is this command's reservation, not
+    # a reduction, and leaving it behind would block the retry.
+    if destination.is_file() and destination.stat().st_size == 0:
+        destination.unlink(missing_ok=True)
     saved = destination.is_file()
     before = (audit or {}).get("before")
     after = (audit or {}).get("after")
@@ -596,8 +637,16 @@ def reduce_mesh(
         for entry in objects
         if ((entry.get("after") or {}).get("triangles") or 0) > target_triangles
     ]
-    if status != "completed" or record.get("returncode") != 0:
-        reason = "Blender did not complete the reduction; read the log"
+    if status == "interrupted":
+        reason = "the reduction was interrupted; nothing here was qualified"
+    elif status != "completed" or record.get("returncode") != 0:
+        reason = failure if status == "refused" else "Blender did not complete the reduction; read the log"
+    elif blender_after != blender_digest:
+        reason = (
+            "the Blender executable changed while it ran: "
+            f"{blender_digest} before, {blender_after or 'unreadable'} after; "
+            "the binary that produced this mesh is not the one that was recorded"
+        )
     elif source_after["sha256"] != source_record["sha256"]:
         reason = (
             "source changed or became unreadable during reduction: "
@@ -636,17 +685,25 @@ def reduce_mesh(
         "schema_version": 1,
         "kind": "blender-reduce",
         "label": label,
-        "blender": {"path": str(executable), "sha256": _readable_digest(executable)},
+        "blender": {
+            "path": str(executable),
+            "sha256": blender_digest,
+            "sha256_after_exit": blender_after,
+        },
         "source": source_record,
         "source_after": source_after,
         "output": {
+            # Blender saved over the claim this command made before launch;
+            # there is no staging copy and no other path was written.
             "path": destination.relative_to(root).as_posix(),
+            "reserved_before_launch": True,
             "present": saved,
             "sha256": _readable_digest(destination) if saved else None,
         },
         "target_triangles": target_triangles,
         "object_selected": object_name is not None,
         "weld_distance": (audit or {}).get("weld_distance"),
+        "scenes": (audit or {}).get("scenes"),
         "objects": objects,
         "before": before,
         "after": after,
@@ -664,6 +721,8 @@ def reduce_mesh(
         "limits": REDUCE_LIMITS,
     }
     write_json(reduce_dir / "reduce.json", receipt)
+    if interrupt is not None:
+        raise interrupt
     return {
         **receipt,
         "reduce_dir": str(reduce_dir),
