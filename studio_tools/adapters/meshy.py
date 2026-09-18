@@ -24,7 +24,20 @@ ENDPOINTS = {
 FIELDS = {
     "image": (
         {"image_url"},
-        {"image_url", "ai_model", "should_texture", "enable_pbr", "target_formats"},
+        {
+            "image_url",
+            "ai_model",
+            "should_texture",
+            "enable_pbr",
+            "target_formats",
+            # A generated sculpt is millions of triangles unless the request
+            # asks for game-ready topology, and asking afterwards costs a
+            # second paid task. The same bounds the preview/remesh profiles use.
+            "should_remesh",
+            "target_polycount",
+            "topology",
+            "symmetry_mode",
+        },
     ),
     "preview": (
         {"prompt"},
@@ -123,6 +136,8 @@ def profile(operation, body, eligibility=None):
         raise StudioError("target_polycount must be 100–300000")
     if result.get("topology", "triangle") not in {"triangle", "quad"}:
         raise StudioError("Invalid topology")
+    if result.get("symmetry_mode", "auto") not in {"off", "auto", "on"}:
+        raise StudioError("symmetry_mode must be off, auto or on")
     if "image_url" in result and not str(result["image_url"]).startswith(
         ("https://", "data:image/png;base64,", "data:image/jpeg;base64,")
     ):
