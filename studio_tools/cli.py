@@ -390,8 +390,13 @@ def dispatch(a):
 
         # Read-only and receiptless: answered before any project root is made.
         return meshy.balance(config)
-    if a.command == "meshy" and not a.project:
-        raise StudioError("meshy " + a.operation + " needs --project")
+    if a.command == "meshy":
+        # Both before the project root is created below: a mistyped --project
+        # with a missing --record must leave no directory behind either.
+        if not a.project:
+            raise StudioError("meshy " + a.operation + " needs --project")
+        if not a.record:
+            raise StudioError("meshy " + a.operation + " needs --record")
     # Read-only validation does not create the project directory.
     root = (
         Path(a.project).resolve()
@@ -507,8 +512,6 @@ def dispatch(a):
     if a.command == "meshy":
         from .adapters import meshy
 
-        if not a.record:
-            raise StudioError("meshy " + a.operation + " needs --record")
         record = path(a.record)
         if a.operation == "submit":
             if not all([a.profile, a.request, a.budget]):

@@ -86,9 +86,13 @@ before or after the operation name, a mistyped project that is refused without
 being created, a declared result that cannot be read before the run refused for
 want of a baseline, a helper the script left running stopped and reported with
 `ok` false, an unenumerable process tree treated the same way, a
-KeyboardInterrupt writing an interrupted receipt before it continues, the
-staged script copy being what the receipt hashes when the original is edited
-during the run, a timeout with owned cleanup, a refused label collision that leaves
+KeyboardInterrupt during the run and during the receipts it prepares writing an
+interrupted receipt before it continues, a script edited while it ran reported
+as both hashes and not ok while a sibling resolved through `__file__` still
+works, the owned tree stopped before any result is hashed, a declared result
+symlinked into the run's own directory reported invalid, an executable replaced
+between its identity and the launch refused with a receipt and no process, a
+timeout with owned cleanup, a refused label collision that leaves
 the first run's receipt untouched, a declared result inside the run's own
 directory refused before launch, and every input check running before anything
 starts. Every flag is exercised through `cli.main`. No Blender is involved.
@@ -105,7 +109,7 @@ host config loads.
 
 `test_meshy_balance.py` covers the read-only `meshy balance` command with the
 provider transport replaced: the number and nothing else about the account
-printed, a declared credential file used with no file written anywhere, every
+printed, a non-finite balance refused rather than serialized, a declared credential file used with no file written anywhere, every
 failure returned as an error *type* rather than a provider message, a missing
 credential refused before any request, and the operations that write still
 requiring their project and record. No network call is made.

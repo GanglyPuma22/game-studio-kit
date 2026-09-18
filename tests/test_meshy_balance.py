@@ -94,6 +94,11 @@ class MeshyBalanceTests(BalanceCase):
             (OSError("host is offline"), "provider_unavailable"),
             ({"result": {"units": "credits"}}, "unexpected_response"),
             ({"balance": True}, "unexpected_response"),
+            # json.loads turns 1e400 into inf; a receipt or a terminal must not
+            # be handed one, and this CLI's own writer refuses to serialize it.
+            (json.loads('{"balance": 1e400}'), "unexpected_response"),
+            (json.loads('{"balance": -1e400}'), "unexpected_response"),
+            (json.loads('{"result": {"balance": 1e400}}'), "unexpected_response"),
             ("not an object", "unexpected_response"),
         ):
             with self.subTest(expected=expected):
@@ -120,9 +125,11 @@ class MeshyBalanceTests(BalanceCase):
         self.assertEqual(json.loads(out)["balance"], 42.5)
 
     def test_the_operations_that_write_still_need_a_project_and_a_record(self):
+        mistyped = self.dir / "typo game"
         for argv, message in (
             (["meshy", "observe", "--record", "artifacts/task.json"], "needs --project"),
             (["meshy", "archive", "--project", str(self.dir)], "needs --record"),
+            (["meshy", "observe", "--project", str(mistyped)], "needs --record"),
         ):
             with self.subTest(argv=argv):
                 with contextlib.redirect_stdout(io.StringIO()):
@@ -130,6 +137,8 @@ class MeshyBalanceTests(BalanceCase):
                         code = cli.main([*argv, "--config", self.host()])
                 self.assertEqual(code, 1)
                 self.assertIn(message, json.loads(err.getvalue())["error"])
+        # The refusal comes before anything creates the project it named.
+        self.assertFalse(mistyped.exists())
 
 
 class BalanceDiscoverabilityTests(unittest.TestCase):

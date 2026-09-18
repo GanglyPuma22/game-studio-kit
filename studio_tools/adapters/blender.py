@@ -3,7 +3,6 @@
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-import shutil
 import struct
 import uuid
 from ..common import (
@@ -253,6 +252,10 @@ def script_run(
         raise StudioError("Passthrough arguments must be strings")
     label = safe_id(label) if label else uuid.uuid4().hex
     executable = Path(require_executable(config, "blender"))
+    blender_digest = _readable_digest(executable)
+    if blender_digest is None:
+        # Without a digest there is no identity to record or to re-check below.
+        raise StudioError("Blender executable could not be read to record its identity")
     # The run directory is contained like a declared result: a symlinked
     # artifacts/ must not move these receipts out of the project or into the kit.
     run_dir = outside_package(relative(root, f"artifacts/blender/runs/{label}"))
@@ -279,20 +282,15 @@ def script_run(
                 "could not be shown to have produced it: " + item
             )
         results_before.append({"path": item, "present": present, "sha256": digest})
+    script_digest = sha256(program)
     try:
         run_dir.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
         raise StudioError("Blender run directory exists; choose a new label") from None
-    # Blender opens the script after this command has hashed it, so the file the
-    # receipt describes and the file that runs need not be the same one. Copy it
-    # into the run directory first, hash the copy and run the copy: the hash then
-    # belongs to bytes nothing else could edit afterwards. The working directory
-    # is still the project, so a relative path the script writes is unaffected.
-    staged = run_dir / "script.py"
-    try:
-        shutil.copyfile(program, staged)
-    except OSError as exc:
-        raise StudioError("Blender run script could not be staged for this run") from exc
+    # Blender runs the script where the project keeps it, so a script that
+    # resolves its siblings through __file__ finds them. That means the file can
+    # change between the digest above and the process below, or while it runs,
+    # so it is read again after the process ends and both hashes are recorded.
     args = [
         str(executable),
         "--background",
@@ -301,86 +299,107 @@ def script_run(
         "--python-exit-code",
         "1",
         "--python",
-        app_path(config, staged, "blender"),
+        app_path(config, program, "blender"),
         "--",
         *extra,
     ]
     identity = {
-        "blender": {"path": str(executable), "sha256": _readable_digest(executable)},
+        "blender": {"path": str(executable), "sha256": blender_digest},
         "source": file_record(root, blend),
         "script": {
             "path": program.relative_to(root).as_posix(),
-            "staged": staged.name,
-            "sha256": sha256(staged),
+            "sha256": script_digest,
+            "sha256_after_exit": None,
         },
     }
     started = datetime.now(timezone.utc)
     failure = None
     interrupt = None
-    try:
-        run(
-            args, cwd=str(root), timeout=float(limit),
-            hide_window=True, job_dir=run_dir / "process",
-        )
-    except StudioError as exc:
-        # A nonzero exit or a timeout is this command's answer, not its crash.
-        failure = str(exc)
-    except KeyboardInterrupt as exc:
-        # The runner has already stopped its own child; write an honest receipt
-        # for the label this run reserved, then re-raise.
-        interrupt = exc
-        failure = "Blender run interrupted before the script finished"
-    record_path = run_dir / "process" / "process.json"
-    record = read_json(record_path) if record_path.is_file() else {"status": "start_failed"}
-    log_path = run_dir / "process" / "stdout.log"
-    before = {entry["path"]: entry for entry in results_before}
-    result_files = []
-    for item in expected:
-        try:
-            target = relative(root, item)
-        except StudioError:
-            # A declared result that only now resolves outside the project (a
-            # symlink the script created) is not evidence of this run.
-            result_files.append({"path": item, "present": False, "stale": False,
-                                 "unreadable": False, "sha256": None})
-            continue
-        exists = target.is_file()
-        digest = _readable_digest(target) if exists else None
-        # A result this runner cannot read cannot be shown to be new output.
-        unreadable = exists and digest is None
-        prior = before.get(item, {"present": False, "sha256": None})
-        stale = exists and not unreadable and prior["present"] and prior["sha256"] == digest
-        result_files.append({
-            "path": item, "present": exists and not stale and not unreadable,
-            "stale": stale, "unreadable": unreadable, "sha256": digest,
-        })
-    status = "interrupted" if interrupt is not None else record.get("status", "start_failed")
+    record = {"status": "start_failed"}
     left = None
-    if interrupt is None and record.get("pid") and status != "timed_out":
-        # The runner stopped the tree itself on timeout; otherwise Blender
-        # exited on its own and whatever its script spawned is still this run's.
-        # A bake helper left running holds the GPU and the file it was writing.
-        left = stop_survivors(record["pid"], hide_window=True)
-        if left["pids"]:
-            failure = failure or (
-                "Processes from this run outlived Blender; "
-                + ("they were stopped" if left["stopped"] else "stopping them could not be verified")
+    result_files = []
+    # The digest above described bytes that could have been replaced while this
+    # run was prepared, so the executable is read again here: only the verified
+    # identity may start, and a mismatch is a receipt rather than a launch.
+    if _readable_digest(executable) != blender_digest:
+        failure = (
+            "Blender executable changed before the run; the verified identity did not start"
+        )
+        status = "refused"
+    else:
+        try:
+            run(
+                args, cwd=str(root), timeout=float(limit),
+                hide_window=True, job_dir=run_dir / "process",
             )
-        elif left["status"] != "ok":
-            failure = failure or "Processes from this run could not be enumerated on this host"
+        except StudioError as exc:
+            # A nonzero exit or a timeout is this command's answer, not its crash.
+            failure = str(exc)
+        except KeyboardInterrupt as exc:
+            # The runner has already stopped its own child; the receipt for the
+            # label this run reserved is still written, then the interrupt goes on.
+            interrupt = exc
+            failure = "Blender run interrupted before the script finished"
+        record_path = run_dir / "process" / "process.json"
+        if record_path.is_file():
+            record = read_json(record_path)
+        try:
+            if interrupt is None and record.get("pid") and record.get("status") != "timed_out":
+                # The runner stops the tree itself on timeout; otherwise Blender
+                # exited on its own and whatever its script spawned is still
+                # this run's. Stop it before anything below is measured: a bake
+                # helper still running could rewrite a result after its digest.
+                left = stop_survivors(record["pid"], hide_window=True)
+                if left["pids"]:
+                    failure = failure or (
+                        "Processes from this run outlived Blender; "
+                        + ("they were stopped" if left["stopped"]
+                           else "stopping them could not be verified")
+                    )
+                elif left["status"] != "ok":
+                    failure = failure or (
+                        "Processes from this run could not be enumerated on this host"
+                    )
+            identity["script"]["sha256_after_exit"] = _readable_digest(program)
+            result_files = _run_results(root, run_dir, expected, results_before)
+        except KeyboardInterrupt as exc:
+            # An interrupt after the process started must still leave a receipt:
+            # the label is reserved and something ran under it.
+            interrupt = exc
+            failure = failure or "Blender run interrupted before its receipts were complete"
+        status = "interrupted" if interrupt is not None else record.get("status", "start_failed")
+    # Whatever was not reached above is reported as not produced, never as absent
+    # from the receipt: a partial account of declared results is still an account.
+    result_files += [
+        {"path": item, "present": False, "stale": False, "unreadable": False,
+         "invalid": False, "sha256": None}
+        for item in expected[len(result_files):]
+    ]
     owned_tree_clear = left is None or (left["status"] == "ok" and not left["pids"])
+    script_changed = (
+        identity["script"]["sha256_after_exit"] is not None
+        and identity["script"]["sha256_after_exit"] != script_digest
+    )
+    if script_changed:
+        failure = failure or "script changed during the run"
     if failure is None and not all(entry["present"] for entry in result_files):
         stale_paths = [e["path"] for e in result_files if e["stale"]]
         unreadable_paths = [e["path"] for e in result_files if e["unreadable"]]
+        invalid_paths = [e["path"] for e in result_files if e["invalid"]]
         missing_paths = [e["path"] for e in result_files
-                         if not e["present"] and not e["stale"] and not e["unreadable"]]
+                         if not any((e["present"], e["stale"], e["unreadable"], e["invalid"]))]
         if stale_paths:
             failure = ("Declared results are unchanged since before the run, so this run "
                        "did not produce them: " + ", ".join(stale_paths))
+        elif invalid_paths:
+            failure = ("Declared results no longer resolve to a file this run could have "
+                       "produced: " + ", ".join(invalid_paths))
         elif unreadable_paths:
             failure = "Declared results cannot be read: " + ", ".join(unreadable_paths)
         else:
             failure = "Declared results are missing after the run: " + ", ".join(missing_paths)
+    log_path = run_dir / "process" / "stdout.log"
+    record_path = run_dir / "process" / "process.json"
     receipt = {
         "schema_version": 1,
         "kind": "blender-run",
@@ -403,6 +422,7 @@ def script_run(
             and record.get("returncode") == 0
             and all(entry["present"] for entry in result_files)
             and owned_tree_clear
+            and not script_changed
         ),
         "limits": RUN_LIMITS,
     }
@@ -416,3 +436,40 @@ def script_run(
         "process_record": str(record_path) if record_path.is_file() else None,
         "log": str(log_path) if log_path.is_file() else None,
     }
+
+
+def _run_results(root, run_dir, expected, results_before):
+    """Describe each declared result now that the run and its tree are over.
+
+    Containment is checked again here, not only before the run: a script can
+    replace a declared result with a symlink to this runner's own log, and the
+    bytes of a file this runner wrote are not evidence that the script produced
+    anything.
+    """
+    before = {entry["path"]: entry for entry in results_before}
+    result_files = []
+    for item in expected:
+        entry = {"path": item, "present": False, "stale": False,
+                 "unreadable": False, "invalid": False, "sha256": None}
+        try:
+            target = relative(root, item)
+        except StudioError:
+            # A declared result that only now resolves outside the project (a
+            # symlink the script created) is not evidence of this run.
+            entry["invalid"] = True
+            result_files.append(entry)
+            continue
+        if target == run_dir or target.is_relative_to(run_dir):
+            entry["invalid"] = True
+            result_files.append(entry)
+            continue
+        exists = target.is_file()
+        digest = _readable_digest(target) if exists else None
+        # A result this runner cannot read cannot be shown to be new output.
+        unreadable = exists and digest is None
+        prior = before.get(item, {"present": False, "sha256": None})
+        stale = exists and not unreadable and prior["present"] and prior["sha256"] == digest
+        entry.update(present=exists and not stale and not unreadable,
+                     stale=stale, unreadable=unreadable, sha256=digest)
+        result_files.append(entry)
+    return result_files

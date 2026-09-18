@@ -128,15 +128,15 @@ class BlenderRunTests(BlenderRunCase):
         self.assertEqual(receipt["source"],
                          {"path": "source/asset.blend", "sha256": sha256(self.root / "source/asset.blend")})
         self.assertEqual(receipt["script"], {
-            "path": "tools/rebake.py", "staged": "script.py",
-            "sha256": sha256(run_dir / "script.py"),
+            "path": "tools/rebake.py", "sha256": sha256(self.root / "tools/rebake.py"),
+            "sha256_after_exit": sha256(self.root / "tools/rebake.py"),
         })
-        self.assertEqual(sha256(run_dir / "script.py"), sha256(self.root / "tools/rebake.py"))
         self.assertEqual(receipt["survivors"], {"status": "ok", "pids": [], "stopped": True})
         self.assertEqual(receipt["passthrough_count"], 2)
         self.assertEqual(receipt["result_files"], [{
             "path": "artifacts/bakes/normal.png", "present": True, "stale": False,
-            "unreadable": False, "sha256": sha256(self.root / "artifacts/bakes/normal.png"),
+            "unreadable": False, "invalid": False,
+            "sha256": sha256(self.root / "artifacts/bakes/normal.png"),
         }])
         self.assertEqual(receipt["results_before"],
                          [{"path": "artifacts/bakes/normal.png", "present": False, "sha256": None}])
@@ -157,7 +157,7 @@ class BlenderRunTests(BlenderRunCase):
             str(Path(sys.executable).resolve()), "--background", "--factory-startup",
             str((self.root / "source/asset.blend").resolve()),
             "--python-exit-code", "1",
-            "--python", str(self.run_dir("line") / "script.py"),
+            "--python", str((self.root / "tools/rebake.py").resolve()),
             "--", "--samples", "8",
         ])
         self.assertEqual(self.last_kwargs["cwd"], str(self.root))
@@ -185,7 +185,7 @@ class BlenderRunTests(BlenderRunCase):
         self.assertEqual(verdict["returncode"], 0)
         self.assertEqual(verdict["result_files"],
                          [{"path": "artifacts/bakes/normal.png", "present": False, "stale": False,
-                           "unreadable": False, "sha256": None}])
+                           "unreadable": False, "invalid": False, "sha256": None}])
         self.assertIn("missing after the run", verdict["failure"])
 
     def test_failing_script_is_a_verdict_and_never_echoes_the_passthrough(self):
@@ -509,24 +509,41 @@ class BlenderRunOwnershipTests(BlenderRunCase):
         self.assertEqual(receipt["cleanup"], "owned_tree_stopped")
         self.assertEqual(receipt["result_files"][0]["path"], "artifacts/bakes/normal.png")
 
-    def test_the_receipt_describes_the_copy_that_ran_not_the_file_edited_after(self):
+    def test_a_script_that_changes_during_the_run_is_not_ok(self):
         self.script("tools/selfedit.py",
                     "from pathlib import Path\n"
                     "print('bake ran')\n"
-                    "Path('tools/selfedit.py').write_text('print(\\'edited after launch\\')\\n')\n")
+                    "Path('tools/selfedit.py').write_text('print(\\'edited during the run\\')\\n')\n")
         original = sha256(self.root / "tools/selfedit.py")
         code, out, _ = self.cli_run("--source", "source/asset.blend",
-                                    "--script", "tools/selfedit.py", "--label", "immutable")
-        self.assertEqual(code, 0)
+                                    "--script", "tools/selfedit.py", "--label", "changed")
+        self.assertEqual(code, 1)
         verdict = json.loads(out)
-        staged = self.run_dir("immutable") / "script.py"
-        self.assertEqual(verdict["script"]["staged"], "script.py")
+        self.assertFalse(verdict["ok"])
+        self.assertEqual(verdict["status"], "completed")
+        self.assertEqual(verdict["returncode"], 0)
+        self.assertEqual(verdict["failure"], "script changed during the run")
         self.assertEqual(verdict["script"]["path"], "tools/selfedit.py")
-        # What ran is what is hashed, and the edit the run made is not it.
-        self.assertEqual(verdict["script"]["sha256"], sha256(staged))
         self.assertEqual(verdict["script"]["sha256"], original)
-        self.assertNotEqual(sha256(self.root / "tools/selfedit.py"), original)
-        self.assertIn("bake ran", (self.run_dir("immutable") / "process/stdout.log").read_text())
+        self.assertEqual(verdict["script"]["sha256_after_exit"],
+                         sha256(self.root / "tools/selfedit.py"))
+        self.assertNotEqual(verdict["script"]["sha256_after_exit"], original)
+        self.assertIn("bake ran", (self.run_dir("changed") / "process/stdout.log").read_text())
+
+    def test_the_script_runs_where_the_project_keeps_it_so_siblings_resolve(self):
+        (self.root / "tools/data").mkdir()
+        (self.root / "tools/data/curve.txt").write_text("1,2,3", encoding="utf-8")
+        self.script("tools/sibling.py",
+                    "from pathlib import Path\n"
+                    "beside = Path(__file__).resolve().parent / 'data/curve.txt'\n"
+                    "Path('artifacts/curve.json').parent.mkdir(parents=True, exist_ok=True)\n"
+                    "Path('artifacts/curve.json').write_text(beside.read_text())\n")
+        code, out, _ = self.cli_run("--source", "source/asset.blend", "--script", "tools/sibling.py",
+                                    "--label", "sibling", "--result", "artifacts/curve.json")
+        self.assertEqual(code, 0)
+        self.assertTrue(json.loads(out)["ok"])
+        self.assertEqual((self.root / "artifacts/curve.json").read_text(encoding="utf-8"), "1,2,3")
+        self.assertFalse((self.run_dir("sibling") / "script.py").exists())
 
     @staticmethod
     def _running(pid):
@@ -549,6 +566,119 @@ class BlenderRunOwnershipTests(BlenderRunCase):
             os.kill(pid, 9)
         except OSError:
             pass
+
+
+class BlenderRunOrderingTests(BlenderRunCase):
+    """Round three of review: what is measured, when, and what is refused."""
+
+    def test_the_owned_tree_is_stopped_before_any_result_is_hashed(self):
+        order = []
+        real_results = blender._run_results
+
+        def watched_stop(pid, **kwargs):
+            order.append("survivors")
+            return {"status": "ok", "pids": [], "stopped": True}
+
+        def watched_results(*args, **kwargs):
+            order.append("results")
+            return real_results(*args, **kwargs)
+
+        with patch("studio_tools.adapters.blender.stop_survivors", watched_stop):
+            with patch("studio_tools.adapters.blender._run_results", watched_results):
+                code, _, _ = self.cli_run(
+                    "--source", "source/asset.blend", "--script", "tools/rebake.py",
+                    "--label", "ordered", "--result", "artifacts/bakes/normal.png",
+                )
+        self.assertEqual(code, 0)
+        # A helper still running could rewrite a result after its digest is taken.
+        self.assertEqual(order, ["survivors", "results"])
+
+    def test_an_interrupt_while_the_receipts_are_prepared_still_leaves_one(self):
+        with patch("studio_tools.adapters.blender.stop_survivors", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    with patch("studio_tools.adapters.blender.run", side_effect=self.fake_blender):
+                        cli.main(["blender", "run", "--project", str(self.root),
+                                  "--config", str(self.host_config), "--source", "source/asset.blend",
+                                  "--script", "tools/rebake.py", "--label", "late-ctrl-c",
+                                  "--result", "artifacts/bakes/normal.png"])
+        receipt = read_json(self.run_dir("late-ctrl-c") / "run.json")
+        self.assertEqual(receipt["status"], "interrupted")
+        self.assertFalse(receipt["ok"])
+        self.assertIn("interrupted", receipt["failure"])
+        # The declared result is accounted for even though it was never measured.
+        self.assertEqual(receipt["result_files"],
+                         [{"path": "artifacts/bakes/normal.png", "present": False, "stale": False,
+                           "unreadable": False, "invalid": False, "sha256": None}])
+        self.assertTrue((self.run_dir("late-ctrl-c") / "process/stdout.log").is_file())
+
+    @unittest.skipIf(os.name == "nt", "the symlink route needs POSIX symlink creation")
+    def test_a_result_symlinked_into_the_run_directory_is_not_evidence(self):
+        self.script("tools/link.py",
+                    "import os\n"
+                    "from pathlib import Path\n"
+                    "Path('artifacts').mkdir(parents=True, exist_ok=True)\n"
+                    "print('linking the runner\\'s own log')\n"
+                    "os.symlink('blender/runs/linked/process/stdout.log', 'artifacts/bake.log')\n")
+        code, out, _ = self.cli_run("--source", "source/asset.blend", "--script", "tools/link.py",
+                                    "--label", "linked", "--result", "artifacts/bake.log")
+        self.assertEqual(code, 1)
+        verdict = json.loads(out)
+        self.assertFalse(verdict["ok"])
+        self.assertEqual(verdict["status"], "completed")
+        entry = verdict["result_files"][0]
+        self.assertTrue(entry["invalid"])
+        self.assertFalse(entry["present"])
+        self.assertIsNone(entry["sha256"])
+        self.assertIn("no longer resolve to a file this run could have produced", verdict["failure"])
+
+    def test_an_executable_replaced_between_identity_and_launch_does_not_start(self):
+        fake = Path(self.tmp.name) / "swappable blender"
+        fake.write_bytes(b"verified blender bytes")
+        fake.chmod(0o755)
+        host = Path(self.tmp.name) / "swappable-host.json"
+        write_json(host, {"executables": {"blender": str(fake)}})
+        expected = sha256(fake)
+        hashed = []
+        real_digest = blender._readable_digest
+
+        def racing_digest(path):
+            digest = real_digest(path)
+            if Path(path).resolve() == fake.resolve():
+                hashed.append(1)
+                if len(hashed) == 1:
+                    fake.write_bytes(b"replaced blender bytes")
+            return digest
+
+        with patch("studio_tools.adapters.blender._readable_digest", racing_digest):
+            with patch("studio_tools.adapters.blender.run") as runner:
+                with contextlib.redirect_stdout(io.StringIO()) as out:
+                    with contextlib.redirect_stderr(io.StringIO()) as err:
+                        code = cli.main(["blender", "run", "--project", str(self.root),
+                                         "--config", str(host), "--source", "source/asset.blend",
+                                         "--script", "tools/rebake.py", "--label", "swapped"])
+                runner.assert_not_called()
+        self.assertEqual(err.getvalue(), "")
+        self.assertEqual(code, 1)
+        verdict = json.loads(out.getvalue())
+        self.assertFalse(verdict["ok"])
+        self.assertEqual(verdict["status"], "refused")
+        self.assertIn("did not start", verdict["failure"])
+        self.assertEqual(verdict["blender"], {"path": str(fake), "sha256": expected})
+        self.assertNotEqual(sha256(fake), expected)
+        receipt = read_json(self.run_dir("swapped") / "run.json")
+        self.assertEqual(receipt["status"], "refused")
+        self.assertIsNone(receipt["returncode"])
+        self.assertIsNone(receipt["survivors"])
+        self.assertFalse((self.run_dir("swapped") / "process").exists())
+
+    def test_an_executable_that_cannot_be_hashed_is_refused_with_no_run_directory(self):
+        with patch("studio_tools.adapters.blender._readable_digest", return_value=None):
+            code, _, err = self.cli_run("--source", "source/asset.blend",
+                                        "--script", "tools/rebake.py", "--label", "unhashable")
+        self.assertEqual(code, 1)
+        self.assertIn("could not be read to record its identity", json.loads(err)["error"])
+        self.assertFalse(self.run_dir("unhashable").exists())
 
 
 class BlenderRunDiscoverabilityTests(unittest.TestCase):
