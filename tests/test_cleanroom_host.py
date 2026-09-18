@@ -155,6 +155,36 @@ class CompareTests(unittest.TestCase):
         self.assertTrue(cleanroom.compare(before, readable, WINDOW, busy_cpu_seconds=1.0,
                                           heavy_working_set_bytes=200 * MB)["attributable"])
 
+    def test_toolhelp_name_for_pid_zero_is_the_same_pseudo_process(self):
+        before = snap([proc(0, "[System Process]", cpu=1000.0), proc(2, "steady", cpu=5.0)])
+        after = snap([proc(0, "[System Process]", cpu=5800.0), proc(2, "steady", cpu=5.0)],
+                     at="2026-09-10T10:05:02+00:00")
+        result = cleanroom.compare(before, after, WINDOW, busy_cpu_seconds=1.0,
+                                   heavy_working_set_bytes=200 * MB)
+        self.assertTrue(result["attributable"])
+        self.assertNotIn("System Process", json.dumps(result["contamination"]))
+
+    def test_sampled_newcomer_keeps_unavailable_counters_and_breaks_attribution(self):
+        store = {}
+        cleanroom.Sampler._observe(store, dict(proc(4, "protected", cpu=0.0, ws=0, created="c"), counters="unavailable"),
+                                   "2026-09-10T10:00:12+00:00")
+        cleanroom.Sampler._observe(store, dict(proc(4, "protected", cpu=0.0, ws=0, created="c"), counters="ok"),
+                                   "2026-09-10T10:00:13+00:00")
+        observation = next(iter(store.values()))
+        self.assertEqual(observation["counters"], "unavailable")
+        during = {"sampler": {"mode": "stub"}, "samples": 2, "failed_samples": 0,
+                  "first_sample_utc": "2026-09-10T10:00:12+00:00", "last_sample_utc": "2026-09-10T10:00:13+00:00",
+                  "recorders": [], "newcomers": [observation]}
+        quiet = snap([proc(1, "steady", cpu=5.0)])
+        result = cleanroom.compare(quiet, snap([proc(1, "steady", cpu=5.0)], at="2026-09-10T10:05:02+00:00"),
+                                   WINDOW, busy_cpu_seconds=1.0, heavy_working_set_bytes=200 * MB, during=during)
+        self.assertEqual(result["during"]["heavy_newcomers"][0]["counters"], "unavailable")
+        self.assertFalse(result["attributable"])
+        readable = {}
+        cleanroom.Sampler._observe(readable, dict(proc(4, "protected", cpu=0.0, ws=0, created="c"), counters="ok"),
+                                   "2026-09-10T10:00:12+00:00")
+        self.assertNotIn("counters", next(iter(readable.values())))
+
     def test_genuine_newcomer_is_counted_while_exact_helpers_are_separated(self):
         before_helper = {"pid": 500, "name": "powershell", "created": "a"}
         after_helper = {"pid": 600, "name": "powershell", "created": "b"}
