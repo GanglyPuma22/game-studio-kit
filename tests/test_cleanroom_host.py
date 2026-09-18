@@ -130,6 +130,31 @@ class CompareTests(unittest.TestCase):
         self.assertNotIn("System Idle Process", json.dumps(result["contamination"]))
         self.assertFalse(result["attributable"])
 
+    def test_idle_exclusion_needs_pid_zero_so_a_program_borrowing_the_name_is_counted(self):
+        before = snap([proc(0, "System Idle Process", cpu=1000.0), proc(7, "System Idle Process", cpu=1.0)])
+        after = snap([proc(0, "System Idle Process", cpu=5800.0), proc(7, "System Idle Process", cpu=9.0)])
+        result = cleanroom.compare(before, after, WINDOW, busy_cpu_seconds=1.0,
+                                   heavy_working_set_bytes=200 * MB)
+        self.assertEqual(result["contamination"]["busy"],
+                         [{"pid": 7, "name": "System Idle Process", "cpu_delta_seconds": 8.0}])
+        self.assertFalse(result["attributable"])
+
+    def test_a_newcomer_with_unreadable_counters_breaks_attribution_instead_of_reading_as_zero(self):
+        before = snap([proc(1, "steady", cpu=5.0)])
+        protected = dict(proc(4, "protected", cpu=0.0, ws=0), counters="unavailable")
+        after = snap([proc(1, "steady", cpu=5.0), protected], at="2026-09-10T10:05:02+00:00")
+        result = cleanroom.compare(before, after, WINDOW, busy_cpu_seconds=1.0,
+                                   heavy_working_set_bytes=200 * MB)
+        self.assertEqual(result["contamination"]["new_heavy"],
+                         [{"pid": 4, "name": "protected", "cpu_seconds": 0.0, "working_set_bytes": 0,
+                           "counters": "unavailable"}])
+        self.assertIn("heavy processes appeared inside the window", result["reasons"])
+        self.assertFalse(result["attributable"])
+        readable = snap([proc(1, "steady", cpu=5.0), dict(proc(4, "protected", cpu=0.0, ws=0), counters="ok")],
+                        at="2026-09-10T10:05:02+00:00")
+        self.assertTrue(cleanroom.compare(before, readable, WINDOW, busy_cpu_seconds=1.0,
+                                          heavy_working_set_bytes=200 * MB)["attributable"])
+
     def test_genuine_newcomer_is_counted_while_exact_helpers_are_separated(self):
         before_helper = {"pid": 500, "name": "powershell", "created": "a"}
         after_helper = {"pid": 600, "name": "powershell", "created": "b"}
