@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import shutil
 import struct
 import uuid
 from ..common import (
@@ -16,16 +17,17 @@ from ..common import (
     write_json,
 )
 from ..config import require_executable, app_path
-from ..processes import run
+from ..processes import run, stop_survivors
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "blender_scripts"
 RUN_DEFAULT_TIMEOUT = 600
 RUN_MAX_TIMEOUT = 3600
 RUN_LIMITS = (
     "a clean exit is not visual acceptance: this records that the script ran headlessly "
-    "and which declared files exist afterwards, never that the bake, export or repair "
+    "and which declared files this run produced, never that the bake, export or repair "
     "looks right; stdout and stderr are combined in one log the script may fill with "
-    "private data"
+    "private data; descendants are enumerated by process group (POSIX) or parent walk "
+    "(Windows), so a process that re-parented out of both is not seen"
 )
 
 
@@ -267,14 +269,30 @@ def script_run(
         # A result that already exists with the same bytes after the run was
         # not produced by it: yesterday's bake would otherwise pass for today's.
         present = target.is_file()
-        results_before.append({
-            "path": item, "present": present,
-            "sha256": _readable_digest(target) if present else None,
-        })
+        digest = _readable_digest(target) if present else None
+        if present and digest is None:
+            # Without a baseline there is nothing to compare the run's output
+            # against, so a file the script merely made readable would pass for
+            # one it wrote. Refuse now rather than report an unprovable ok.
+            raise StudioError(
+                "Declared result exists but cannot be read before the run, so this run "
+                "could not be shown to have produced it: " + item
+            )
+        results_before.append({"path": item, "present": present, "sha256": digest})
     try:
         run_dir.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
         raise StudioError("Blender run directory exists; choose a new label") from None
+    # Blender opens the script after this command has hashed it, so the file the
+    # receipt describes and the file that runs need not be the same one. Copy it
+    # into the run directory first, hash the copy and run the copy: the hash then
+    # belongs to bytes nothing else could edit afterwards. The working directory
+    # is still the project, so a relative path the script writes is unaffected.
+    staged = run_dir / "script.py"
+    try:
+        shutil.copyfile(program, staged)
+    except OSError as exc:
+        raise StudioError("Blender run script could not be staged for this run") from exc
     args = [
         str(executable),
         "--background",
@@ -283,17 +301,22 @@ def script_run(
         "--python-exit-code",
         "1",
         "--python",
-        app_path(config, program, "blender"),
+        app_path(config, staged, "blender"),
         "--",
         *extra,
     ]
     identity = {
         "blender": {"path": str(executable), "sha256": _readable_digest(executable)},
         "source": file_record(root, blend),
-        "script": file_record(root, program),
+        "script": {
+            "path": program.relative_to(root).as_posix(),
+            "staged": staged.name,
+            "sha256": sha256(staged),
+        },
     }
     started = datetime.now(timezone.utc)
     failure = None
+    interrupt = None
     try:
         run(
             args, cwd=str(root), timeout=float(limit),
@@ -302,6 +325,11 @@ def script_run(
     except StudioError as exc:
         # A nonzero exit or a timeout is this command's answer, not its crash.
         failure = str(exc)
+    except KeyboardInterrupt as exc:
+        # The runner has already stopped its own child; write an honest receipt
+        # for the label this run reserved, then re-raise.
+        interrupt = exc
+        failure = "Blender run interrupted before the script finished"
     record_path = run_dir / "process" / "process.json"
     record = read_json(record_path) if record_path.is_file() else {"status": "start_failed"}
     log_path = run_dir / "process" / "stdout.log"
@@ -326,7 +354,21 @@ def script_run(
             "path": item, "present": exists and not stale and not unreadable,
             "stale": stale, "unreadable": unreadable, "sha256": digest,
         })
-    status = record.get("status", "start_failed")
+    status = "interrupted" if interrupt is not None else record.get("status", "start_failed")
+    left = None
+    if interrupt is None and record.get("pid") and status != "timed_out":
+        # The runner stopped the tree itself on timeout; otherwise Blender
+        # exited on its own and whatever its script spawned is still this run's.
+        # A bake helper left running holds the GPU and the file it was writing.
+        left = stop_survivors(record["pid"], hide_window=True)
+        if left["pids"]:
+            failure = failure or (
+                "Processes from this run outlived Blender; "
+                + ("they were stopped" if left["stopped"] else "stopping them could not be verified")
+            )
+        elif left["status"] != "ok":
+            failure = failure or "Processes from this run could not be enumerated on this host"
+    owned_tree_clear = left is None or (left["status"] == "ok" and not left["pids"])
     if failure is None and not all(entry["present"] for entry in result_files):
         stale_paths = [e["path"] for e in result_files if e["stale"]]
         unreadable_paths = [e["path"] for e in result_files if e["unreadable"]]
@@ -353,16 +395,20 @@ def script_run(
         "elapsed_seconds": record.get("elapsed_seconds"),
         "timed_out": status == "timed_out",
         "cleanup": record.get("cleanup"),
+        "survivors": left,
         "result_files": result_files,
         "failure": failure,
         "ok": (
             status == "completed"
             and record.get("returncode") == 0
             and all(entry["present"] for entry in result_files)
+            and owned_tree_clear
         ),
         "limits": RUN_LIMITS,
     }
     write_json(run_dir / "run.json", receipt)
+    if interrupt is not None:
+        raise interrupt
     return {
         **receipt,
         "run_dir": str(run_dir),
