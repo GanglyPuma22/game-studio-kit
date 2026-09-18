@@ -131,9 +131,11 @@ class BlenderRunTests(BlenderRunCase):
                          {"path": "tools/rebake.py", "sha256": sha256(self.root / "tools/rebake.py")})
         self.assertEqual(receipt["passthrough_count"], 2)
         self.assertEqual(receipt["result_files"], [{
-            "path": "artifacts/bakes/normal.png", "present": True,
-            "sha256": sha256(self.root / "artifacts/bakes/normal.png"),
+            "path": "artifacts/bakes/normal.png", "present": True, "stale": False,
+            "unreadable": False, "sha256": sha256(self.root / "artifacts/bakes/normal.png"),
         }])
+        self.assertEqual(receipt["results_before"],
+                         [{"path": "artifacts/bakes/normal.png", "present": False, "sha256": None}])
         self.assertIn("not visual acceptance", receipt["limits"])
         self.assertIsNone(receipt["failure"])
         self.assertGreater(read_json(run_dir / "process/process.json")["pid"], 0)
@@ -178,7 +180,9 @@ class BlenderRunTests(BlenderRunCase):
         self.assertEqual(verdict["status"], "completed")
         self.assertEqual(verdict["returncode"], 0)
         self.assertEqual(verdict["result_files"],
-                         [{"path": "artifacts/bakes/normal.png", "present": False, "sha256": None}])
+                         [{"path": "artifacts/bakes/normal.png", "present": False, "stale": False,
+                           "unreadable": False, "sha256": None}])
+        self.assertIn("missing after the run", verdict["failure"])
 
     def test_failing_script_is_a_verdict_and_never_echoes_the_passthrough(self):
         self.script("tools/broken.py",
@@ -282,13 +286,136 @@ class BlenderRunTests(BlenderRunCase):
                 self.assertEqual(parsed.command, "blender")
                 self.assertEqual(parsed.operation, argv[1])
                 self.assertEqual(parsed.project, "game")
-        for argv in (["blender", "run", "--project", "game", "--script", "tools/x.py"],
-                     ["blender", "run", "--project", "game", "--source", "source/a.blend"],
-                     ["blender", "bake", "--project", "game"]):
-            with self.subTest(refused=argv):
-                with self.assertRaises(SystemExit):
-                    with contextlib.redirect_stderr(io.StringIO()):
-                        parser().parse_args(argv)
+        with self.assertRaises(SystemExit):
+            with contextlib.redirect_stderr(io.StringIO()):
+                parser().parse_args(["blender", "bake", "--project", "game"])
+
+
+class BlenderRunReviewTests(BlenderRunCase):
+    """Round one of review: stale results, option order and an untouched project."""
+
+    def test_a_result_that_predates_the_run_unchanged_is_not_produced_by_it(self):
+        stale = self.root / "artifacts/bakes/normal.png"
+        stale.parent.mkdir(parents=True)
+        stale.write_text("yesterday's bake", encoding="utf-8")
+        before = sha256(stale)
+        self.script("tools/quiet.py", "print('this script writes nothing')\n")
+        code, out, _ = self.cli_run(
+            "--source", "source/asset.blend", "--script", "tools/quiet.py",
+            "--label", "stale", "--result", "artifacts/bakes/normal.png",
+        )
+        self.assertEqual(code, 1)
+        verdict = json.loads(out)
+        self.assertFalse(verdict["ok"])
+        self.assertEqual(verdict["status"], "completed")
+        self.assertEqual(verdict["returncode"], 0)
+        entry = verdict["result_files"][0]
+        self.assertTrue(entry["stale"])
+        self.assertFalse(entry["present"])
+        self.assertEqual(entry["sha256"], before)
+        self.assertIn("unchanged since before the run", verdict["failure"])
+        self.assertEqual(verdict["results_before"],
+                         [{"path": "artifacts/bakes/normal.png", "present": True, "sha256": before}])
+        self.assertEqual(sha256(stale), before)
+
+    def test_a_result_the_run_rewrites_with_new_bytes_is_produced_by_it(self):
+        target = self.root / "artifacts/bakes/normal.png"
+        target.parent.mkdir(parents=True)
+        target.write_text("yesterday's bake", encoding="utf-8")
+        before = sha256(target)
+        code, out, _ = self.cli_run(
+            "--source", "source/asset.blend", "--script", "tools/rebake.py",
+            "--label", "fresh", "--result", "artifacts/bakes/normal.png",
+            "--", "--samples", "8",
+        )
+        self.assertEqual(code, 0)
+        verdict = json.loads(out)
+        self.assertTrue(verdict["ok"])
+        entry = verdict["result_files"][0]
+        self.assertTrue(entry["present"])
+        self.assertFalse(entry["stale"])
+        self.assertNotEqual(entry["sha256"], before)
+        self.assertEqual(entry["sha256"], sha256(target))
+
+    def test_shared_options_are_accepted_on_either_side_of_the_operation(self):
+        with patch("studio_tools.adapters.blender.run", side_effect=self.fake_blender):
+            for label, argv in (
+                ("after", ["blender", "run", "--project", str(self.root),
+                           "--config", str(self.host_config), "--source", "source/asset.blend",
+                           "--script", "tools/rebake.py", "--label", "after"]),
+                ("before", ["blender", "--project", str(self.root), "--config", str(self.host_config),
+                            "--source", "source/asset.blend", "run",
+                            "--script", "tools/rebake.py", "--label", "before"]),
+            ):
+                with self.subTest(ordering=label):
+                    with contextlib.redirect_stdout(io.StringIO()) as out:
+                        with contextlib.redirect_stderr(io.StringIO()) as err:
+                            code = cli.main(argv)
+                    self.assertEqual(err.getvalue(), "")
+                    self.assertEqual(code, 0)
+                    self.assertTrue(json.loads(out.getvalue())["ok"])
+                    self.assertEqual(json.loads(out.getvalue())["label"], label)
+                    self.assertTrue((self.run_dir(label) / "run.json").is_file())
+
+    def test_the_packaged_operations_take_their_shared_options_in_either_order(self):
+        calls = []
+        with patch("studio_tools.adapters.blender.inspect", side_effect=lambda *a: calls.append(a) or {}):
+            for ordering in (
+                ["blender", "inspect", "--project", str(self.root), "--config", str(self.host_config),
+                 "--source", "source/asset.blend", "--output", "artifacts/roundtrip.json"],
+                ["blender", "--project", str(self.root), "--config", str(self.host_config),
+                 "--source", "source/asset.blend", "inspect", "--output", "artifacts/roundtrip.json"],
+            ):
+                with self.subTest(ordering=ordering[1]):
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        with contextlib.redirect_stderr(io.StringIO()) as err:
+                            code = cli.main(ordering)
+                    self.assertEqual(err.getvalue(), "")
+                    self.assertEqual(code, 0)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0], calls[1])
+
+    def test_the_operation_wins_when_the_same_option_is_given_twice(self):
+        with patch("studio_tools.adapters.blender.run", side_effect=self.fake_blender):
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                with contextlib.redirect_stderr(io.StringIO()) as err:
+                    code = cli.main(["blender", "--source", "source/missing.blend",
+                                     "--project", str(self.root), "--config", str(self.host_config),
+                                     "run", "--source", "source/asset.blend",
+                                     "--script", "tools/rebake.py", "--label", "winner"])
+        self.assertEqual(err.getvalue(), "")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out.getvalue())["source"]["path"], "source/asset.blend")
+
+    def test_a_project_that_does_not_exist_is_never_created_by_a_run(self):
+        absent = self.root.parent / "mistyped game"
+        with patch("studio_tools.adapters.blender.run") as runner:
+            with contextlib.redirect_stdout(io.StringIO()):
+                with contextlib.redirect_stderr(io.StringIO()) as err:
+                    code = cli.main(["blender", "run", "--project", str(absent),
+                                     "--config", str(self.host_config),
+                                     "--source", "source/asset.blend", "--script", "tools/rebake.py"])
+            runner.assert_not_called()
+        self.assertEqual(code, 1)
+        self.assertIn("existing game project", json.loads(err.getvalue())["error"])
+        self.assertFalse(absent.exists())
+
+    def test_the_project_and_the_two_files_are_asked_for_by_name(self):
+        for argv, message in (
+            (["blender", "run", "--config", str(self.host_config),
+              "--source", "source/asset.blend", "--script", "tools/rebake.py"], "needs --project"),
+            (["blender", "run", "--project", str(self.root), "--config", str(self.host_config),
+              "--script", "tools/rebake.py"], "needs --source and --script"),
+            (["blender", "run", "--project", str(self.root), "--config", str(self.host_config),
+              "--source", "source/asset.blend"], "needs --source and --script"),
+            (["blender", "fixture", "--config", str(self.host_config)], "needs --project"),
+        ):
+            with self.subTest(argv=argv):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    with contextlib.redirect_stderr(io.StringIO()) as err:
+                        code = cli.main(argv)
+                self.assertEqual(code, 1)
+                self.assertIn(message, json.loads(err.getvalue())["error"])
 
 
 class BlenderRunDiscoverabilityTests(unittest.TestCase):

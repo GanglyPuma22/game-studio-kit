@@ -127,25 +127,33 @@ def parser():
     )
     # A remainder positional cannot follow another positional, so blender nests
     # its operation the way playtest does: `run` carries the script passthrough.
-    # The four packaged operations keep the argument set they always had.
+    # The four packaged operations keep the argument set they always had, and
+    # every shared option is accepted on either side of the operation name, as
+    # it was when this was one flat parser. A subparser default of SUPPRESS is
+    # what makes that work: argparse copies a subparser's namespace over the
+    # parent's, so an ordinary default would erase a value given before the
+    # operation. Nothing is required here; `dispatch` asks for what it needs,
+    # so neither spelling is refused for the other one's sake.
+    SHARED = (
+        ("--config", {}),
+        ("--project", {"help": "Explicit game/output root outside the toolkit"}),
+        ("--source", {}),
+        ("--collection", {}),
+        ("--camera", {}),
+        ("--frames", {"default": "1"}),
+        ("--angles", {"default": "0"}),
+        ("--target", {"default": "0,0,0"}),
+        ("--output", {"help": "Required .glb destination for export; otherwise defaults to artifacts/blender"}),
+    )
     blender_command = sub.add_parser("blender")
+    for flag, options in SHARED:
+        blender_command.add_argument(flag, **options)
     blender_ops = blender_command.add_subparsers(dest="operation", required=True)
-    for name in ("fixture", "inspect", "export", "render"):
+    for name in ("fixture", "inspect", "export", "render", "run"):
         c = blender_ops.add_parser(name)
-        c.add_argument("--config")
-        c.add_argument("--project", required=True, help="Explicit game/output root outside the toolkit")
-        c.add_argument("--source")
-        c.add_argument("--collection")
-        c.add_argument("--camera")
-        c.add_argument("--frames", default="1")
-        c.add_argument("--angles", default="0")
-        c.add_argument("--target", default="0,0,0")
-        c.add_argument("--output", help="Required .glb destination for export; otherwise defaults to artifacts/blender")
-    c = blender_ops.add_parser("run")
-    c.add_argument("--config")
-    c.add_argument("--project", required=True, help="Explicit game/output root outside the toolkit")
-    c.add_argument("--source", required=True, help="Project-relative .blend this run opens")
-    c.add_argument("--script", required=True, help="Project-relative .py Blender runs inside that file")
+        for flag, options in SHARED:
+            c.add_argument(flag, **{**options, "default": argparse.SUPPRESS})
+    c.add_argument("--script", help="Project-relative .py Blender runs inside that file")
     c.add_argument("--label", help="Run identity under artifacts/blender/runs; default is a new UUID")
     c.add_argument("--timeout", type=float, help="Seconds; default 600, maximum 3600")
     c.add_argument("--result", action="append", default=[], help="Project-relative file the script must produce")
@@ -362,6 +370,21 @@ def dispatch(a):
             busy_floor_seconds=a.busy_floor_seconds, heavy_working_set_mb=a.heavy_working_set_mb,
             sample_interval=a.sample_interval,
         )
+    if a.command == "blender" and not a.project:
+        raise StudioError("blender " + a.operation + " needs --project")
+    if a.command == "blender" and a.operation == "run":
+        from .adapters import blender
+
+        # A run needs a game project that already exists, so the project is not
+        # created here: a mistyped --project must fail, not be built empty.
+        # The receipts, not the exit code, are the reason this command exists.
+        if not a.source or not a.script:
+            raise StudioError("blender run needs --source and --script relative to the project")
+        return blender.script_run(
+            config, Path(a.project).resolve(), source=a.source, script=a.script,
+            label=a.label, timeout=a.timeout, results=a.result,
+            passthrough=list(a.passthrough),
+        )
     if a.command == "meshy" and a.operation == "balance":
         from .adapters import meshy
 
@@ -424,14 +447,6 @@ def dispatch(a):
     if a.command == "blender":
         from .adapters import blender
 
-        if a.operation == "run":
-            # A project-owned script Blender executes headlessly inside a
-            # project-owned .blend; the receipts, not the exit code, are the
-            # reason this exists.
-            return blender.script_run(
-                config, root, source=a.source, script=a.script, label=a.label,
-                timeout=a.timeout, results=a.result, passthrough=list(a.passthrough),
-            )
         if a.operation == "export" and not a.output:
             raise StudioError("Blender export requires --output assets/name.glb relative to the project")
         out = path(a.output or "artifacts/blender")

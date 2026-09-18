@@ -21,7 +21,7 @@ The credential is read from the configured environment variable. A host that kee
 {"credentials": {"meshy": "MESHY_API_KEY"}, "credential_files": ["C:\\Studio Host\\keys\\meshy.env"]}
 ```
 
-Each listed file is `KEY=VALUE` lines, tolerating a leading `export `, surrounding quotes, blank lines and `#` comments. The environment wins when both are set, and a listed file that is missing is skipped. Never copy the key into a request, budget, task record or command argument.
+Each listed file is `KEY=VALUE` lines, tolerating a leading `export `, surrounding quotes, blank lines, `#` comments and a byte-order mark; a relative path in that list is read from beside the host config file, not from the current directory. The environment wins when both are set, and a listed file that is missing is skipped. Never copy the key into a request, budget, task record or command argument.
 
 For a game asset, always send `should_remesh: true` with an explicit `target_polycount`, and choose the topology the next step needs. An image-to-3d request without them returns the raw dense sculpt — millions of triangles — and the only ways out are a second paid remesh task or a decimation pass in Blender, which is the wrong place to discover it.
 
