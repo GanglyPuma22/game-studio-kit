@@ -48,6 +48,17 @@ def _is_recorder(name):
     return str(name).lower() in RECORDER_NAMES
 
 
+def _is_idle_process(entry):
+    """Windows reports aggregate idle time as a pseudo-process CPU counter.
+
+    That counter rises when processors are *not* doing work, so treating it as
+    background load inverts the meaning of the measurement.  Match the exact
+    OS pseudo-process name; ordinary programs with "idle" in their names stay
+    visible to the contamination classifier.
+    """
+    return str(entry.get("name", "")).casefold() == "system idle process"
+
+
 def _identity(entry):
     """A pid alone is not an identity: the OS reuses pids, and a reused one
     carries a different name or creation time."""
@@ -61,6 +72,21 @@ def _same_process(one, other):
         return False
     first, second = one.get("created"), other.get("created")
     return first is None or second is None or first == second
+
+
+def _windows_creation_token(filetime_ticks):
+    """Normalize a Windows FILETIME to the precision exposed by CIM.
+
+    GetProcessTimes returns 100 ns ticks while Win32_Process CreationDate is
+    microsecond-precise.  Keeping whole microseconds gives both readers the
+    same opaque process-creation token without a locale/time-zone conversion.
+    """
+    if filetime_ticks is None:
+        return None
+    try:
+        return str(int(filetime_ticks) // 10)
+    except (TypeError, ValueError):
+        return None
 
 
 def _utc():
@@ -133,17 +159,126 @@ def read_processes_posix(*, on_pid=None):
     return {"status": "ok", "processes": entries}
 
 
+def read_processes_windows_native(*, on_pid=None):
+    """Read the Windows process table directly through kernel APIs.
+
+    The previous Win32_Process/CIM query woke WmiPrvSE on every sampler tick,
+    then classified the service's resulting CPU time as unrelated host load.
+    Toolhelp plus per-process kernel counters supplies the same pid, parent,
+    creation, CPU and working-set facts without creating a PowerShell helper or
+    asking WMI to do work.  Processes the caller cannot open are still listed
+    with zero counters so parent-tree and pid-reuse reasoning remain honest.
+    """
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class ProcessEntry32(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                ("th32ProcessID", wintypes.DWORD), ("th32DefaultHeapID", ctypes.c_size_t),
+                ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", wintypes.LONG),
+                ("dwFlags", wintypes.DWORD), ("szExeFile", wintypes.WCHAR * 260),
+            ]
+
+        class FileTime(ctypes.Structure):
+            _fields_ = [("low", wintypes.DWORD), ("high", wintypes.DWORD)]
+
+        class ProcessMemoryCounters(ctypes.Structure):
+            _fields_ = [
+                ("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD),
+                ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
+                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t), ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t),
+            ]
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        psapi = ctypes.WinDLL("psapi", use_last_error=True)
+        kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+        kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessEntry32)]
+        kernel32.Process32FirstW.restype = wintypes.BOOL
+        kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessEntry32)]
+        kernel32.Process32NextW.restype = wintypes.BOOL
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(FileTime)] * 4
+        kernel32.GetProcessTimes.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessMemoryCounters), wintypes.DWORD]
+        psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+
+        snap = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)
+        if snap == wintypes.HANDLE(-1).value:
+            raise OSError(ctypes.get_last_error(), "CreateToolhelp32Snapshot failed")
+        entries = []
+        try:
+            row = ProcessEntry32()
+            row.dwSize = ctypes.sizeof(row)
+            ok = kernel32.Process32FirstW(snap, ctypes.byref(row))
+            while ok:
+                pid = int(row.th32ProcessID)
+                name = str(row.szExeFile)
+                if name.lower().endswith(".exe"):
+                    name = name[:-4]
+                cpu = 0.0
+                working_set = 0
+                created = None
+                # VM_READ can be denied for system/protected processes even
+                # when their CPU counters are readable.  Fall back to limited
+                # query access so genuine kernel/background CPU is not silently
+                # turned into zero merely because working-set access failed.
+                handle = kernel32.OpenProcess(0x1000 | 0x0010, False, pid)
+                if not handle:
+                    handle = kernel32.OpenProcess(0x1000, False, pid)
+                if handle:
+                    try:
+                        creation, exit_time, kernel, user = FileTime(), FileTime(), FileTime(), FileTime()
+                        if kernel32.GetProcessTimes(handle, ctypes.byref(creation), ctypes.byref(exit_time),
+                                                    ctypes.byref(kernel), ctypes.byref(user)):
+                            ticks = lambda value: (int(value.high) << 32) | int(value.low)
+                            created = _windows_creation_token(ticks(creation))
+                            cpu = (ticks(kernel) + ticks(user)) / 1e7
+                        memory = ProcessMemoryCounters()
+                        memory.cb = ctypes.sizeof(memory)
+                        if psapi.GetProcessMemoryInfo(handle, ctypes.byref(memory), memory.cb):
+                            working_set = int(memory.WorkingSetSize)
+                    finally:
+                        kernel32.CloseHandle(handle)
+                entries.append({
+                    "pid": pid, "ppid": int(row.th32ParentProcessID), "name": name,
+                    "cpu_seconds": round(cpu, 3), "working_set_bytes": working_set, "created": created,
+                })
+                ok = kernel32.Process32NextW(snap, ctypes.byref(row))
+        finally:
+            kernel32.CloseHandle(snap)
+    except (AttributeError, OSError, TypeError, ValueError) as exc:
+        return {"status": "unavailable", "reason": f"Windows process APIs failed: {exc}", "processes": []}
+    if not entries:
+        return {"status": "unavailable", "reason": "no processes were enumerated", "processes": []}
+    return {"status": "ok", "processes": entries}
+
+
 def read_processes_windows(*, on_pid=None):
-    """Win32_Process rather than Get-Process: it carries the parent pid the
-    owned-tree filter needs and a creation time that identifies a pid, which
-    `Get-Process` does not expose in the same single query."""
+    """Authoritative before/after Windows snapshot via Win32_Process.
+
+    CIM is retained for these two boundary reads because it can report CPU for
+    protected processes (notably System) that a non-elevated direct process
+    handle cannot open.  The repeated mid-window sampler uses the native reader
+    above, so its observation no longer drives WmiPrvSE every few seconds.
+    """
     shell = _powershell()
     if shell is None:
         return {"status": "unavailable", "reason": "PowerShell was not found", "processes": []}
     output = _query([
         shell, "-NoProfile", "-NonInteractive", "-Command",
         "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,WorkingSetSize,"
-        "KernelModeTime,UserModeTime,CreationDate | ConvertTo-Json -Compress",
+        "KernelModeTime,UserModeTime,@{Name='CreationFileTime';Expression={"
+        "if ($null -eq $_.CreationDate) {$null} else {$_.CreationDate.ToUniversalTime().ToFileTimeUtc()}}} | "
+        "ConvertTo-Json -Compress",
     ], on_pid=on_pid)
     if not output:
         return {"status": "unavailable", "reason": "the Win32_Process query returned nothing", "processes": []}
@@ -157,21 +292,15 @@ def read_processes_windows(*, on_pid=None):
     for row in rows:
         try:
             parent = row.get("ParentProcessId")
-            created = row.get("CreationDate")
-            # Win32 kernel/user times are 100-nanosecond units.
+            created = _windows_creation_token(row.get("CreationFileTime"))
             cpu = (float(row["KernelModeTime"] or 0) + float(row["UserModeTime"] or 0)) / 1e7
-            # `Name` is the image name; the trailing extension is dropped so it
-            # reads like the POSIX comm field the recorder names are matched on.
             name = str(row["Name"] or "")
             if name.lower().endswith(".exe"):
                 name = name[:-4]
             entries.append({
                 "pid": int(row["ProcessId"]), "ppid": None if parent is None else int(parent), "name": name,
-                "cpu_seconds": round(cpu, 3),
-                "working_set_bytes": int(row["WorkingSetSize"] or 0),
-                # Whatever ConvertTo-Json rendered the creation time as; it is
-                # only ever compared for equality, never parsed.
-                "created": None if created is None else str(created),
+                "cpu_seconds": round(cpu, 3), "working_set_bytes": int(row["WorkingSetSize"] or 0),
+                "created": created,
             })
         except (AttributeError, KeyError, TypeError, ValueError):
             continue
@@ -182,6 +311,11 @@ def read_processes_windows(*, on_pid=None):
 
 def read_processes(*, on_pid=None):
     return read_processes_windows(on_pid=on_pid) if os.name == "nt" else read_processes_posix(on_pid=on_pid)
+
+
+def read_processes_sampler(*, on_pid=None):
+    """Mid-window reader selected to avoid WMI observer load on Windows."""
+    return read_processes_windows_native(on_pid=on_pid) if os.name == "nt" else read_processes_posix(on_pid=on_pid)
 
 
 def _enumeration(reading):
@@ -295,6 +429,10 @@ def snapshot(*, process_reader=read_processes, gpu_reader=read_gpu, power_reader
     helpers = []
     status, reason, processes = _enumeration(process_reader(on_pid=helpers.append))
     recorder = [p for p in processes if _is_recorder(p["name"])]
+    helper_processes = [
+        {"pid": p["pid"], "name": p["name"], "created": p.get("created")}
+        for p in processes if p["pid"] in helpers
+    ]
     return {
         "at_utc": _utc(),
         "monotonic": time.monotonic(),
@@ -303,6 +441,7 @@ def snapshot(*, process_reader=read_processes, gpu_reader=read_gpu, power_reader
         "process_status": status,
         "process_reason": reason,
         "helper_pids": sorted(set(helpers)),
+        "helper_processes": helper_processes,
         "gpu": gpu_reader(),
         "power_scheme": power_reader(),
         "battery": battery_reader(),
@@ -327,7 +466,7 @@ class Sampler:
     newcomer; without a seed the first successful sample is the baseline.
     """
 
-    def __init__(self, *, interval=DEFAULT_SAMPLE_INTERVAL, reader=read_processes, clock=_utc,
+    def __init__(self, *, interval=DEFAULT_SAMPLE_INTERVAL, reader=read_processes_sampler, clock=_utc,
                  ignore_pids=(), owned_record=None, baseline=None):
         self.interval = float(interval)
         self._reader = reader
@@ -345,9 +484,11 @@ class Sampler:
         # identity is still present in the process table, so a pid the OS
         # later hands to a genuinely new process is never excluded forever.
         self._helper_identities = set()
+        self._helper_processes = {}
         self._baseline = None if baseline is None else set(baseline)
         self._recorders = {}
         self._newcomers = {}
+        self._identity_unknown = {}
         self._samples = 0
         self._failed = 0
         self._first = None
@@ -402,6 +543,18 @@ class Sampler:
         seen["cpu_seconds"] = max(seen["cpu_seconds"], entry["cpu_seconds"])
         seen["working_set_bytes"] = max(seen["working_set_bytes"], entry["working_set_bytes"])
 
+    def _baseline_state(self, entry):
+        """Return same, new, or unknown without guessing across missing ids."""
+        identity = _identity(entry)
+        if identity in self._baseline:
+            return "same" if identity[2] is not None else "unknown"
+        same_pid_name = [item for item in self._baseline if item[:2] == identity[:2]]
+        if not same_pid_name:
+            return "new"
+        if identity[2] is None or any(item[2] is None for item in same_pid_name):
+            return "unknown"
+        return "new"
+
     def sample(self):
         """Take one observation; callable directly so tests need no threads."""
         # Pids reported this call only: the helper's identity is resolved
@@ -431,6 +584,7 @@ class Sampler:
             for entry in processes:
                 if entry["pid"] in pending_helper_pids:
                     self._helper_identities.add(_identity(entry))
+                    self._observe(self._helper_processes, entry, at)
             # Drop any previously tracked helper identity no longer present:
             # once it is gone, its pid is free for the OS to reuse for a
             # genuinely new process, which must be seen as a newcomer.
@@ -443,7 +597,7 @@ class Sampler:
             for entry in processes:
                 pid = entry["pid"]
                 identity = _identity(entry)
-                if pid in self._ignore or identity in self._helper_identities:
+                if _is_idle_process(entry) or pid in self._ignore or identity in self._helper_identities:
                     continue
                 # A recorder is contamination wherever it came from, the owned
                 # capture's own tree included: a capture that starts ffmpeg is
@@ -452,8 +606,11 @@ class Sampler:
                     self._observe(self._recorders, entry, at)
                 if pid in owned:
                     continue
-                if identity not in self._baseline:
+                baseline_state = self._baseline_state(entry)
+                if baseline_state == "new":
                     self._observe(self._newcomers, entry, at)
+                elif baseline_state == "unknown":
+                    self._observe(self._identity_unknown, entry, at)
 
     def _safe_sample(self):
         try:
@@ -498,6 +655,7 @@ class Sampler:
                     "command": getattr(self._reader, "__name__", "process enumeration"),
                     "interval_seconds": self.interval,
                     "helper_pids": sorted(self._helpers),
+                    "helper_processes": sorted(self._helper_processes.values(), key=lambda e: (e["name"], e["pid"])),
                     "owned_pids": sorted(self._owned),
                     "baseline": "before-snapshot" if self._seeded else "first-sample",
                 },
@@ -507,6 +665,7 @@ class Sampler:
                 "last_sample_utc": self._last,
                 "recorders": sorted(self._recorders.values(), key=lambda e: (e["name"], e["pid"])),
                 "newcomers": sorted(self._newcomers.values(), key=lambda e: (e["name"], e["pid"])),
+                "identity_unknown": sorted(self._identity_unknown.values(), key=lambda e: (e["name"], e["pid"])),
             }
 
 
@@ -564,8 +723,8 @@ def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes,
     # The enumeration helper each snapshot spawned lists itself; it is this
     # toolkit's own child, not a program that appeared inside the window.
     ignore |= set(before.get("helper_pids") or ()) | set(after.get("helper_pids") or ())
-    prior = {p["pid"]: p for p in before.get("processes", []) if p["pid"] not in ignore}
-    later = {p["pid"]: p for p in after.get("processes", []) if p["pid"] not in ignore}
+    prior = {p["pid"]: p for p in before.get("processes", []) if p["pid"] not in ignore and not _is_idle_process(p)}
+    later = {p["pid"]: p for p in after.get("processes", []) if p["pid"] not in ignore and not _is_idle_process(p)}
     enumeration = {"before": before.get("process_status", "ok"), "after": after.get("process_status", "ok")}
     enumerated = enumeration["before"] == "ok" and enumeration["after"] == "ok"
 
@@ -615,7 +774,7 @@ def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes,
 
         transient = [
             dict(entry, present_after=present_after(entry))
-            for entry in during.get("newcomers") or () if heavy(entry)
+            for entry in during.get("newcomers") or () if heavy(entry) and not _is_idle_process(entry)
         ]
         observed = {
             "sampler": during.get("sampler"),
@@ -625,6 +784,7 @@ def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes,
             "last_sample_utc": during.get("last_sample_utc"),
             "recorders": recorders,
             "heavy_newcomers": transient,
+            "identity_unknown": [dict(entry) for entry in during.get("identity_unknown") or ()],
         }
         if recorders:
             reasons.append("a recorder process ran inside the window")
@@ -632,6 +792,8 @@ def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes,
             reasons.append("heavy processes ran and exited inside the window")
         if observed["samples"] < 2:
             limits.append("the window was not sampled between the two snapshots")
+        if observed["identity_unknown"]:
+            limits.append("some sampled process identities lacked a creation time; pid reuse could not be resolved")
     agent = None
     if agent_log is not None:
         started = datetime.fromisoformat(window["started_utc"])
@@ -682,6 +844,13 @@ def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes,
             "new_heavy": [{"pid": p["pid"], "name": p["name"], "cpu_seconds": p["cpu_seconds"], "working_set_bytes": p["working_set_bytes"]} for p in new_heavy],
             "exited_heavy": [{"pid": p["pid"], "name": p["name"], "cpu_seconds": p["cpu_seconds"], "working_set_bytes": p["working_set_bytes"]} for p in exited_heavy],
             "busy": sorted(busy, key=lambda b: -b["cpu_delta_seconds"]),
+            "observer_helpers": [
+                dict(entry) for entry in (
+                    list(before.get("helper_processes") or ())
+                    + list(after.get("helper_processes") or ())
+                    + list((during or {}).get("sampler", {}).get("helper_processes") or ())
+                )
+            ],
             "agent_log": agent,
         },
         "thresholds": {"busy_cpu_seconds": busy_cpu_seconds, "heavy_working_set_bytes": heavy_working_set_bytes},
