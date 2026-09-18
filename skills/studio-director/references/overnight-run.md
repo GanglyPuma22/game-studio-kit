@@ -178,9 +178,10 @@ their receipts. A pass at a lower rung is never cited for a higher one.
 
 ## 3. Workers
 
-Spawn a worker only for text work: proof mathematics, test triage, matrices,
-inventories, hashing, patch review. Never give a worker desktop, GPU or provider
-access. The root (or a script the root runs) owns stage 2 builds through kit
+The root keeps only desktop and visual work; everything text-only leaves it.
+Spawn a worker (or run a script) for text work: proof mathematics, test triage,
+matrices, inventories, hashing, patch review. Never give a worker desktop, GPU
+or provider access. The root (or a script the root runs) owns stage 2 builds through kit
 commands and writes the build outputs; a worker only analyzes those outputs
 and reports on them. Use [worker-brief](../../../templates/worker-brief.md):
 one deliverable file with a JSON schema, its inputs by path and hash, and one

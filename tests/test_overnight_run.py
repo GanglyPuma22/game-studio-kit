@@ -40,6 +40,13 @@ class OvernightRunTests(unittest.TestCase):
         self.assertIn("90 minutes, 8M tokens, two compactions", procedure)
         self.assertIn("references/overnight-run.md", block)
         self.assertNotIn("compaction", block)
+        # The root-role boundary survives the shorter block, and no template
+        # a run is generated from still asks for the removed third-compaction handback.
+        for text in (block, procedure):
+            self.assertIn("text-only", text)
+            self.assertIn("goes to a worker or a script", text) if text is block else self.assertIn("leaves it", text)
+        for path in TEMPLATES:
+            self.assertNotIn("third", path.read_text(encoding="utf-8"))
         for text in (block, procedure):
             self.assertIn("never cited for a higher one", text)
             self.assertIn("Never claim acceptance from exit codes", text)
