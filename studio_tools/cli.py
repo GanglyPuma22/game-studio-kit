@@ -190,8 +190,11 @@ def parser():
     c.add_argument("--budget")
     c.add_argument("--provenance")
     c.add_argument("--record", default="artifacts/audio-task.json")
-    c = command("meshy", True)
-    c.add_argument("operation", choices=["submit", "observe", "reconcile", "archive"])
+    # `balance` is read-only: it writes nothing, so it needs neither a project
+    # nor a task record, and both are checked in dispatch for the rest.
+    c = command("meshy")
+    c.add_argument("--project", help="Explicit game/output root outside the toolkit; every operation but balance")
+    c.add_argument("operation", choices=["submit", "observe", "reconcile", "archive", "balance"])
     c.add_argument(
         "--profile",
         choices=["image", "preview", "refine", "remesh", "retexture", "rig", "animate"],
@@ -199,7 +202,7 @@ def parser():
     c.add_argument("--request")
     c.add_argument("--budget")
     c.add_argument("--eligibility")
-    c.add_argument("--record", required=True)
+    c.add_argument("--record", help="Durable task record; every operation but balance")
     c.add_argument("--task-id")
     c.add_argument("--output", default="source/provider-assets")
     c.add_argument("--attempts", type=int, default=1)
@@ -359,6 +362,13 @@ def dispatch(a):
             busy_floor_seconds=a.busy_floor_seconds, heavy_working_set_mb=a.heavy_working_set_mb,
             sample_interval=a.sample_interval,
         )
+    if a.command == "meshy" and a.operation == "balance":
+        from .adapters import meshy
+
+        # Read-only and receiptless: answered before any project root is made.
+        return meshy.balance(config)
+    if a.command == "meshy" and not a.project:
+        raise StudioError("meshy " + a.operation + " needs --project")
     # Read-only validation does not create the project directory.
     root = (
         Path(a.project).resolve()
@@ -482,6 +492,8 @@ def dispatch(a):
     if a.command == "meshy":
         from .adapters import meshy
 
+        if not a.record:
+            raise StudioError("meshy " + a.operation + " needs --record")
         record = path(a.record)
         if a.operation == "submit":
             if not all([a.profile, a.request, a.budget]):

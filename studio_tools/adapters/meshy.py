@@ -11,6 +11,7 @@ from .http import Transport, ProviderError
 from .requests import claim, budget_check, redact
 
 BASE = "https://api.meshy.ai"
+BALANCE = "/openapi/v1/balance"
 ENDPOINTS = {
     "image": "/openapi/v1/image-to-3d",
     "preview": "/openapi/v2/text-to-3d",
@@ -341,3 +342,55 @@ def archive(record_path, directory, transport=None):
     record["archive_complete"] = True
     write_json(record_path, record)
     return record
+
+
+def _balance_value(response):
+    """The account balance as a number, or None when the shape is not the one we read.
+
+    Only the number is ever returned: the rest of a balance response can carry
+    account metadata that has no reason to reach a terminal or a log.
+    """
+
+    def number(value):
+        return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+    if not isinstance(response, dict):
+        return None
+    for candidate in (response.get("balance"), response.get("result")):
+        if isinstance(candidate, dict):
+            candidate = candidate.get("balance")
+        found = number(candidate)
+        if found is not None:
+            return found
+    return None
+
+
+def balance(config, transport=None):
+    """Read the account balance. No paid call, no task record, no receipt file.
+
+    Checking what is left before asking a human to approve spend was the missing
+    primitive that made agents write their own balance script. Every failure is
+    an error *type*: a provider diagnostic string can quote the request, and this
+    command exists precisely to be run with a credential in hand.
+    """
+    def refused(error_type):
+        return {"error_type": error_type, "read_only": True, "ok": False}
+
+    try:
+        key = credential(config, "meshy")
+    except StudioError:
+        return refused("credential_missing")
+    try:
+        response = (transport or Transport()).request(
+            "GET", BASE + BALANCE, {"Authorization": "Bearer " + key}
+        )
+    except ProviderError as exc:
+        return refused(
+            f"provider_http_{exc.status}" if isinstance(exc.status, int) else "provider_unavailable"
+        )
+    except Exception:
+        return refused("provider_unavailable")
+    value = _balance_value(response)
+    if value is None:
+        return refused("unexpected_response")
+    return {"balance": value, "read_only": True}
