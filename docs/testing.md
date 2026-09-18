@@ -97,6 +97,24 @@ the first run's receipt untouched, a declared result inside the run's own
 directory refused before launch, and every input check running before anything
 starts. Every flag is exercised through `cli.main`. No Blender is involved.
 
+`test_mesh_topology.py` covers the topology audit and `blender reduce`. The
+audit arithmetic is exercised directly on hand-built triangle lists with no
+Blender and no numpy: a closed consistently wound tetrahedron reporting nothing,
+one open triangle reporting three boundary edges, an edge shared by three faces
+reporting one nonmanifold edge, two faces traversing a shared edge the same way
+reporting one inconsistently wound edge, and a duplicated texture-seam vertex
+welded by position rather than counted as a hole. When numpy is installed the
+vectorized path is checked against the plain-Python one and otherwise skipped,
+so the numpy path is unverified on a host without it. `reduce` is covered with
+the same shim standing in for `blender.exe`: the launch line reaching the
+packaged `reduce.py` after Blender's own `--`, a receipt holding both audits and
+the source hash, `ok` refused when the *source* audit was dirty, when the
+reduction introduced a defect, when nothing was saved and when the build could
+not measure topology at all, an existing `--output` and an out-of-range
+`--target-triangles` refused before launch, a repeated label refused with the
+earlier receipt intact, and no argv value reaching any receipt. Every flag runs
+through `cli.main`. No Blender and no mesh are involved.
+
 `test_credential_files.py` covers the optional `credential_files` host
 declaration: the environment still winning over a declared file, a file
 answering when the environment is unset, `export`/quote/comment/blank-line
@@ -123,6 +141,7 @@ is constructed.
 
 ```text
 python -m unittest discover -s tests -p test_blender_run.py -v
+python -m unittest discover -s tests -p test_mesh_topology.py -v
 python -m unittest discover -s tests -p test_credential_files.py -v
 python -m unittest discover -s tests -p test_meshy_balance.py -v
 python -m unittest discover -s tests -p test_meshy_image_profile.py -v
