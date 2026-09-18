@@ -12,7 +12,9 @@ import contextlib
 import hashlib
 import io
 import json
+import math
 import os
+import random
 from pathlib import Path
 import re
 import sys
@@ -35,6 +37,29 @@ DIRECTOR = ROOT / "skills/studio-director/SKILL.md"
 # faces that traverse it in opposite directions.
 TETRAHEDRON = ([(0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 1)],
                [(0, 2, 1), (0, 1, 3), (0, 3, 2), (1, 2, 3)])
+
+
+def torus(rings, segments):
+    """A closed, manifold, consistently wound surface with no special cases."""
+    vertices = []
+    for ring in range(rings):
+        around = 2 * math.pi * ring / rings
+        for segment in range(segments):
+            through = 2 * math.pi * segment / segments
+            radius = 3.0 + math.cos(through)
+            vertices.append((radius * math.cos(around), radius * math.sin(around),
+                             math.sin(through)))
+    triangles = []
+    for ring in range(rings):
+        for segment in range(segments):
+            here = ring * segments + segment
+            right = ring * segments + (segment + 1) % segments
+            down = ((ring + 1) % rings) * segments + segment
+            across = ((ring + 1) % rings) * segments + (segment + 1) % segments
+            triangles.append((here, down, across))
+            triangles.append((here, across, right))
+    return vertices, triangles
+
 
 SHIM = '''"""Stand-in for blender.exe: check the launch line, write the canned reduction."""
 import json
@@ -161,20 +186,75 @@ class TopologyArithmeticTests(unittest.TestCase):
         self.assertIn("numpy", topology.UNAVAILABLE["reason"])
         self.assertFalse(topology.clean(topology.UNAVAILABLE))
 
+    def test_a_flat_solid_is_all_degenerate_faces_and_is_not_clean(self):
+        # The same face list as the tetrahedron, with every point on one line:
+        # closed, manifold, consistently wound and useless.
+        flat = ([(0, 0, 0), (1, 0, 0), (2, 0, 0), (3, 0, 0)], TETRAHEDRON[1])
+        record = topology.audit_triangles(*flat, numpy=False)
+        self.assertEqual(record["degenerate_faces"], 4)
+        self.assertEqual(record["boundary_edges"], 0)
+        self.assertEqual(record["nonmanifold_edges"], 0)
+        self.assertFalse(topology.clean(record))
+        self.assertIn("degenerate_faces", topology.DEFECTS)
+
+    def test_a_solid_with_area_has_no_degenerate_face(self):
+        self.assertEqual(
+            topology.audit_triangles(*TETRAHEDRON, numpy=False)["degenerate_faces"], 0
+        )
+        # The tolerance is relative, so a tetrahedron a thousand times smaller
+        # is not suddenly flat.
+        small = ([tuple(v / 1000 for v in point) for point in TETRAHEDRON[0]],
+                 TETRAHEDRON[1])
+        self.assertEqual(
+            topology.audit_triangles(*small, numpy=False)["degenerate_faces"], 0
+        )
+
+    def test_a_closed_torus_reports_no_defect_at_all(self):
+        vertices, triangles = torus(24, 16)
+        record = topology.audit_triangles(vertices, triangles, 1)
+        self.assertEqual(record["triangles"], 2 * 24 * 16)
+        self.assertTrue(topology.clean(record), record)
+
     @unittest.skipIf(topology.numpy_module() is None, "numpy is not installed here")
-    def test_the_numpy_path_agrees_with_the_plain_python_path(self):
+    def test_the_array_path_agrees_with_the_readable_one(self):
         vertices = [(0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 1), (0, -1, 0)]
-        for triangles in (TETRAHEDRON[1], [(0, 1, 2)], [(0, 1, 2), (0, 1, 3), (0, 1, 4)],
-                          [(0, 1, 2), (0, 1, 3)]):
-            with self.subTest(triangles=triangles):
-                source = TETRAHEDRON[0] if triangles is TETRAHEDRON[1] else vertices
+        bowtie = (TETRAHEDRON[0] + [(0, 0, 0), (-1, 0, 0), (0, -1, 0), (0, 0, -1)],
+                  list(TETRAHEDRON[1]) + [(4 + a, 4 + b, 4 + c) for a, b, c in TETRAHEDRON[1]])
+        for name, mesh in (
+            ("tetrahedron", TETRAHEDRON),
+            ("open triangle", (vertices, [(0, 1, 2)])),
+            ("edge shared by three", (vertices, [(0, 1, 2), (0, 1, 3), (0, 1, 4)])),
+            ("opposed winding", (vertices, [(0, 1, 2), (0, 1, 3)])),
+            ("bowtie", bowtie),
+            ("flat", ([(0, 0, 0), (1, 0, 0), (2, 0, 0), (3, 0, 0)], TETRAHEDRON[1])),
+            ("torus", torus(20, 12)),
+            ("empty", ([], [])),
+        ):
+            with self.subTest(mesh=name):
                 self.assertEqual(
-                    topology.audit_triangles(source, triangles, 1, numpy=False),
-                    topology.audit_triangles(source, triangles, 1),
+                    topology.audit_triangles(mesh[0], mesh[1], 1, numpy=False),
+                    topology.audit_triangles(mesh[0], mesh[1], 1),
+                )
+
+    @unittest.skipIf(topology.numpy_module() is None, "numpy is not installed here")
+    def test_the_two_paths_agree_on_meshes_nobody_designed(self):
+        # Random index soup: duplicate positions, degenerate faces, edges shared
+        # by four faces, isolated corners. The array path has to match anyway.
+        rng = random.Random(20260918)
+        for trial in range(60):
+            size = rng.randint(3, 12)
+            vertices = [tuple(float(rng.randint(0, 3)) for _ in range(3))
+                        for _ in range(size)]
+            triangles = [tuple(rng.randrange(size) for _ in range(3))
+                         for _ in range(rng.randint(1, 18))]
+            with self.subTest(trial=trial):
+                self.assertEqual(
+                    topology.audit_triangles(vertices, triangles, numpy=False),
+                    topology.audit_triangles(vertices, triangles),
                 )
 
 
-CLEAN = (0, 0, 0, 0)
+CLEAN = (0, 0, 0, 0, 0)
 
 
 def report(before=CLEAN, after=CLEAN, status="measured", saved=True,
@@ -190,7 +270,7 @@ def report(before=CLEAN, after=CLEAN, status="measured", saved=True,
     ratio = after_triangles / before_triangles if before_triangles else None
     return {
         "schema_version": 1, "blender_version": "4.5.1", "status": status,
-        "target_triangles": 300000, "weld_distance": 1e-07,
+        "target_triangles": 300000, "weld_distance": 1e-07, "scenes": 2,
         "objects": [{
             "index": 0,
             "name_sha256": hashlib.sha256(b"Tree").hexdigest(),
@@ -219,6 +299,13 @@ class ReduceCase(unittest.TestCase):
         self.canned(report())
         self.host_config = Path(self.tmp.name) / "host.json"
         write_json(self.host_config, {"executables": {"blender": sys.executable}})
+        # A stand-in binary whose bytes this test can change under the command.
+        self.blender = Path(self.tmp.name) / "blender-stand-in"
+        self.blender.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        self.blender.chmod(0o755)
+        self.mutable_config = Path(self.tmp.name) / "mutable.json"
+        write_json(self.mutable_config, {"executables": {"blender": str(self.blender)}})
+        self.mutate_executable = False
         self.last_args = None
         self.last_kwargs = None
 
@@ -229,7 +316,12 @@ class ReduceCase(unittest.TestCase):
     def fake_blender(self, args, **kwargs):
         self.last_args = list(args)
         self.last_kwargs = kwargs
-        return processes.run([sys.executable, str(self.shim), *list(args)[1:]], **kwargs)
+        try:
+            return processes.run([sys.executable, str(self.shim), *list(args)[1:]], **kwargs)
+        finally:
+            if self.mutate_executable:
+                with self.blender.open("a", encoding="utf-8") as handle:
+                    handle.write("# replaced while it ran\n")
 
     def raw_cli(self, *argv):
         with patch.dict(os.environ, {"STUDIO_FAKE_REDUCE": str(self.plan)}):
@@ -276,6 +368,8 @@ class ReduceTests(ReduceCase):
         for name in ("boundary_edges", "nonmanifold_edges", "inconsistent_winding_edges"):
             self.assertEqual(receipt["after"][name], 0)
         self.assertEqual(receipt["weld_distance"], 1e-07)
+        # What the file held, not only what one scene linked.
+        self.assertEqual(receipt["scenes"], 2)
         self.assertAlmostEqual(receipt["ratio"], 300000 / 4853274)
         # The object is identified by index and name digest, never by name.
         self.assertEqual(receipt["objects"][0]["index"], 0)
@@ -310,7 +404,7 @@ class ReduceTests(ReduceCase):
 
     def test_a_defective_source_cannot_be_qualified_by_reducing_it(self):
         # The measured provider remesh: 125k triangles, 91 boundary, 87 nonmanifold.
-        self.canned(report(before=(91, 87, 0, 0), before_triangles=125485))
+        self.canned(report(before=(91, 87, 0, 0, 0), before_triangles=125485))
         code, out, _ = self.default("--label", "provider")
         self.assertEqual(code, 1)
         verdict = json.loads(out)
@@ -322,7 +416,7 @@ class ReduceTests(ReduceCase):
         self.assertFalse(read_json(self.reduce_dir("provider") / "reduce.json")["ok"])
 
     def test_a_reduction_that_introduces_a_defect_is_not_ok(self):
-        self.canned(report(after=(0, 12, 0, 0)))
+        self.canned(report(after=(0, 12, 0, 0, 0)))
         code, out, _ = self.default("--label", "torn")
         self.assertEqual(code, 1)
         verdict = json.loads(out)
@@ -342,7 +436,7 @@ class ReduceTests(ReduceCase):
     def test_a_nonmanifold_vertex_in_the_result_is_not_ok(self):
         # Zero boundary, zero nonmanifold and zero inconsistent edges: only the
         # vertex test sees this one.
-        self.canned(report(after=(0, 0, 0, 3)))
+        self.canned(report(after=(0, 0, 0, 3, 0)))
         code, out, _ = self.default("--label", "bowtie")
         self.assertEqual(code, 1)
         self.assertIn("nonmanifold vertex", json.loads(out)["reason"])
@@ -403,6 +497,109 @@ class ReduceTests(ReduceCase):
         receipt = read_json(self.reduce_dir("gone") / "reduce.json")
         self.assertEqual(receipt["source"]["sha256"], before)
         self.assertEqual(receipt["source_after"], {"present": False, "sha256": None})
+
+    def test_two_reductions_cannot_both_claim_one_output(self):
+        first, _, _ = self.default("--label", "first")
+        self.assertEqual(first, 0)
+        # A second label, the same destination: the claim is already taken.
+        with patch("studio_tools.adapters.blender.run") as runner:
+            code, out, err = self.default("--label", "second")
+            runner.assert_not_called()
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("already exists", json.loads(err)["error"])
+        # The first reduction's receipt describes the bytes that are there.
+        receipt = read_json(self.reduce_dir("first") / "reduce.json")
+        saved = self.root / "source/original-300k.blend"
+        self.assertEqual(receipt["output"]["sha256"], sha256(saved))
+        self.assertTrue(receipt["output"]["reserved_before_launch"])
+        self.assertEqual(saved.read_text(encoding="utf-8"), "reduced blend")
+        self.assertFalse(self.reduce_dir("second").exists())
+
+    def test_the_destination_is_claimed_before_blender_is_launched(self):
+        claimed = []
+        def watch(args, **kwargs):
+            claimed.append((self.root / "source/original-300k.blend").exists())
+            return self.fake_blender(args, **kwargs)
+        with patch.dict(os.environ, {"STUDIO_FAKE_REDUCE": str(self.plan)}):
+            with patch("studio_tools.adapters.blender.run", side_effect=watch):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    cli.main(["blender", "reduce", "--project", str(self.root),
+                              "--config", str(self.host_config),
+                              "--source", "source/original.blend",
+                              "--target-triangles", "300000",
+                              "--output", "source/original-300k.blend", "--label", "claim"])
+        self.assertEqual(claimed, [True])
+
+    def test_an_interrupt_still_writes_the_receipt_and_then_goes_on(self):
+        with patch.dict(os.environ, {"STUDIO_FAKE_REDUCE": str(self.plan)}):
+            with patch("studio_tools.adapters.blender.run", side_effect=KeyboardInterrupt):
+                with contextlib.redirect_stdout(io.StringIO()) as out:
+                    with self.assertRaises(KeyboardInterrupt):
+                        cli.main([
+                            "blender", "reduce", "--project", str(self.root),
+                            "--config", str(self.host_config),
+                            "--source", "source/original.blend",
+                            "--target-triangles", "300000",
+                            "--output", "source/stopped.blend", "--label", "stopped",
+                        ])
+        self.assertEqual(out.getvalue(), "")
+        receipt = read_json(self.reduce_dir("stopped") / "reduce.json")
+        self.assertEqual(receipt["status"], "interrupted")
+        self.assertFalse(receipt["ok"])
+        self.assertIn("interrupted", receipt["reason"])
+        self.assertIn("interrupted", receipt["failure"])
+        # The claim is released, so the same output can be reduced again.
+        self.assertFalse((self.root / "source/stopped.blend").exists())
+
+    def test_a_blender_that_changed_before_launch_never_starts(self):
+        real = blender._readable_digest
+        seen = []
+
+        def digest(path):
+            if Path(path) == self.blender.resolve():
+                seen.append(path)
+                return "identity-before" if len(seen) == 1 else "identity-after"
+            return real(path)
+
+        with patch("studio_tools.adapters.blender._readable_digest", side_effect=digest):
+            with patch("studio_tools.adapters.blender.run") as runner:
+                code, out, err = self.raw_cli(
+                    "blender", "reduce", "--project", str(self.root),
+                    "--config", str(self.mutable_config),
+                    "--source", "source/original.blend", "--target-triangles", "300000",
+                    "--output", "source/refused.blend", "--label", "refused",
+                )
+                runner.assert_not_called()
+        self.assertEqual(err, "")
+        self.assertEqual(code, 1)
+        verdict = json.loads(out)
+        self.assertFalse(verdict["ok"])
+        self.assertEqual(verdict["status"], "refused")
+        self.assertIn("changed before the reduction", verdict["failure"])
+        self.assertIn("changed before the reduction", verdict["reason"])
+        self.assertTrue((self.reduce_dir("refused") / "reduce.json").is_file())
+        self.assertFalse((self.root / "source/refused.blend").exists())
+
+    def test_a_blender_replaced_while_it_ran_is_not_ok(self):
+        self.mutate_executable = True
+        before = sha256(self.blender)
+        code, out, err = self.raw_cli(
+            "blender", "reduce", "--project", str(self.root),
+            "--config", str(self.mutable_config),
+            "--source", "source/original.blend", "--target-triangles", "300000",
+            "--output", "source/swapped.blend", "--label", "swapped",
+        )
+        self.assertEqual(err, "")
+        self.assertEqual(code, 1)
+        verdict = json.loads(out)
+        self.assertFalse(verdict["ok"])
+        self.assertEqual(verdict["status"], "completed")
+        self.assertIn("changed while it ran", verdict["reason"])
+        self.assertEqual(verdict["blender"]["sha256"], before)
+        self.assertEqual(verdict["blender"]["sha256_after_exit"], sha256(self.blender))
+        self.assertNotEqual(verdict["blender"]["sha256"],
+                            verdict["blender"]["sha256_after_exit"])
 
     def test_a_blender_that_is_not_configured_leaves_no_reduce_directory(self):
         config = Path(self.tmp.name) / "no-blender.json"
@@ -638,6 +835,11 @@ class ReduceGuidanceTests(unittest.TestCase):
         self.assertIn("applied = apply_existing_stack(obj)", source)
         self.assertLess(source.index("apply_existing_stack(obj)"),
                         source.index("before = measure(obj, numpy)"))
+        # Every mesh in the file, not only the ones the active scene links, and
+        # the scene count recorded so a reader can see what the file held.
+        self.assertIn("for o in bpy.data.objects if o.type ==", source)
+        self.assertNotIn("bpy.context.scene.objects if o.type ==", source)
+        self.assertIn('"scenes": len(bpy.data.scenes)', source)
 
     def test_the_packaged_scripts_ship_with_the_kit(self):
         resources = read_json(ROOT / "studio-kit.json")["resources"]

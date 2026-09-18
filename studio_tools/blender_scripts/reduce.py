@@ -15,6 +15,11 @@ what is measured is what is written. The applied names are recorded.
 Objects are identified in the audit by index and by a digest of their name,
 never by the name itself: `--object` is a value the caller passed in, and a
 receipt is not the place to echo one back.
+
+Every mesh in `bpy.data` is reduced, not only the ones the active scene happens
+to link. A .blend with a second scene, or with a mesh linked to no scene at
+all, would otherwise be saved with objects that were audited by nobody; the
+scene count is recorded so a reader can see what the file held.
 """
 
 import bpy
@@ -103,12 +108,18 @@ if source.suffix.lower() == ".blend":
 else:
     bpy.ops.import_scene.gltf(filepath=str(source))
 meshes = sorted(
-    (o for o in bpy.context.scene.objects if o.type == "MESH"), key=lambda o: o.name
+    (o for o in bpy.data.objects if o.type == "MESH"), key=lambda o: o.name
 )
 if selected:
     meshes = [o for o in meshes if o.name == selected]
 if not meshes:
     raise RuntimeError("No mesh object to reduce; check --source and --object")
+# An object no scene links has no view layer, so it can be neither unhidden nor
+# handed to modifier_apply. Linking it here is what lets it be measured at all.
+scene_collection = bpy.context.scene.collection
+for obj in meshes:
+    if obj.name not in bpy.context.scene.objects:
+        scene_collection.objects.link(obj)
 
 numpy = topology.numpy_module()
 report = {
@@ -117,6 +128,7 @@ report = {
     "status": "measured" if numpy is not None else topology.UNAVAILABLE["status"],
     "target_triangles": target,
     "weld_distance": WELD_DISTANCE,
+    "scenes": len(bpy.data.scenes),
     "objects": [],
     "saved": False,
 }
