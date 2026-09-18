@@ -91,6 +91,7 @@
     "studio_tools/blender_scripts/export.py",
     "studio_tools/blender_scripts/fixture.py",
     "studio_tools/blender_scripts/inspect.py",
+    "studio_tools/blender_scripts/reduce.py",
     "studio_tools/blender_scripts/render.py",
     "studio_tools/blender_scripts/topology.py",
     "studio_tools/blender_mcp.py",

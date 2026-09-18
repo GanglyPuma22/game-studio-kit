@@ -16,6 +16,7 @@ from ..common import (
     sha256,
     write_json,
 )
+from ..blender_scripts.topology import clean as topology_clean
 from ..config import require_executable, app_path
 from ..processes import run, stop_survivors
 
@@ -28,6 +29,17 @@ RUN_LIMITS = (
     "looks right; stdout and stderr are combined in one log the script may fill with "
     "private data; descendants are enumerated by process group (POSIX) or parent walk "
     "(Windows), so a process that re-parented out of both is not seen"
+)
+REDUCE_TIMEOUT = 1800
+REDUCE_MIN_TRIANGLES = 100
+REDUCE_MAX_TRIANGLES = 5_000_000
+REDUCE_LIMITS = (
+    "a clean topology audit is not visual acceptance: this records that the saved mesh "
+    "reaches the requested triangle budget with no boundary, nonmanifold or "
+    "inconsistently wound edges, never that the silhouette, UVs, underside detail or "
+    "material response still read correctly; nothing here fills a hole or closes an "
+    "opening, so an intentional walk-through gap stays open and is counted as boundary "
+    "edges, and collision remains a separate simplified surface, never this mesh"
 )
 
 
@@ -415,4 +427,148 @@ def script_run(
         "run_record": str(run_dir / "run.json"),
         "process_record": str(record_path) if record_path.is_file() else None,
         "log": str(log_path) if log_path.is_file() else None,
+    }
+
+
+def reduce_mesh(
+    config, project, *, source, target_triangles, output, object_name=None, label=None
+):
+    """Reduce a mesh locally from an intact original, and qualify the result.
+
+    Measured on one hero tree and one creature: a provider remesh to 120k
+    triangles returned 91 boundary and 87 nonmanifold edges, and an image-to-3d
+    request for 30k triangles returned 83 boundary and 90 nonmanifold edges,
+    while a local weld-and-decimate of the same intact 4.85M-triangle original
+    down to 300k returned none of the three defects and better underside detail,
+    for no credits. So this exists to make the local path the cheap one to take.
+
+    It reduces and audits; it never repairs. `ok` is true only when the source
+    was already clean and the saved mesh still is: a reduction that starts from
+    a defective mesh cannot qualify it, and one that introduces a defect has
+    failed even if it hit the triangle budget.
+    """
+    root = Path(project).resolve()
+    if not root.is_dir():
+        raise StudioError("Blender reduce needs an existing game project directory")
+    original = relative(root, source)
+    if not original.is_file() or original.suffix.lower() not in {".blend", ".glb"}:
+        raise StudioError(
+            "Blender reduce needs an existing .blend or .glb --source relative to the project"
+        )
+    if type(target_triangles) is not int or not (
+        REDUCE_MIN_TRIANGLES <= target_triangles <= REDUCE_MAX_TRIANGLES
+    ):
+        raise StudioError(
+            f"Blender reduce --target-triangles must be "
+            f"{REDUCE_MIN_TRIANGLES}–{REDUCE_MAX_TRIANGLES}"
+        )
+    destination = outside_package(relative(root, output))
+    if destination.suffix.lower() != ".blend":
+        raise StudioError("Blender reduce --output must be a .blend this command writes")
+    if destination.exists():
+        # The intact original is the asset; overwriting a .blend to save a
+        # reduction is how the thing worth keeping gets lost.
+        raise StudioError("Blender reduce --output already exists; choose a new file")
+    if object_name is not None and (not isinstance(object_name, str) or not object_name):
+        raise StudioError("Blender reduce --object must name one mesh object")
+    label = safe_id(label) if label else uuid.uuid4().hex
+    reduce_dir = outside_package(relative(root, f"artifacts/blender/reduce/{label}"))
+    try:
+        reduce_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        raise StudioError("Blender reduce directory exists; choose a new label") from None
+    audit_path = reduce_dir / "audit.json"
+    executable = Path(require_executable(config, "blender"))
+    source_digest = _readable_digest(original)
+    started = datetime.now(timezone.utc)
+    failure = None
+    try:
+        run(
+            command(
+                config,
+                "reduce.py",
+                [
+                    app_path(config, original, "blender"),
+                    str(target_triangles),
+                    app_path(config, destination, "blender"),
+                    app_path(config, audit_path, "blender"),
+                    object_name or "",
+                ],
+            ),
+            cwd=str(root),
+            timeout=float(max(config["timeout"], REDUCE_TIMEOUT)),
+            hide_window=True,
+            job_dir=reduce_dir / "process",
+        )
+    except StudioError as exc:
+        # A failed or timed-out reduction is this command's answer, not a crash:
+        # the receipt explaining it is more useful than the exception.
+        failure = str(exc)
+    record_path = reduce_dir / "process" / "process.json"
+    record = read_json(record_path) if record_path.is_file() else {"status": "start_failed"}
+    status = record.get("status", "start_failed")
+    audit = None
+    if audit_path.is_file():
+        try:
+            audit = read_json(audit_path)
+        except StudioError:
+            audit = None
+    saved = destination.is_file()
+    before = (audit or {}).get("before")
+    after = (audit or {}).get("after")
+    if status != "completed" or record.get("returncode") != 0:
+        reason = "Blender did not complete the reduction; read the log"
+    elif _readable_digest(original) != source_digest:
+        reason = "source changed during reduction; reduce from an untouched archived original"
+    elif audit is None:
+        reason = "no topology audit was written; the reduction did not run to completion"
+    elif audit.get("status") != "measured":
+        reason = audit.get("reason") or "topology could not be measured"
+    elif not topology_clean(before):
+        reason = "source topology not clean; reduction cannot qualify it"
+    elif not saved:
+        reason = "no reduced .blend was saved"
+    elif not topology_clean(after):
+        reason = "reduction introduced boundary, nonmanifold or inconsistently wound edges"
+    else:
+        reason = None
+    receipt = {
+        "schema_version": 1,
+        "kind": "blender-reduce",
+        "label": label,
+        "blender": {"path": str(executable), "sha256": _readable_digest(executable)},
+        "source": file_record(root, original),
+        "output": {
+            "path": destination.relative_to(root).as_posix(),
+            "present": saved,
+            "sha256": _readable_digest(destination) if saved else None,
+        },
+        "target_triangles": target_triangles,
+        "object_selected": object_name is not None,
+        "weld_distance": (audit or {}).get("weld_distance"),
+        "objects": (audit or {}).get("objects", []),
+        "before": before,
+        "after": after,
+        "ratio": (audit or {}).get("ratio"),
+        "saved": saved,
+        "started_utc": started.isoformat(),
+        "finished_utc": datetime.now(timezone.utc).isoformat(),
+        "status": status,
+        "returncode": record.get("returncode"),
+        "elapsed_seconds": record.get("elapsed_seconds"),
+        "timed_out": status == "timed_out",
+        "failure": failure,
+        "ok": reason is None,
+        "reason": reason,
+        "limits": REDUCE_LIMITS,
+    }
+    write_json(reduce_dir / "reduce.json", receipt)
+    return {
+        **receipt,
+        "reduce_dir": str(reduce_dir),
+        "reduce_record": str(reduce_dir / "reduce.json"),
+        "audit_record": str(audit_path) if audit_path.is_file() else None,
+        "log": str(reduce_dir / "process" / "stdout.log")
+        if (reduce_dir / "process" / "stdout.log").is_file()
+        else None,
     }
