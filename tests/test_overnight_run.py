@@ -34,9 +34,13 @@ class OvernightRunTests(unittest.TestCase):
     def test_block_and_procedure_state_the_budgets_and_ladder(self):
         block = BLOCK.read_text(encoding="utf-8")
         procedure = PROCEDURE.read_text(encoding="utf-8")
+        # The AGENTS block is always-injected bootstrap text: it carries the
+        # rules that must hold before the procedure is opened and points at the
+        # procedure for budgets and the ladder, rather than repeating them.
+        self.assertIn("90 minutes, 8M tokens, two compactions", procedure)
+        self.assertIn("references/overnight-run.md", block)
+        self.assertNotIn("compaction", block)
         for text in (block, procedure):
-            self.assertIn("90 minutes, 8M tokens, two compactions", text)
-            self.assertIn("third", text)
             self.assertIn("never cited for a higher one", text)
             self.assertIn("Never claim acceptance from exit codes", text)
         self.assertIn("| 4 Performance cleanroom |", procedure)
@@ -61,7 +65,7 @@ class OvernightRunTests(unittest.TestCase):
 
     def test_benchmark_example_scopes_both_commands_and_caps_the_capture_timeout(self):
         procedure = PROCEDURE.read_text(encoding="utf-8")
-        example = procedure[procedure.index("## 4. Benchmarks"):procedure.index("## 5. Root refresh")]
+        example = procedure[procedure.index("## 4. Benchmarks"):procedure.index("## 5. Return")]
         self.assertEqual(example.count("--scope <rung>"), 2)
         self.assertIn("bench cleanroom --project <run>", example)
         self.assertIn("--timeout 2700", example)
@@ -111,7 +115,7 @@ class OvernightRunTests(unittest.TestCase):
 
     def test_nested_launch_in_benchmark_example_carries_its_own_config(self):
         procedure = PROCEDURE.read_text(encoding="utf-8")
-        section = procedure[procedure.index("## 4. Benchmarks"):procedure.index("## 5. Root refresh")]
+        section = procedure[procedure.index("## 4. Benchmarks"):procedure.index("## 5. Return")]
         code_start = section.index("```text")
         code = section[code_start:section.index("```", code_start + len("```text"))]
         self.assertEqual(code.count("--config <host config>"), 2)
@@ -193,7 +197,7 @@ class OvernightRunTests(unittest.TestCase):
         procedure = PROCEDURE.read_text(encoding="utf-8")
         self.assertIn("is write-once", procedure)
         self.assertIn("rewritten atomically", procedure)
-        for checkpoint in ("after each preflight attempt", "at each stage transition", "after the third compaction", "at handback"):
+        for checkpoint in ("after each preflight attempt", "at each stage transition", "at handback"):
             self.assertIn(checkpoint, procedure)
 
     def test_corrections_invalidate_all_stage_evidence(self):
@@ -248,7 +252,7 @@ class OvernightRunTests(unittest.TestCase):
         self.assertEqual(
             procedure.count("--timeout <remaining, max 3600> --cutoff-utc <stage deadline>"), 5
         )
-        section = procedure[procedure.index("## 4. Benchmarks"):procedure.index("## 5. Root refresh")]
+        section = procedure[procedure.index("## 4. Benchmarks"):procedure.index("## 5. Return")]
         self.assertIn("--timeout <remaining, max 3600> --cutoff-utc <stage deadline>", section)
         self.assertIn("host config's default timeout is not a stage bound", procedure)
 

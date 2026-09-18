@@ -47,9 +47,8 @@ wants one capture per rung, each with its own snapshot pair, and a batch inside
 one wrapper produces a single attribution window instead. The batch rollup is a
 crash record, never a file to read for progress.
 `STATE.md` and `RETURN.md` are the only hand-maintained run records: `RETURN.md` is write-once, at the
-end (Section 6). `STATE.md` is rewritten atomically from its template only at
-defined checkpoints: after each preflight attempt, at each stage transition,
-after the third compaction (Section 5, root refresh), and at handback. It
+end (Section 5). `STATE.md` is rewritten atomically from its template only at
+defined checkpoints: after each preflight attempt, at each stage transition, and at handback. It
 gets no other edits.
 
 ## 2. Stage gates
@@ -113,7 +112,7 @@ evidence to the candidate record is a direct edit to
 re-runs `python <KIT>/scripts/studio.py validate-record --project <run>
 --record artifacts/candidate.json`; a failure here means the finalized
 record is not usable, and the run reports that rather than presenting an
-unvalidated scorecard. `RETURN.md` (Section 6) cites only this validated
+unvalidated scorecard. `RETURN.md` (Section 5) cites only this validated
 final record.
 
 **Corrections invalidate evidence.** Every gate's evidence is bound to the
@@ -213,15 +212,7 @@ verdict. A capture whose `attributable` is false, or that lacks the snapshot
 pair, cannot be cited. Close only processes the run itself started; record
 everything else in the reasons and leave it running.
 
-## 5. Root refresh
-
-After the third context compaction, update `STATE.md` (current commit and
-candidate identity, selected sources with hashes, stage reached with verdict
-paths, open blockers, next step, budget used) and end the turn with:
-"Compaction limit reached. Start a fresh session from `<run>/artifacts/run/STATE.md`."
-Do not continue past compaction three.
-
-## 6. Return
+## 5. Return
 
 Write `RETURN.md` once, at the end, from [return](../../../templates/return.md):
 player-facing metrics first (minutes of ordinary-control play, distance
@@ -242,7 +233,7 @@ The scorecard may cite only receipts produced under the final candidate's
 `content_digest` is not evidence. Preserve failures. Never claim acceptance from exit codes, unit
 tests or source coverage.
 
-## 7. Stop rules
+## 6. Stop rules
 
 Each stage's own stop rule in the table above is authoritative for that stage
 and takes precedence over this section: an unmarked stop rule ends the run
