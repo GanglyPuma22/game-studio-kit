@@ -28,6 +28,8 @@ preserve unique run logs and classify completed output before reporting status.
 | Reference/style contract and concept comparison | [studio-art-direction](../studio-art-direction/SKILL.md) |
 | Modeling, material, render, GLB | [studio-blender](../studio-blender/SKILL.md) |
 | Blender script to execute headlessly (bake, export, mesh repair) | `studio blender run` with an explicit `--source`, `--script` and each `--result` it must produce |
+| Provider mesh arrived, is it usable? | `studio blender inspect`: per-mesh topology, because a triangle count inside budget is not a usable mesh |
+| Mesh too dense or defective for a rig or collision | `studio blender reduce` from the intact archived original, not a second paid remesh |
 | Generated asset candidate | [studio-meshy](../studio-meshy/SKILL.md) |
 | Heightfield, authored terrain, Gaea | [studio-terrain](../studio-terrain/SKILL.md) |
 | Nonhumanoid rig, clips, transitions | [studio-animation](../studio-animation/SKILL.md) |
