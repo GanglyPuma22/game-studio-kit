@@ -1,13 +1,32 @@
 """Owned background Blender execution and GLB structural inspection."""
 
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import struct
-from ..common import StudioError, read_json, sha256
+import uuid
+from ..common import (
+    StudioError,
+    file_record,
+    outside_package,
+    read_json,
+    relative,
+    safe_id,
+    sha256,
+    write_json,
+)
 from ..config import require_executable, app_path
 from ..processes import run
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "blender_scripts"
+RUN_DEFAULT_TIMEOUT = 600
+RUN_MAX_TIMEOUT = 3600
+RUN_LIMITS = (
+    "a clean exit is not visual acceptance: this records that the script ran headlessly "
+    "and which declared files exist afterwards, never that the bake, export or repair "
+    "looks right; stdout and stderr are combined in one log the script may fill with "
+    "private data"
+)
 
 
 def command(config, script, args=(), source=None):
@@ -191,3 +210,132 @@ def render(config, source, output, camera, frames="1", angles="0", target="0,0,0
     for sample in result["samples"]:
         sample["artifact"] = file_record(output, output / sample["file"])
     return result
+
+
+def _readable_digest(path):
+    """Hash a file, reporting no digest instead of raising when it cannot be read."""
+    try:
+        return sha256(path)
+    except OSError:
+        return None
+
+
+def script_run(
+    config, project, *, source, script, label=None, timeout=None, results=(), passthrough=()
+):
+    """Run a project-owned script inside a project-owned .blend, once, with receipts.
+
+    The packaged operations above run scripts this kit ships. This one runs the
+    bake, export or mesh-repair script the game project owns, which is why it
+    takes a source and a script rather than an operation name. It returns a
+    verdict instead of raising on a failed or timed-out run, so the receipts
+    that explain the run are always written and readable.
+    """
+    root = Path(project).resolve()
+    if not root.is_dir():
+        raise StudioError("Blender run needs an existing game project directory")
+    blend = relative(root, source)
+    if not blend.is_file() or blend.suffix.lower() != ".blend":
+        raise StudioError("Blender run needs an existing .blend --source relative to the project")
+    program = relative(root, script)
+    if not program.is_file() or program.suffix.lower() != ".py":
+        raise StudioError("Blender run needs an existing .py --script relative to the project")
+    limit = RUN_DEFAULT_TIMEOUT if timeout is None else timeout
+    if type(limit) not in (int, float) or not 0 < limit <= RUN_MAX_TIMEOUT:
+        raise StudioError("Blender run timeout must be 1–3600 seconds")
+    extra = list(passthrough)
+    # argparse hands the separator over with the remainder; Blender gets its own.
+    if extra[:1] == ["--"]:
+        extra = extra[1:]
+    if not all(isinstance(item, str) for item in extra):
+        raise StudioError("Passthrough arguments must be strings")
+    label = safe_id(label) if label else uuid.uuid4().hex
+    executable = Path(require_executable(config, "blender"))
+    # The run directory is contained like a declared result: a symlinked
+    # artifacts/ must not move these receipts out of the project or into the kit.
+    run_dir = outside_package(relative(root, f"artifacts/blender/runs/{label}"))
+    expected = []
+    for item in results:
+        target = relative(root, item)
+        if target == run_dir or target.is_relative_to(run_dir):
+            # run.json, the process record and the log are written here:
+            # declaring one as a required result would let a script that
+            # produced nothing still be reported as ok.
+            raise StudioError("Declared results must not be files this runner writes")
+        expected.append(item)
+    try:
+        run_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        raise StudioError("Blender run directory exists; choose a new label") from None
+    args = [
+        str(executable),
+        "--background",
+        "--factory-startup",
+        app_path(config, blend, "blender"),
+        "--python-exit-code",
+        "1",
+        "--python",
+        app_path(config, program, "blender"),
+        "--",
+        *extra,
+    ]
+    identity = {
+        "blender": {"path": str(executable), "sha256": _readable_digest(executable)},
+        "source": file_record(root, blend),
+        "script": file_record(root, program),
+    }
+    started = datetime.now(timezone.utc)
+    failure = None
+    try:
+        run(
+            args, cwd=str(root), timeout=float(limit),
+            hide_window=True, job_dir=run_dir / "process",
+        )
+    except StudioError as exc:
+        # A nonzero exit or a timeout is this command's answer, not its crash.
+        failure = str(exc)
+    record_path = run_dir / "process" / "process.json"
+    record = read_json(record_path) if record_path.is_file() else {"status": "start_failed"}
+    log_path = run_dir / "process" / "stdout.log"
+    result_files = []
+    for item in expected:
+        try:
+            target = relative(root, item)
+        except StudioError:
+            # A declared result that only now resolves outside the project (a
+            # symlink the script created) is not evidence of this run.
+            result_files.append({"path": item, "present": False, "sha256": None})
+            continue
+        digest = _readable_digest(target) if target.is_file() else None
+        result_files.append({"path": item, "present": digest is not None, "sha256": digest})
+    status = record.get("status", "start_failed")
+    receipt = {
+        "schema_version": 1,
+        "kind": "blender-run",
+        "label": label,
+        **identity,
+        "passthrough_count": len(extra),
+        "started_utc": started.isoformat(),
+        "finished_utc": datetime.now(timezone.utc).isoformat(),
+        "status": status,
+        "returncode": record.get("returncode"),
+        "elapsed_seconds": record.get("elapsed_seconds"),
+        "timed_out": status == "timed_out",
+        "cleanup": record.get("cleanup"),
+        "result_files": result_files,
+        "failure": failure,
+        "ok": (
+            status == "completed"
+            and record.get("returncode") == 0
+            and all(entry["present"] for entry in result_files)
+        ),
+        "limits": RUN_LIMITS,
+    }
+    write_json(run_dir / "run.json", receipt)
+    return {
+        **receipt,
+        "run_dir": str(run_dir),
+        "run_record": str(run_dir / "run.json"),
+        "process_record": str(record_path) if record_path.is_file() else None,
+        "log": str(log_path) if log_path.is_file() else None,
+    }
