@@ -53,10 +53,11 @@ def _is_idle_process(entry):
 
     That counter rises when processors are *not* doing work, so treating it as
     background load inverts the meaning of the measurement.  Match the exact
-    OS pseudo-process name; ordinary programs with "idle" in their names stay
-    visible to the contamination classifier.
+    OS pseudo-process by name *and* pid 0: ordinary programs with "idle" in
+    their names, or an executable that merely borrows the name, stay visible
+    to the contamination classifier.
     """
-    return str(entry.get("name", "")).casefold() == "system idle process"
+    return entry.get("pid") == 0 and str(entry.get("name", "")).casefold() == "system idle process"
 
 
 def _identity(entry):
@@ -227,6 +228,10 @@ def read_processes_windows_native(*, on_pid=None):
                 cpu = 0.0
                 working_set = 0
                 created = None
+                # Until a counter is actually read, this process's usage is
+                # unknown, not zero.  A protected process that appears inside a
+                # window with unreadable counters must still break attribution.
+                counters = "unavailable"
                 # VM_READ can be denied for system/protected processes even
                 # when their CPU counters are readable.  Fall back to limited
                 # query access so genuine kernel/background CPU is not silently
@@ -242,6 +247,7 @@ def read_processes_windows_native(*, on_pid=None):
                             ticks = lambda value: (int(value.high) << 32) | int(value.low)
                             created = _windows_creation_token(ticks(creation))
                             cpu = (ticks(kernel) + ticks(user)) / 1e7
+                            counters = "ok"
                         memory = ProcessMemoryCounters()
                         memory.cb = ctypes.sizeof(memory)
                         if psapi.GetProcessMemoryInfo(handle, ctypes.byref(memory), memory.cb):
@@ -251,6 +257,7 @@ def read_processes_windows_native(*, on_pid=None):
                 entries.append({
                     "pid": pid, "ppid": int(row.th32ParentProcessID), "name": name,
                     "cpu_seconds": round(cpu, 3), "working_set_bytes": working_set, "created": created,
+                    "counters": counters,
                 })
                 ok = kernel32.Process32NextW(snap, ctypes.byref(row))
         finally:
@@ -715,6 +722,14 @@ def _timestamps_in_window(path, started, finished, *, root=None):
     return result
 
 
+def _heavy_record(p):
+    """The receipt row for a heavy process; names unreadable counters as such."""
+    row = {"pid": p["pid"], "name": p["name"], "cpu_seconds": p["cpu_seconds"], "working_set_bytes": p["working_set_bytes"]}
+    if p.get("counters") == "unavailable":
+        row["counters"] = "unavailable"
+    return row
+
+
 def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes, agent_log=None, self_pid=None, during=None, project_root=None):
     """Pure comparison of two snapshots around a window; returns reasons, never log text."""
     reasons = []
@@ -729,6 +744,11 @@ def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes,
     enumerated = enumeration["before"] == "ok" and enumeration["after"] == "ok"
 
     def heavy(p):
+        # Counters the reader could not open are unknown usage.  Treating them
+        # as zero would let a protected process that ran inside the window pass
+        # as quiet, so attribution stays conservative and reports them.
+        if p.get("counters") == "unavailable":
+            return True
         return p["working_set_bytes"] >= heavy_working_set_bytes or p["cpu_seconds"] >= busy_cpu_seconds
 
     new_heavy, exited_heavy, busy = [], [], []
@@ -841,8 +861,8 @@ def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes,
         "process_enumeration": enumeration,
         "during": observed,
         "contamination": {
-            "new_heavy": [{"pid": p["pid"], "name": p["name"], "cpu_seconds": p["cpu_seconds"], "working_set_bytes": p["working_set_bytes"]} for p in new_heavy],
-            "exited_heavy": [{"pid": p["pid"], "name": p["name"], "cpu_seconds": p["cpu_seconds"], "working_set_bytes": p["working_set_bytes"]} for p in exited_heavy],
+            "new_heavy": [_heavy_record(p) for p in new_heavy],
+            "exited_heavy": [_heavy_record(p) for p in exited_heavy],
             "busy": sorted(busy, key=lambda b: -b["cpu_delta_seconds"]),
             "observer_helpers": [
                 dict(entry) for entry in (
