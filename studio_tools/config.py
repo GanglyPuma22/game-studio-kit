@@ -1,4 +1,4 @@
-"""No implicit credential files or shell profiles."""
+"""No implicit credential files or shell profiles: only declared ones."""
 
 from pathlib import Path, PureWindowsPath
 import os
@@ -11,6 +11,7 @@ DEFAULTS = {
     "credentials": {"meshy": "MESHY_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY", "fish": "FISH_AUDIO_API_KEY", "gemini": "GEMINI_API_KEY"},
     "timeout": 180,
     "path_mappings": [],
+    "credential_files": [],
 }
 
 BLENDER_MCP_REQUIRED = {
@@ -134,6 +135,11 @@ def load(path=None, overrides=None):
         or not 0 < config["timeout"] <= 3600
     ):
         raise StudioError("timeout must be 1–3600 seconds")
+    files = config["credential_files"]
+    if not isinstance(files, list) or not all(
+        isinstance(item, str) and item.strip() for item in files
+    ):
+        raise StudioError("credential_files must be a list of host file paths")
     if "blender_mcp" in config:
         _validate_blender_mcp(config["blender_mcp"])
     return config
@@ -181,10 +187,52 @@ def app_path(config, path, tool=None):
     return resolved
 
 
+def _credential_file_value(path, name):
+    """Read `name` out of one declared `KEY=VALUE` file, or None.
+
+    A file that is absent or unreadable is skipped: a host may list the file it
+    uses on another machine. The value is returned to the one caller that asked
+    for it and is never put into `os.environ`, so nothing this kit starts
+    inherits a key it was not given deliberately.
+    """
+    try:
+        text = Path(path).expanduser().read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].lstrip()
+        key, separator, value = line.partition("=")
+        if not separator or key.strip() != name:
+            continue
+        value = value.strip()
+        if len(value) > 1 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        if value:
+            return value
+    return None
+
+
 def credential(config, provider):
+    """The provider key from the environment, else from a declared credential file.
+
+    The environment still wins, so nothing that works today changes. A host that
+    keeps its keys in a file lists it in `credential_files` instead of teaching
+    every agent to parse that file into the environment by hand.
+    """
     name = config["credentials"].get(provider)
-    if not name or not os.environ.get(name):
-        raise StudioError(
-            f"{provider} needs setup: set the configured credential environment variable"
-        )
-    return os.environ[name]
+    if name:
+        value = os.environ.get(name)
+        if value:
+            return value
+        for path in config.get("credential_files", []):
+            value = _credential_file_value(path, name)
+            if value:
+                return value
+    raise StudioError(
+        f"{provider} needs setup: set the configured credential environment variable "
+        "or list a credential file"
+    )

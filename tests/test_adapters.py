@@ -299,6 +299,23 @@ class MeshyTests(TempCase):
         result = meshy.observe(self.config, self.root / "task.json", t)
         self.assertNotIn("test-meshy-secret", json.dumps(result))
         self.assertNotIn("test-meshy-secret", (self.root / "task.json").read_text())
+        # A key a host declares in a credential file instead of the environment
+        # is the same secret: it is redacted here and never written to a record.
+        keys = self.root / "meshy.env"
+        keys.write_text('export MESHY_API_KEY="file-meshy-secret"\n', encoding="utf-8")
+        config = load(overrides={"credential_files": [str(keys)]})
+        record = self.root / "file-task.json"
+        with patch.dict(os.environ, {}, clear=True):
+            meshy.submit(
+                config, "image", {"image_url": "https://example.org/reference.png"},
+                record, BUDGET, transport=FakeTransport([{"result": "file-task"}]),
+            )
+            from_file = meshy.observe(config, record, FakeTransport([{
+                "id": "file-task", "status": "FAILED",
+                "task_error": {"message": "file-meshy-secret"},
+            }]))
+        self.assertNotIn("file-meshy-secret", json.dumps(from_file))
+        self.assertNotIn("file-meshy-secret", record.read_text())
 
 
 class HttpTests(TempCase):
