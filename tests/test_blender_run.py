@@ -16,11 +16,17 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import re
+
 from studio_tools import cli, processes
 from studio_tools.adapters import blender
 from studio_tools.cli import parser
 from studio_tools.common import StudioError, read_json, sha256, write_json
 from studio_tools.config import load
+
+ROOT = Path(__file__).resolve().parents[1]
+SKILL = ROOT / "skills/studio-blender/SKILL.md"
+DIRECTOR = ROOT / "skills/studio-director/SKILL.md"
 
 SHIM = '''"""Stand-in for blender.exe: check the launch line, then run the script."""
 import runpy
@@ -283,6 +289,35 @@ class BlenderRunTests(BlenderRunCase):
                 with self.assertRaises(SystemExit):
                     with contextlib.redirect_stderr(io.StringIO()):
                         parser().parse_args(argv)
+
+
+class BlenderRunDiscoverabilityTests(unittest.TestCase):
+    """The throwaway wrapper existed because no description named this command."""
+
+    def test_the_blender_skill_description_names_the_command(self):
+        text = SKILL.read_text(encoding="utf-8")
+        description = re.search(r"^description: (.+)$", text, re.M)
+        self.assertIsNotNone(description)
+        self.assertIn("`studio blender run`", description.group(1))
+
+    def test_the_skill_says_when_to_use_run_instead_of_the_interactive_mcp(self):
+        text = SKILL.read_text(encoding="utf-8")
+        self.assertIn("## `run` or the interactive MCP", text)
+        self.assertIn("blender run --project <GAME> --source", text)
+        # The two limits an agent most needs before it trusts a green run.
+        self.assertIn("it is not visual acceptance", text)
+        self.assertIn("never their values", text)
+
+    def test_the_director_routing_table_routes_a_headless_script_to_run(self):
+        text = DIRECTOR.read_text(encoding="utf-8")
+        row = [line for line in text.splitlines() if "`studio blender run`" in line]
+        self.assertEqual(len(row), 1, "the routing table needs exactly one blender run row")
+        self.assertIn("bake, export, mesh repair", row[0])
+
+    def test_blender_stays_one_declared_command_with_its_adapter_packaged(self):
+        manifest = read_json(ROOT / "studio-kit.json")
+        self.assertIn("blender", manifest["commands"])
+        self.assertIn("studio_tools/adapters/blender.py", manifest["resources"])
 
 
 if __name__ == "__main__":

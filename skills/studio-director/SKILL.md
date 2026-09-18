@@ -27,6 +27,7 @@ preserve unique run logs and classify completed output before reporting status.
 | Gameplay action, story/companion state | [studio-game-design](../studio-game-design/SKILL.md) |
 | Reference/style contract and concept comparison | [studio-art-direction](../studio-art-direction/SKILL.md) |
 | Modeling, material, render, GLB | [studio-blender](../studio-blender/SKILL.md) |
+| Blender script to execute headlessly (bake, export, mesh repair) | `studio blender run` with an explicit `--source`, `--script` and each `--result` it must produce |
 | Generated asset candidate | [studio-meshy](../studio-meshy/SKILL.md) |
 | Heightfield, authored terrain, Gaea | [studio-terrain](../studio-terrain/SKILL.md) |
 | Nonhumanoid rig, clips, transitions | [studio-animation](../studio-animation/SKILL.md) |

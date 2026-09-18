@@ -10,13 +10,17 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest.mock import patch
 
 from studio_tools import cli
 from studio_tools.adapters.http import ProviderError
-from studio_tools.common import write_json
+from studio_tools.common import read_json, write_json
+
+ROOT = Path(__file__).resolve().parents[1]
+SKILL = ROOT / "skills/studio-meshy/SKILL.md"
 
 
 class FakeTransport:
@@ -126,6 +130,27 @@ class MeshyBalanceTests(BalanceCase):
                         code = cli.main([*argv, "--config", self.host()])
                 self.assertEqual(code, 1)
                 self.assertIn(message, json.loads(err.getvalue())["error"])
+
+
+class BalanceDiscoverabilityTests(unittest.TestCase):
+    """A wrapper script gets written whenever the kit leaves a capability unnamed."""
+
+    def test_the_meshy_skill_description_names_the_balance_command(self):
+        description = re.search(r"^description: (.+)$", SKILL.read_text(encoding="utf-8"), re.M)
+        self.assertIsNotNone(description)
+        self.assertIn("`studio meshy balance`", description.group(1))
+
+    def test_the_skill_puts_the_balance_check_before_the_spend_approval(self):
+        text = SKILL.read_text(encoding="utf-8")
+        self.assertIn("Before asking the human to approve spend", text)
+        self.assertIn("meshy balance --config <HOST>", text)
+        self.assertIn('"read_only": true', text)
+        self.assertIn("A balance is not a price list", text)
+
+    def test_balance_is_documented_where_a_host_configures_the_provider(self):
+        self.assertIn("`meshy balance` is the one read-only call",
+                      (ROOT / "docs/provider-setup.md").read_text(encoding="utf-8"))
+        self.assertIn("meshy", read_json(ROOT / "studio-kit.json")["commands"])
 
 
 if __name__ == "__main__":

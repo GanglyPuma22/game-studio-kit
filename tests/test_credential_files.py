@@ -14,6 +14,8 @@ from studio_tools.adapters import meshy
 from studio_tools.common import StudioError
 from studio_tools.config import credential, load
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 class FakeTransport:
     def __init__(self, response=None):
@@ -110,6 +112,27 @@ class CredentialFileTests(CredentialCase):
         }, transport=transport)
         self.assertEqual(transport.calls[0][0][2]["Authorization"], "Bearer file-secret")
         self.assertNotIn("file-secret", record.read_text(encoding="utf-8"))
+
+
+class CredentialFileDiscoverabilityTests(unittest.TestCase):
+    """A host cannot declare what no document says exists."""
+
+    def test_every_document_a_host_reads_names_the_declaration(self):
+        for name in ("skills/studio-meshy/SKILL.md", "docs/setup-windows.md",
+                     "docs/setup-linux.md", "docs/provider-setup.md"):
+            with self.subTest(document=name):
+                self.assertIn("credential_files", (ROOT / name).read_text(encoding="utf-8"))
+
+    def test_the_documents_a_host_writes_the_file_from_spell_its_format(self):
+        for name in ("skills/studio-meshy/SKILL.md", "docs/setup-windows.md",
+                     "docs/setup-linux.md"):
+            with self.subTest(document=name):
+                text = (ROOT / name).read_text(encoding="utf-8")
+                self.assertIn("`KEY=VALUE`", text)
+                self.assertIn("export ", text)
+        # The limit that makes this safe to document at all.
+        self.assertIn("never written into `os.environ`",
+                      (ROOT / "docs/setup-windows.md").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
