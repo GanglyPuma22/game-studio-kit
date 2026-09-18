@@ -4,6 +4,7 @@ This exists because an agent on a real host wrote a wrapper whose only real job
 was parsing `KEY=VALUE` out of a file into the environment before every run.
 """
 
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -11,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from studio_tools.adapters import meshy
-from studio_tools.common import StudioError
+from studio_tools.common import StudioError, read_json, write_json
 from studio_tools.config import credential, load
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -114,6 +115,80 @@ class CredentialFileTests(CredentialCase):
         self.assertNotIn("file-secret", record.read_text(encoding="utf-8"))
 
 
+class CredentialFileReviewTests(CredentialCase):
+    """Round one of review: a byte-order mark, a working directory and a rotation."""
+
+    def test_a_byte_order_mark_is_not_part_of_the_variable_name(self):
+        path = self.dir / "bom.env"
+        path.write_text('export MESHY_API_KEY="bom-secret"\n', encoding="utf-8-sig")
+        self.assertTrue(path.read_bytes().startswith(b"\xef\xbb\xbf"))
+        config = load(overrides={"credential_files": [str(path)]})
+        self.assertEqual(credential(config, "meshy"), "bom-secret")
+
+    def test_a_relative_entry_follows_the_host_config_not_the_working_directory(self):
+        (self.dir / "keys").mkdir()
+        (self.dir / "keys/meshy.env").write_text("MESHY_API_KEY=beside-the-config\n", encoding="utf-8")
+        host = self.dir / "host.json"
+        write_json(host, {"credential_files": ["keys/meshy.env"]})
+        elsewhere = self.dir / "somewhere else"
+        elsewhere.mkdir()
+        # The same host config, read from two working directories, names one file.
+        found = []
+        origin = os.getcwd()
+        try:
+            for where in (self.dir, elsewhere):
+                os.chdir(where)
+                config = load(str(host))
+                found.append((config["credential_files"], credential(config, "meshy")))
+        finally:
+            os.chdir(origin)
+        self.assertEqual(found[0], found[1])
+        self.assertEqual(found[0][1], "beside-the-config")
+        self.assertEqual(found[0][0], [str(self.dir / "keys/meshy.env")])
+        # A decoy of the same relative name in the working directory is not read.
+        (elsewhere / "keys").mkdir()
+        (elsewhere / "keys/meshy.env").write_text("MESHY_API_KEY=beside-the-caller\n", encoding="utf-8")
+        try:
+            os.chdir(elsewhere)
+            self.assertEqual(credential(load(str(host)), "meshy"), "beside-the-config")
+        finally:
+            os.chdir(origin)
+
+    def test_an_absolute_entry_is_left_exactly_as_the_host_wrote_it(self):
+        host = self.dir / "host.json"
+        write_json(host, {"credential_files": [str(self.dir / "keys.env"), "C:\\Studio Host\\keys.env"]})
+        self.assertEqual(load(str(host))["credential_files"],
+                         [str(self.dir / "keys.env"), "C:\\Studio Host\\keys.env"])
+
+    def test_a_rotation_between_two_reads_cannot_leave_the_sent_key_in_the_record(self):
+        path = self.dir / "keys.env"
+        path.write_text("MESHY_API_KEY=first-secret\n", encoding="utf-8")
+        config = load(overrides={"credential_files": [str(path)]})
+        record = self.dir / "task.json"
+        meshy.submit(config, "preview", {"prompt": "A ceramic bell"}, record, {
+            "authorized": True, "work_card": "fixture", "rate_checked_at": "2026-09-05",
+            "units": "test units", "estimated": 1, "maximum": 1,
+        }, transport=FakeTransport({"result": "rotating-task"}))
+
+        class RotatingTransport(FakeTransport):
+            def request(self, *args, **kwargs):
+                # The host rotates the key while this request is in flight.
+                path.write_text("MESHY_API_KEY=second-secret\n", encoding="utf-8")
+                return super().request(*args, **kwargs)
+
+        transport = RotatingTransport({
+            "id": "rotating-task", "status": "FAILED",
+            "task_error": {"message": "rejected key first-secret"},
+        })
+        observed = meshy.observe(config, record, transport)
+        self.assertEqual(transport.calls[0][0][2]["Authorization"], "Bearer first-secret")
+        # The key that was sent is the key redacted, not the one now on disk.
+        self.assertNotIn("first-secret", json.dumps(observed))
+        self.assertNotIn("first-secret", record.read_text(encoding="utf-8"))
+        self.assertEqual(read_json(record)["status"], "FAILED")
+        self.assertEqual(credential(config, "meshy"), "second-secret")
+
+
 class CredentialFileDiscoverabilityTests(unittest.TestCase):
     """A host cannot declare what no document says exists."""
 
@@ -131,8 +206,13 @@ class CredentialFileDiscoverabilityTests(unittest.TestCase):
                 self.assertIn("`KEY=VALUE`", text)
                 self.assertIn("export ", text)
         # The limit that makes this safe to document at all.
-        self.assertIn("never written into `os.environ`",
-                      (ROOT / "docs/setup-windows.md").read_text(encoding="utf-8"))
+        windows = (ROOT / "docs/setup-windows.md").read_text(encoding="utf-8")
+        self.assertIn("never written into `os.environ`", windows)
+        # A relative entry is only unambiguous because the anchor is written down.
+        for name in ("skills/studio-meshy/SKILL.md", "docs/setup-windows.md",
+                     "docs/setup-linux.md", "docs/provider-setup.md"):
+            with self.subTest(document=name):
+                self.assertIn("host config file", (ROOT / name).read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

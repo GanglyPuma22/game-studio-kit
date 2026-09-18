@@ -6,7 +6,7 @@ Use Python 3.11+ and explicit Blender/Godot executables. The helpers use only th
 {"executables":{"blender":"/opt/blender/blender","godot":"/opt/godot/godot"},"timeout":300,"credential_files":["/home/you/.keys/meshy.env"]}
 ```
 
-`credential_files` is optional: each entry is a host file of `KEY=VALUE` lines (a leading `export `, quotes, blank lines and `#` comments are accepted) holding the variables named in `credentials`. The environment is read first, a missing file is skipped, and a value read from a file is never exported into the environment or inherited by a child process. Keep those files outside the kit and the game project.
+`credential_files` is optional: each entry is a host file of `KEY=VALUE` lines (a leading `export `, quotes, blank lines and `#` comments are accepted) holding the variables named in `credentials`. The environment is read first, a missing file is skipped, and a value read from a file is never exported into the environment or inherited by a child process. A relative entry is resolved against the directory of the host config file, not the working directory, and a leading byte-order mark is tolerated. Keep those files outside the kit and the game project.
 
 ```text
 python /path/to/game-studio-kit/scripts/studio.py doctor --config /path/to/host.json

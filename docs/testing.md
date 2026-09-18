@@ -80,7 +80,10 @@ separator, receipts that hold the executable, source and script hashes and the
 passthrough *count* while the combined log holds the values, a private marker
 passed through argv appearing in `stdout.log` and in no JSON receipt, a missing
 declared result and a failing script returned as a verdict rather than an
-exception, a timeout with owned cleanup, a refused label collision that leaves
+exception, a declared result whose bytes predate the run reported as stale
+instead of produced while a rewritten one is accepted, shared options given
+before or after the operation name, a mistyped project that is refused without
+being created, a timeout with owned cleanup, a refused label collision that leaves
 the first run's receipt untouched, a declared result inside the run's own
 directory refused before launch, and every input check running before anything
 starts. Every flag is exercised through `cli.main`. No Blender is involved.
@@ -88,9 +91,12 @@ starts. Every flag is exercised through `cli.main`. No Blender is involved.
 `test_credential_files.py` covers the optional `credential_files` host
 declaration: the environment still winning over a declared file, a file
 answering when the environment is unset, `export`/quote/comment/blank-line
-parsing, missing files skipped and the first declared hit winning, a value that
-reaches neither `os.environ` nor a task record, and a malformed declaration
-refused when the host config loads.
+parsing, a byte-order mark, a relative entry resolved against the host config's
+directory rather than two different working directories, missing files skipped
+and the first declared hit winning, a value that reaches neither `os.environ`
+nor a task record, a key rotated between the request and its redaction leaving
+the sent key out of the record, and a malformed declaration refused when the
+host config loads.
 
 `test_meshy_balance.py` covers the read-only `meshy balance` command with the
 provider transport replaced: the number and nothing else about the account

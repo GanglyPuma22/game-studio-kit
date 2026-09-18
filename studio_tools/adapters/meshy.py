@@ -236,11 +236,15 @@ def observe(config, record_path, transport=None):
     endpoint = ENDPOINTS.get(record.get("operation"))
     if endpoint != record.get("endpoint"):
         raise StudioError("Task endpoint does not match its supported operation")
+    # One read, used for both the request and the redaction below: a file-backed
+    # credential can be rotated between two reads, and redacting with the new
+    # key would leave the key this request actually sent inside the record.
+    key = credential(config, "meshy")
     try:
         response = (transport or Transport()).request(
             "GET",
             BASE + endpoint + "/" + task_id,
-            {"Authorization": "Bearer " + credential(config, "meshy")},
+            {"Authorization": "Bearer " + key},
         )
     except ProviderError as exc:
         if exc.status in {404, 410}:
@@ -260,8 +264,6 @@ def observe(config, record_path, transport=None):
     }:
         raise StudioError("Unknown provider status; inspect task without resubmitting")
     # Providers sometimes echo request/auth context in diagnostic strings.
-    key = credential(config, "meshy")
-
     record.update(status=status, response=redact(response, key))
     write_json(record_path, record)
     return record

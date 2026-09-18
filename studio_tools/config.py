@@ -140,9 +140,29 @@ def load(path=None, overrides=None):
         isinstance(item, str) and item.strip() for item in files
     ):
         raise StudioError("credential_files must be a list of host file paths")
+    config["credential_files"] = _resolve_credential_files(files, path)
     if "blender_mcp" in config:
         _validate_blender_mcp(config["blender_mcp"])
     return config
+
+
+def _resolve_credential_files(files, config_path):
+    """Anchor relative entries to the host config file, never to the caller's CWD.
+
+    A host config is a file an agent passes from wherever it happens to be
+    standing, so a relative entry that resolved against the current directory
+    would name a different file — usually none at all — for every working
+    directory the same config is used from. A drive-qualified or UNC entry is
+    left alone even when this host parses POSIX paths, so a Windows config
+    read on another host is not turned into nonsense.
+    """
+    base = Path(config_path).expanduser().resolve().parent if config_path else Path.cwd()
+    resolved = []
+    for item in files:
+        candidate = Path(item).expanduser()
+        absolute = candidate.is_absolute() or PureWindowsPath(item).is_absolute()
+        resolved.append(item if absolute else str(base / candidate))
+    return resolved
 
 
 def executable(config, name):
@@ -196,7 +216,9 @@ def _credential_file_value(path, name):
     inherits a key it was not given deliberately.
     """
     try:
-        text = Path(path).expanduser().read_text(encoding="utf-8", errors="replace")
+        # utf-8-sig: a file written by a Windows editor starts with a byte-order
+        # mark, and a BOM in front of the first name is part of that name.
+        text = Path(path).expanduser().read_text(encoding="utf-8-sig", errors="replace")
     except OSError:
         return None
     for line in text.splitlines():

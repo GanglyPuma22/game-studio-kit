@@ -255,6 +255,7 @@ def script_run(
     # artifacts/ must not move these receipts out of the project or into the kit.
     run_dir = outside_package(relative(root, f"artifacts/blender/runs/{label}"))
     expected = []
+    results_before = []
     for item in results:
         target = relative(root, item)
         if target == run_dir or target.is_relative_to(run_dir):
@@ -263,6 +264,13 @@ def script_run(
             # produced nothing still be reported as ok.
             raise StudioError("Declared results must not be files this runner writes")
         expected.append(item)
+        # A result that already exists with the same bytes after the run was
+        # not produced by it: yesterday's bake would otherwise pass for today's.
+        present = target.is_file()
+        results_before.append({
+            "path": item, "present": present,
+            "sha256": _readable_digest(target) if present else None,
+        })
     try:
         run_dir.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
@@ -297,6 +305,7 @@ def script_run(
     record_path = run_dir / "process" / "process.json"
     record = read_json(record_path) if record_path.is_file() else {"status": "start_failed"}
     log_path = run_dir / "process" / "stdout.log"
+    before = {entry["path"]: entry for entry in results_before}
     result_files = []
     for item in expected:
         try:
@@ -304,17 +313,39 @@ def script_run(
         except StudioError:
             # A declared result that only now resolves outside the project (a
             # symlink the script created) is not evidence of this run.
-            result_files.append({"path": item, "present": False, "sha256": None})
+            result_files.append({"path": item, "present": False, "stale": False,
+                                 "unreadable": False, "sha256": None})
             continue
-        digest = _readable_digest(target) if target.is_file() else None
-        result_files.append({"path": item, "present": digest is not None, "sha256": digest})
+        exists = target.is_file()
+        digest = _readable_digest(target) if exists else None
+        # A result this runner cannot read cannot be shown to be new output.
+        unreadable = exists and digest is None
+        prior = before.get(item, {"present": False, "sha256": None})
+        stale = exists and not unreadable and prior["present"] and prior["sha256"] == digest
+        result_files.append({
+            "path": item, "present": exists and not stale and not unreadable,
+            "stale": stale, "unreadable": unreadable, "sha256": digest,
+        })
     status = record.get("status", "start_failed")
+    if failure is None and not all(entry["present"] for entry in result_files):
+        stale_paths = [e["path"] for e in result_files if e["stale"]]
+        unreadable_paths = [e["path"] for e in result_files if e["unreadable"]]
+        missing_paths = [e["path"] for e in result_files
+                         if not e["present"] and not e["stale"] and not e["unreadable"]]
+        if stale_paths:
+            failure = ("Declared results are unchanged since before the run, so this run "
+                       "did not produce them: " + ", ".join(stale_paths))
+        elif unreadable_paths:
+            failure = "Declared results cannot be read: " + ", ".join(unreadable_paths)
+        else:
+            failure = "Declared results are missing after the run: " + ", ".join(missing_paths)
     receipt = {
         "schema_version": 1,
         "kind": "blender-run",
         "label": label,
         **identity,
         "passthrough_count": len(extra),
+        "results_before": results_before,
         "started_utc": started.isoformat(),
         "finished_utc": datetime.now(timezone.utc).isoformat(),
         "status": status,
