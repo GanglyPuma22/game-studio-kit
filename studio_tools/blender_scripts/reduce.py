@@ -6,9 +6,19 @@ weld below and never edits materials or UV layers: a mesh that arrives with
 holes leaves with holes, and the receipt says so. Repair is a modelling decision
 a person makes about a specific asset, not something a reduction may do quietly
 on the way past.
+
+Any modifier stack the source already carried is applied first, in its declared
+order, before anything is measured. Auditing the base mesh while saving the
+evaluated one would qualify a surface nobody ever sees; applying first means
+what is measured is what is written. The applied names are recorded.
+
+Objects are identified in the audit by index and by a digest of their name,
+never by the name itself: `--object` is a value the caller passed in, and a
+receipt is not the place to echo one back.
 """
 
 import bpy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -39,6 +49,7 @@ def measure(obj, numpy):
             "boundary_edges": None,
             "nonmanifold_edges": None,
             "inconsistent_winding_edges": None,
+            "nonmanifold_vertices": None,
             "uv_layers": len(mesh.uv_layers),
         }
     points = numpy.empty(len(mesh.vertices) * 3, dtype=numpy.float32)
@@ -51,6 +62,9 @@ def measure(obj, numpy):
 
 
 def apply_modifier(obj, modifier):
+    if obj.data.users > 1:
+        # Applying to data another object shares would edit that object too.
+        obj.data = obj.data.copy()
     with bpy.context.temp_override(
         object=obj,
         active_object=obj,
@@ -58,6 +72,22 @@ def apply_modifier(obj, modifier):
         selected_editable_objects=[obj],
     ):
         bpy.ops.object.modifier_apply(modifier=modifier.name)
+
+
+def apply_existing_stack(obj):
+    """Apply whatever modifiers the source already had, in order, and say so."""
+    names = [modifier.name for modifier in obj.modifiers]
+    for name in names:
+        apply_modifier(obj, obj.modifiers[name])
+    return names
+
+
+def identify(obj, index):
+    """Name an object in the receipt without repeating the name back."""
+    return {
+        "index": index,
+        "name_sha256": hashlib.sha256(obj.name.encode("utf-8")).hexdigest(),
+    }
 
 
 args = sys.argv[sys.argv.index("--") + 1 :]
@@ -72,7 +102,9 @@ if source.suffix.lower() == ".blend":
     bpy.ops.wm.open_mainfile(filepath=str(source))
 else:
     bpy.ops.import_scene.gltf(filepath=str(source))
-meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
+meshes = sorted(
+    (o for o in bpy.context.scene.objects if o.type == "MESH"), key=lambda o: o.name
+)
 if selected:
     meshes = [o for o in meshes if o.name == selected]
 if not meshes:
@@ -96,8 +128,9 @@ if numpy is None:
     audit_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     raise SystemExit(0)
 
-for obj in meshes:
+for index, obj in enumerate(meshes):
     obj.hide_set(False)
+    applied = apply_existing_stack(obj)
     before = measure(obj, numpy)
     weld = obj.modifiers.new(name="StudioWeld", type="WELD")
     weld.merge_threshold = WELD_DISTANCE
@@ -115,7 +148,8 @@ for obj in meshes:
         decimated = True
     report["objects"].append(
         {
-            "name": obj.name,
+            **identify(obj, index),
+            "applied_modifiers": applied,
             "before": before,
             "welded_triangles": current,
             "collapse_ratio": collapse,

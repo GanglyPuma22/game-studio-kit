@@ -102,17 +102,25 @@ audit arithmetic is exercised directly on hand-built triangle lists with no
 Blender and no numpy: a closed consistently wound tetrahedron reporting nothing,
 one open triangle reporting three boundary edges, an edge shared by three faces
 reporting one nonmanifold edge, two faces traversing a shared edge the same way
-reporting one inconsistently wound edge, and a duplicated texture-seam vertex
-welded by position rather than counted as a hole. When numpy is installed the
+reporting one inconsistently wound edge, two closed shells touching at a single
+welded vertex reporting one nonmanifold vertex while every edge count stays
+zero, and a duplicated texture-seam vertex welded by position rather than
+counted as a hole. The vertex-connectivity step is plain Python on both paths,
+so it is the same implementation these tests cover whether or not numpy is
+installed. When numpy is installed the
 vectorized path is checked against the plain-Python one and otherwise skipped,
 so the numpy path is unverified on a host without it. `reduce` is covered with
 the same shim standing in for `blender.exe`: the launch line reaching the
 packaged `reduce.py` after Blender's own `--`, a receipt holding both audits and
 the source hash, `ok` refused when the *source* audit was dirty, when the
-reduction introduced a defect, when nothing was saved and when the build could
-not measure topology at all, an existing `--output` and an out-of-range
-`--target-triangles` refused before launch, a repeated label refused with the
-earlier receipt intact, and no argv value reaching any receipt. Each shared
+reduction introduced a defect including a vertex-only one, when a result is
+still over the requested budget, when a selected object holds no triangles,
+when nothing was saved and when the build could not measure topology at all, a
+source edited or deleted mid-run refused with both digests and the receipt
+still written, an existing `--output`, an out-of-range `--target-triangles` and
+an unconfigured Blender refused before launch with no directory left behind, a
+repeated label refused with the earlier receipt intact, and no argv value
+reaching any receipt, the selected object's name included. Each shared
 option is exercised before and after the operation name with the operation's
 value winning, what the command needs is named by dispatch rather than by
 argparse, and a mistyped `--project` is refused without being created. Every

@@ -44,7 +44,7 @@ Measured on one hero tree and one creature. Triangle and edge counts are what `s
 | Creature | image-to-3d, `target_polycount: 30000` | 30,816 | 83 | 90 |
 | Hero tree | `studio blender reduce` from the intact 4.85M original, no credits | 300,000 | 0 | 0 |
 
-The dense original was clean: once duplicated texture-seam vertices are welded by position, no boundary edges and no edge shared by more than two faces. Dense, but nothing wrong with it. Both polycount-constrained provider meshes were defective, and not recoverably: a coincident weld plus conservative degenerate cleanup fixed neither, and removing the unambiguous dangling faces left 11 boundary / 47 nonmanifold edges on the tree and 27 / 62 on the creature. The tree's pores were visibly angular underneath at 125K. Neither is ready for rigging or collision. The local weld-and-decimate from the intact original reported zero of all three defects and kept better underside detail than the paid 125K mesh.
+The dense original was clean: once duplicated texture-seam vertices are welded by position, no boundary edges, no edge shared by more than two faces and no vertex where the surrounding faces fall into more than one fan. Dense, but nothing wrong with it. Both polycount-constrained provider meshes were defective, and not recoverably: a coincident weld plus conservative degenerate cleanup fixed neither, and removing the unambiguous dangling faces left 11 boundary / 47 nonmanifold edges on the tree and 27 / 62 on the creature. The tree's pores were visibly angular underneath at 125K. Neither is ready for rigging or collision. The local weld-and-decimate from the intact original reported zero of all three defects and kept better underside detail than the paid 125K mesh.
 
 So:
 

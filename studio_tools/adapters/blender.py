@@ -529,14 +529,19 @@ def reduce_mesh(
     if object_name is not None and (not isinstance(object_name, str) or not object_name):
         raise StudioError("Blender reduce --object must name one mesh object")
     label = safe_id(label) if label else uuid.uuid4().hex
+    # Everything that can be refused is refused before a directory exists: a
+    # host without Blender configured must not leave a receipt directory
+    # behind for a reduction that never started.
+    executable = Path(require_executable(config, "blender"))
+    # The source as it was before launch is the record; comparing to it
+    # afterwards is what proves the reduction did not edit its own input.
+    source_record = file_record(root, original)
     reduce_dir = outside_package(relative(root, f"artifacts/blender/reduce/{label}"))
     try:
         reduce_dir.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
         raise StudioError("Blender reduce directory exists; choose a new label") from None
     audit_path = reduce_dir / "audit.json"
-    executable = Path(require_executable(config, "blender"))
-    source_digest = _readable_digest(original)
     started = datetime.now(timezone.utc)
     failure = None
     try:
@@ -573,20 +578,58 @@ def reduce_mesh(
     saved = destination.is_file()
     before = (audit or {}).get("before")
     after = (audit or {}).get("after")
+    objects = (audit or {}).get("objects", [])
+    # A source that is gone or unreadable afterwards still gets a receipt; it
+    # is the digest that is missing, not the reason to stop writing one.
+    source_after = {
+        "present": original.is_file(),
+        "sha256": _readable_digest(original) if original.is_file() else None,
+    }
+    empty = [
+        entry.get("index")
+        for entry in objects
+        if not (entry.get("before") or {}).get("triangles")
+        or not (entry.get("after") or {}).get("triangles")
+    ]
+    over = [
+        (entry.get("index"), (entry.get("after") or {}).get("triangles"))
+        for entry in objects
+        if ((entry.get("after") or {}).get("triangles") or 0) > target_triangles
+    ]
     if status != "completed" or record.get("returncode") != 0:
         reason = "Blender did not complete the reduction; read the log"
-    elif _readable_digest(original) != source_digest:
-        reason = "source changed during reduction; reduce from an untouched archived original"
+    elif source_after["sha256"] != source_record["sha256"]:
+        reason = (
+            "source changed or became unreadable during reduction: "
+            f"{source_record['sha256']} before, {source_after['sha256'] or 'unreadable'} "
+            "after; reduce from an untouched archived original"
+        )
     elif audit is None:
         reason = "no topology audit was written; the reduction did not run to completion"
     elif audit.get("status") != "measured":
         reason = audit.get("reason") or "topology could not be measured"
+    elif not objects:
+        reason = "nothing was reduced: no mesh object was selected"
+    elif empty:
+        # A mesh with no triangles reports zero of every defect, which is not
+        # the same thing as a mesh that was qualified.
+        reason = "nothing was reduced: objects {} hold no triangles before or after".format(
+            ", ".join(str(index) for index in empty)
+        )
     elif not topology_clean(before):
         reason = "source topology not clean; reduction cannot qualify it"
     elif not saved:
         reason = "no reduced .blend was saved"
     elif not topology_clean(after):
-        reason = "reduction introduced boundary, nonmanifold or inconsistently wound edges"
+        reason = (
+            "reduction introduced boundary, nonmanifold or inconsistently wound edges, "
+            "or a nonmanifold vertex"
+        )
+    elif over:
+        reason = "over target: " + "; ".join(
+            f"object {index} holds {count} triangles against a target of {target_triangles}"
+            for index, count in over
+        )
     else:
         reason = None
     receipt = {
@@ -594,7 +637,8 @@ def reduce_mesh(
         "kind": "blender-reduce",
         "label": label,
         "blender": {"path": str(executable), "sha256": _readable_digest(executable)},
-        "source": file_record(root, original),
+        "source": source_record,
+        "source_after": source_after,
         "output": {
             "path": destination.relative_to(root).as_posix(),
             "present": saved,
@@ -603,7 +647,7 @@ def reduce_mesh(
         "target_triangles": target_triangles,
         "object_selected": object_name is not None,
         "weld_distance": (audit or {}).get("weld_distance"),
-        "objects": (audit or {}).get("objects", []),
+        "objects": objects,
         "before": before,
         "after": after,
         "ratio": (audit or {}).get("ratio"),
