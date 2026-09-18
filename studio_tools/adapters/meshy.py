@@ -369,7 +369,11 @@ def _balance_value(response):
     """
 
     def number(value):
-        return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        # json.loads turns 1e400 into inf, which no receipt or terminal should
+        # carry and which this CLI's own JSON writer refuses outright.
+        return value if math.isfinite(value) else None
 
     if not isinstance(response, dict):
         return None
