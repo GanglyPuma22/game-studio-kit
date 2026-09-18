@@ -125,15 +125,32 @@ def parser():
         "--source-fixture",
         help="Reuse a previously generated and inspected original fixture directory",
     )
-    c = command("blender", True)
-    c.add_argument("operation", choices=["fixture", "inspect", "export", "render"])
-    c.add_argument("--source")
-    c.add_argument("--collection")
-    c.add_argument("--camera")
-    c.add_argument("--frames", default="1")
-    c.add_argument("--angles", default="0")
-    c.add_argument("--target", default="0,0,0")
-    c.add_argument("--output", help="Required .glb destination for export; otherwise defaults to artifacts/blender")
+    # A remainder positional cannot follow another positional, so blender nests
+    # its operation the way playtest does: `run` carries the script passthrough.
+    # The four packaged operations keep the argument set they always had.
+    blender_command = sub.add_parser("blender")
+    blender_ops = blender_command.add_subparsers(dest="operation", required=True)
+    for name in ("fixture", "inspect", "export", "render"):
+        c = blender_ops.add_parser(name)
+        c.add_argument("--config")
+        c.add_argument("--project", required=True, help="Explicit game/output root outside the toolkit")
+        c.add_argument("--source")
+        c.add_argument("--collection")
+        c.add_argument("--camera")
+        c.add_argument("--frames", default="1")
+        c.add_argument("--angles", default="0")
+        c.add_argument("--target", default="0,0,0")
+        c.add_argument("--output", help="Required .glb destination for export; otherwise defaults to artifacts/blender")
+    c = blender_ops.add_parser("run")
+    c.add_argument("--config")
+    c.add_argument("--project", required=True, help="Explicit game/output root outside the toolkit")
+    c.add_argument("--source", required=True, help="Project-relative .blend this run opens")
+    c.add_argument("--script", required=True, help="Project-relative .py Blender runs inside that file")
+    c.add_argument("--label", help="Run identity under artifacts/blender/runs; default is a new UUID")
+    c.add_argument("--timeout", type=float, help="Seconds; default 600, maximum 3600")
+    c.add_argument("--result", action="append", default=[], help="Project-relative file the script must produce")
+    c.add_argument("passthrough", nargs=argparse.REMAINDER,
+                   help="-- and the arguments after it go to the script after Blender's own --")
     c = command("blender-mcp", True, config_required=True)
     c.add_argument("operation", choices=["ensure", "status", "stop", "contracts"])
     c.add_argument("--source")
@@ -397,6 +414,14 @@ def dispatch(a):
     if a.command == "blender":
         from .adapters import blender
 
+        if a.operation == "run":
+            # A project-owned script Blender executes headlessly inside a
+            # project-owned .blend; the receipts, not the exit code, are the
+            # reason this exists.
+            return blender.script_run(
+                config, root, source=a.source, script=a.script, label=a.label,
+                timeout=a.timeout, results=a.result, passthrough=list(a.passthrough),
+            )
         if a.operation == "export" and not a.output:
             raise StudioError("Blender export requires --output assets/name.glb relative to the project")
         out = path(a.output or "artifacts/blender")
