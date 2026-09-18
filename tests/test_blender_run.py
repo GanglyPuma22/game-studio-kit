@@ -307,6 +307,9 @@ class BlenderRunDiscoverabilityTests(unittest.TestCase):
         # The two limits an agent most needs before it trusts a green run.
         self.assertIn("it is not visual acceptance", text)
         self.assertIn("never their values", text)
+        # The run's working directory is what makes a relative --result land
+        # where the script writes it; the test above proves the behaviour.
+        self.assertIn("working directory", text)
 
     def test_the_director_routing_table_routes_a_headless_script_to_run(self):
         text = DIRECTOR.read_text(encoding="utf-8")
