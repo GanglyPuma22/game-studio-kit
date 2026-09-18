@@ -1,6 +1,6 @@
 # STATE: <run id>
 
-Updated: <UTC>  Compactions so far: <n>  (refresh the root after the third)
+Updated: <UTC>  Compactions so far: <n>
 
 ## Identity
 - Worktree / commit:
