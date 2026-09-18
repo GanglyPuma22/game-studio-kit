@@ -149,10 +149,21 @@ def parser():
     for flag, options in SHARED:
         blender_command.add_argument(flag, **options)
     blender_ops = blender_command.add_subparsers(dest="operation", required=True)
-    for name in ("fixture", "inspect", "export", "render", "run"):
+    ops = {}
+    for name in ("fixture", "inspect", "export", "render", "run", "reduce"):
         c = blender_ops.add_parser(name)
         for flag, options in SHARED:
             c.add_argument(flag, **{**options, "default": argparse.SUPPRESS})
+        ops[name] = c
+    # `reduce` takes the triangle budget and the file it writes; neither is
+    # declared required, because a shared option given before the operation
+    # name has to stay legal and `dispatch` is where what is missing is named.
+    c = ops["reduce"]
+    c.add_argument("--target-triangles", type=int,
+                   help="Triangles each reduced mesh object should hold; 100-5000000")
+    c.add_argument("--object", help="Reduce only this mesh object; default is every mesh object")
+    c.add_argument("--label", help="Reduction identity under artifacts/blender/reduce; default is a new UUID")
+    c = ops["run"]
     c.add_argument("--script", help="Project-relative .py Blender runs inside that file")
     c.add_argument("--label", help="Run identity under artifacts/blender/runs; default is a new UUID")
     c.add_argument("--timeout", type=float, help="Seconds; default 600, maximum 3600")
@@ -384,6 +395,22 @@ def dispatch(a):
             config, Path(a.project).resolve(), source=a.source, script=a.script,
             label=a.label, timeout=a.timeout, results=a.result,
             passthrough=list(a.passthrough),
+        )
+    if a.command == "blender" and a.operation == "reduce":
+        from .adapters import blender
+
+        # Reducing from an intact archived original is the alternative to
+        # paying for a remesh that arrives defective, so like `run` it works on
+        # a project that already exists and is not created by asking for it.
+        if not a.source or not a.output or a.target_triangles is None:
+            raise StudioError(
+                "blender reduce needs --source, --target-triangles and --output "
+                "relative to the project"
+            )
+        return blender.reduce_mesh(
+            config, Path(a.project).resolve(), source=a.source,
+            target_triangles=a.target_triangles, output=a.output,
+            object_name=a.object, label=a.label,
         )
     if a.command == "meshy" and a.operation == "balance":
         from .adapters import meshy
