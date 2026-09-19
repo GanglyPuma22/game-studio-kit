@@ -362,8 +362,19 @@ def script_run(
                 # exited on its own and whatever its script spawned is still
                 # this run's. Stop it before anything below is measured: a bake
                 # helper still running could rewrite a result after its digest.
-                left = stop_survivors(record["pid"], hide_window=True)
-                if left["pids"]:
+                left = stop_survivors(
+                    record["pid"], hide_window=True,
+                    ownership=record.get("windows_ownership"),
+                )
+                if left.get("unverified"):
+                    # These were left running on purpose: this run's evidence
+                    # does not show they are its own, so they are not its to kill.
+                    failure = failure or (
+                        "Processes under this run could not be attributed to it and were "
+                        "left running: "
+                        + ", ".join(str(entry["pid"]) for entry in left["unverified"])
+                    )
+                elif left["pids"]:
                     failure = failure or (
                         "Processes from this run outlived Blender; "
                         + ("they were stopped" if left["stopped"]
