@@ -131,7 +131,8 @@ class BlenderRunTests(BlenderRunCase):
             "path": "tools/rebake.py", "sha256": sha256(self.root / "tools/rebake.py"),
             "sha256_after_exit": sha256(self.root / "tools/rebake.py"),
         })
-        self.assertEqual(receipt["survivors"], {"status": "ok", "pids": [], "stopped": True})
+        self.assertEqual(receipt["survivors"],
+                         {"status": "ok", "pids": [], "stopped": True, "unverified": []})
         self.assertEqual(receipt["passthrough_count"], 2)
         self.assertEqual(receipt["result_files"], [{
             "path": "artifacts/bakes/normal.png", "present": True, "stale": False,
@@ -577,7 +578,7 @@ class BlenderRunOrderingTests(BlenderRunCase):
 
         def watched_stop(pid, **kwargs):
             order.append("survivors")
-            return {"status": "ok", "pids": [], "stopped": True}
+            return {"status": "ok", "pids": [], "stopped": True, "unverified": []}
 
         def watched_results(*args, **kwargs):
             order.append("results")

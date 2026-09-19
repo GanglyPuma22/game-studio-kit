@@ -64,11 +64,25 @@ unreadable declared results, launch inventory pairing of exit and process
 receipts including a declared record that is gone, and identity manifest
 match/mismatch/missing receipts including host-config engine items, receipt
 containment and absolute paths belonging to another host. The
-descendant test needs POSIX `/proc` and skips elsewhere; the Windows parent walk
-is unexercised. No engine, provider or desktop is involved.
+descendant test needs POSIX `/proc` and skips elsewhere. No engine, provider or
+desktop is involved.
 
 ```text
 python -m unittest discover -s tests -p test_launch_evidence.py -v
+```
+
+`test_process_identity.py` covers the Windows side of the same cleanup on this
+host, with the CIM rows and the process handle faked as in the cleanroom tests:
+a PID reused after the root exited is reported and not walked into, a child
+created during the root's lifetime is the only kind `taskkill` is reached for, a
+candidate with no creation time or no launch evidence is left running and
+reported in `unverified`, a process already running before the launch is not a
+descendant, and a receipt with unverified descendants never claims `stopped`.
+The POSIX case in the same file proves group cleanup is unchanged. No process is
+terminated on Windows here, because there is no Windows here.
+
+```text
+python -m unittest discover -s tests -p test_process_identity.py -v
 ```
 
 ## Headless Blender script runs and provider credentials

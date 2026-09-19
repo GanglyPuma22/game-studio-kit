@@ -133,6 +133,19 @@ host could not perform is `descendants_unverified`. A process that re-parented
 out of both is not seen. Priority, highest first: `interrupted`,
 `engine_replaced`, then the descendant verdicts.
 
+On Windows a PID is only a slot in the process table, and the engine has been
+reaped by the time its tree is walked, so a verified descendant is one whose
+parent chain reaches the engine through rows that are themselves verified,
+whose creation time falls inside the engine's own lifetime (both read from the
+handle the launcher owned, not from the PID), and which was not already running
+in the snapshot taken before the launch; only those are stopped, each one's
+identity read once more immediately before the kill. Everything else that
+merely hangs under that PID is listed in `survivors.unverified` with a reason
+and left running, and the launch is `descendants_unverified`: the operator has
+a process to look at and decide about by hand, and the alternative would be
+this launcher killing a stranger's process tree that happened to inherit the
+number. `stopped` is never true while anything is unverified.
+
 A `--result` must name engine output: a path inside
 this launch's own directory (its receipts, log or profile) is refused before
 anything is written, so a file this launcher wrote is never counted as evidence

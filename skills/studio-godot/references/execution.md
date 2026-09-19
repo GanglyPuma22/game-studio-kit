@@ -47,7 +47,9 @@ refused, since the launcher writes those, and the launch directory itself must
 resolve inside the project. When the engine exits on its own, anything still
 running in its group or tree is stopped and reported, giving
 `descendants_survived` (or `descendants_unverified` where this host cannot
-enumerate), so a launch that left a process behind is never `ok`.
+enumerate, or where a Windows process under the engine's PID could not be shown
+to be the engine's own and was left running), so a launch that left a process
+behind is never `ok`.
 `--scope <id>` records the scope rung the launch is evidence for in
 both receipts and the verdict, so a lower-rung result is never cited for a higher
 one. Headless modes never establish appearance, audible output or
