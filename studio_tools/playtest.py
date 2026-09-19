@@ -504,7 +504,9 @@ def execute(
         playtest.update(status="launched" if record.get("pid") else "start_failed", pid=record.get("pid"))
     left = None
     if interrupt is None and record.get("pid") and record.get("status") != "timed_out":
-        left = stop_survivors(record["pid"], hide_window=False)
+        left = stop_survivors(
+            record["pid"], hide_window=False, ownership=record.get("windows_ownership"),
+        )
         playtest["survivors"] = left
     verdict = None
     if interrupt is not None:
@@ -512,6 +514,13 @@ def execute(
     elif playtest["engine"]["sha256_after_exit"] != actual:
         verdict = "engine_replaced"
         failure = "Engine bytes changed during the playtest; the receipts describe bytes it no longer has"
+    elif left and left.get("unverified"):
+        # Left running deliberately: nothing here proves they are this job's.
+        verdict = "descendants_unverified"
+        failure = failure or (
+            "Processes under this playtest could not be attributed to it and were left "
+            "running: " + ", ".join(str(entry["pid"]) for entry in left["unverified"])
+        )
     elif left and left["pids"]:
         verdict = "descendants_survived"
         failure = failure or (

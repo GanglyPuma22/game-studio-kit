@@ -463,7 +463,7 @@ class OwnedLaunchTests(LaunchCase):
         # An engine that leaves nothing behind still completes.
         alone = self.execute("print('alone')", label="alone")
         self.assertEqual(alone["verdict"], "completed")
-        self.assertEqual(alone["survivors"], {"status": "ok", "pids": [], "stopped": True})
+        self.assertEqual(alone["survivors"], {"status": "ok", "pids": [], "stopped": True, "unverified": []})
 
     def test_launch_directory_must_stay_inside_the_project(self):
         external = Path(self.tmp.name) / "outside"
@@ -519,7 +519,7 @@ class OwnedLaunchTests(LaunchCase):
                 self.assertEqual(processes.survivors(4242),
                                  {"status": "ok", "pids": [], "note": None})
                 self.assertEqual(processes.stop_survivors(4242),
-                                 {"status": "ok", "pids": [], "stopped": True})
+                                 {"status": "ok", "pids": [], "stopped": True, "unverified": []})
             # A group that still exists but cannot be listed stays unavailable.
             with patch.object(processes.os, "killpg", return_value=None):
                 unknown = processes.survivors(4242)

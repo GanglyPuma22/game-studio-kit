@@ -264,7 +264,10 @@ def execute(
     if interrupt is None and record.get("pid") and record.get("status") != "timed_out":
         # The runner already stopped the tree on timeout; otherwise the engine
         # exited on its own and whatever it left running is still this launch's.
-        left = stop_survivors(record["pid"], hide_window=mode != "native")
+        left = stop_survivors(
+            record["pid"], hide_window=mode != "native",
+            ownership=record.get("windows_ownership"),
+        )
         launch["survivors"] = left
     verdict = None
     if interrupt is not None:
@@ -272,6 +275,14 @@ def execute(
     elif launch["engine"]["sha256_after_exit"] != actual:
         verdict = "engine_replaced"
         failure = "Engine bytes changed during the launch; the receipts describe bytes it no longer has"
+    elif left and left.get("unverified"):
+        # A process this launch cannot name was left running on purpose; say so
+        # first, because it is the finding an operator has to act on.
+        verdict = "descendants_unverified"
+        failure = failure or (
+            "Processes under this launch could not be attributed to it and were left "
+            "running: " + ", ".join(str(entry["pid"]) for entry in left["unverified"])
+        )
     elif left and left["pids"]:
         verdict = "descendants_survived"
         failure = failure or (

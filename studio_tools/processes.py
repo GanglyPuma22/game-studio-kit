@@ -5,7 +5,7 @@ from contextlib import ExitStack
 from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import signal
 import shutil
 import subprocess
@@ -67,15 +67,11 @@ def _proc_state(pid):
         return None
 
 
-def _windows_survivors(pid, hide_window):
-    """Walk the parent/child table; Windows has no process group to enumerate."""
+def _windows_rows(query, hide_window):
+    """Return parsed Win32_Process rows, or None when the query is unavailable."""
     shell = shutil.which("pwsh") or shutil.which("powershell")
     if not shell:
-        return {"status": "unavailable", "pids": [], "note": "no PowerShell to enumerate processes"}
-    query = (
-        "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId "
-        "| ConvertTo-Json -Compress"
-    )
+        return None
     try:
         done = subprocess.run(
             [shell, "-NoProfile", "-NonInteractive", "-Command", query],
@@ -84,16 +80,172 @@ def _windows_survivors(pid, hide_window):
         )
         rows = json.loads(done.stdout) if not done.returncode and done.stdout.strip() else None
     except (OSError, ValueError, subprocess.SubprocessError):
-        rows = None
+        return None
+    if isinstance(rows, dict):
+        return [rows]
+    return rows if isinstance(rows, list) else None
+
+
+# A PID alone names a slot in the process table, not a process: Windows hands
+# the same number to something new as soon as the old holder exits. The image
+# name and the creation time are what keep a row a process this job started.
+CIM_IDENTITY = (
+    "Select-Object ProcessId,ParentProcessId,Name,@{Name='CreationFileTime';Expression={"
+    "if ($_.CreationDate) {$_.CreationDate.ToUniversalTime().ToFileTimeUtc()} else {$null}}} "
+    "| ConvertTo-Json -Compress"
+)
+
+
+def _windows_row(row):
+    """Normalize one CIM row to the identity fields classification reads."""
+    try:
+        parent, name = row.get("ParentProcessId"), row.get("Name")
+        created = row.get("CreationFileTime")
+        return {
+            "pid": int(row["ProcessId"]),
+            "ppid": None if parent is None else int(parent),
+            "name": str(name) if name else None,
+            "created_filetime": str(created) if created else None,
+        }
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
+
+
+def _windows_snapshot(hide_window):
+    """Enumerate every process with its identity, or report the host cannot."""
+    rows = _windows_rows("Get-CimInstance Win32_Process | " + CIM_IDENTITY, hide_window)
     if rows is None:
-        return {"status": "unavailable", "pids": [], "note": "process enumeration failed"}
-    children = {}
-    for row in [rows] if isinstance(rows, dict) else rows:
-        try:
-            child, parent = int(row["ProcessId"]), int(row["ParentProcessId"])
-        except (AttributeError, KeyError, TypeError, ValueError):
-            continue
-        children.setdefault(parent, []).append(child)
+        # Keep telling an operator which of the two it is: one is fixable here.
+        note = ("process enumeration failed" if shutil.which("pwsh") or shutil.which("powershell")
+                else "no PowerShell to enumerate processes")
+        return {"status": "unavailable", "processes": [], "note": note}
+    found = [entry for entry in (_windows_row(row) for row in rows) if entry is not None]
+    if not found:
+        return {"status": "unavailable", "processes": [], "note": "no processes were enumerated"}
+    return {"status": "ok", "processes": found, "note": None}
+
+
+def _windows_identity(pid, hide_window):
+    """Read what one PID holds right now, or None when it cannot be read."""
+    rows = _windows_rows(
+        f"Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}' | " + CIM_IDENTITY,
+        hide_window,
+    )
+    return _windows_row(rows[0]) if rows else None
+
+
+def _windows_handle_times(process):
+    """Read (creation, exit) FILETIME through the handle `Popen` still owns.
+
+    The handle keeps an exited process's times readable after it was reaped,
+    which a PID query cannot do: by then the number may name something else.
+    An exit time of zero means the process is still running.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    class FileTime(ctypes.Structure):
+        _fields_ = [("low", wintypes.DWORD), ("high", wintypes.DWORD)]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(FileTime)] * 4
+    kernel32.GetProcessTimes.restype = wintypes.BOOL
+    creation, exited, kernel, user = FileTime(), FileTime(), FileTime(), FileTime()
+    if not kernel32.GetProcessTimes(
+        wintypes.HANDLE(int(process._handle)), ctypes.byref(creation),
+        ctypes.byref(exited), ctypes.byref(kernel), ctypes.byref(user),
+    ):
+        raise OSError(ctypes.get_last_error(), "GetProcessTimes failed")
+    ticks = lambda value: (int(value.high) << 32) | int(value.low)
+    return str(ticks(creation)), (str(ticks(exited)) if ticks(exited) else None)
+
+
+def _windows_image_name(process):
+    """Image name of the owned process, read from its handle."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+    size = wintypes.DWORD(32768)
+    image = ctypes.create_unicode_buffer(size.value)
+    if not kernel32.QueryFullProcessImageNameW(
+        wintypes.HANDLE(int(process._handle)), wintypes.DWORD(0), image, ctypes.byref(size)
+    ):
+        raise OSError(ctypes.get_last_error(), "QueryFullProcessImageNameW failed")
+    # Windows path, parsed as one whatever host the fakes in the tests run on.
+    return PureWindowsPath(image.value).name
+
+
+def _windows_root_identity(process, hide_window):
+    """Identity of the process this job just started, or None when unreadable."""
+    try:
+        created, _ = _windows_handle_times(process)
+        name = _windows_image_name(process)
+    except (AttributeError, ImportError, OSError, TypeError, ValueError):
+        # No handle identity on this host; the live CIM row is the only source,
+        # and it is read now, while the PID still belongs to this process.
+        row = _windows_identity(process.pid, hide_window)
+        if row is None:
+            return None
+        created, name = row["created_filetime"], row["name"]
+    return {"pid": int(process.pid), "name": name,
+            "created_filetime": created, "exited_filetime": None}
+
+
+def _identified(entry):
+    """Whether a row carries what makes it a process rather than a PID."""
+    return (
+        isinstance(entry, dict)
+        and isinstance(entry.get("pid"), int)
+        and bool(entry.get("name"))
+        and bool(entry.get("created_filetime"))
+    )
+
+
+def _same_identity(left, right):
+    return (
+        _identified(left) and _identified(right)
+        and left["pid"] == right["pid"]
+        and left["name"] == right["name"]
+        and left["created_filetime"] == right["created_filetime"]
+    )
+
+
+def _born_in_root_lifetime(entry, identity):
+    """Whether this row was created while the job's root process was alive."""
+    try:
+        created = int(entry["created_filetime"])
+        return int(identity["created_filetime"]) <= created <= int(identity["exited_filetime"])
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def _windows_ownership(baseline, identity):
+    """The launch-time evidence post-exit cleanup needs to name a descendant.
+
+    Only the pid and creation time of the prelaunch table are kept: that is all
+    the "was already running" test reads, and a receipt should not carry an
+    inventory of unrelated software running on the host.
+    """
+    note = None
+    if not isinstance(baseline, dict) or baseline.get("status") != "ok":
+        note = "prelaunch process snapshot unavailable"
+    elif not _identified(identity):
+        note = "launched process identity unavailable"
+    return {
+        "status": "ok" if note is None else "unavailable",
+        "identity": identity,
+        "prelaunch": [
+            {"pid": entry["pid"], "created_filetime": entry["created_filetime"]}
+            for entry in (baseline.get("processes", []) if isinstance(baseline, dict) else [])
+        ],
+        "note": note,
+    }
+
+
+def _windows_candidates(children, pid):
+    """Every PID reachable from `pid` by parent links, proven or not."""
     found, seen, queue = [], {pid}, [pid]
     while queue:
         for child in children.get(queue.pop(), ()):
@@ -101,7 +253,76 @@ def _windows_survivors(pid, hide_window):
                 seen.add(child)
                 found.append(child)
                 queue.append(child)
-    return {"status": "ok", "pids": sorted(found), "note": None}
+    return sorted(found)
+
+
+def _windows_survivors(pid, hide_window, ownership=None):
+    """Name only the descendants this job's launch evidence can account for.
+
+    Windows has no process group to enumerate, so the parent table is all there
+    is; but after the root was reaped its PID can already belong to something
+    else, and walking from it would then claim a stranger's tree. A row is this
+    job's descendant only when its parent chain reaches the root through rows
+    that passed the same test, it was created inside the root's lifetime, and
+    it was not already running when the job started. Anything else is a
+    candidate reported as unverified, never a process to signal.
+    """
+    snapshot = _windows_snapshot(hide_window)
+    if snapshot["status"] != "ok":
+        return {"status": "unavailable", "pids": [], "verified_pids": [], "identities": {},
+                "unverified": [], "ignored": [], "note": snapshot["note"]}
+    processes = {entry["pid"]: entry for entry in snapshot["processes"]}
+    children = {}
+    for entry in processes.values():
+        children.setdefault(entry["ppid"], []).append(entry["pid"])
+    identity = ownership.get("identity") if isinstance(ownership, dict) else None
+    if (
+        not isinstance(ownership, dict) or ownership.get("status") != "ok"
+        or not _identified(identity) or not identity.get("exited_filetime")
+        or identity["pid"] != pid
+    ):
+        # Without the evidence nothing under this PID can be attributed, so the
+        # tree is reported in full and left alone rather than walked and killed.
+        candidates = _windows_candidates(children, pid)
+        return {
+            "status": "unavailable", "pids": candidates, "verified_pids": [], "identities": {},
+            "unverified": [{"pid": member, "reason": "ownership_evidence_unavailable"}
+                           for member in candidates],
+            "ignored": [], "note": "launch identity evidence for this job is unavailable",
+        }
+    prelaunch = {entry["pid"]: entry for entry in ownership.get("prelaunch", [])
+                 if isinstance(entry, dict) and isinstance(entry.get("pid"), int)}
+    verified, unverified, ignored = [], [], []
+    seen, queue = {pid}, [pid]
+    while queue:
+        for child in children.get(queue.pop(), ()):
+            if child in seen:
+                continue
+            seen.add(child)
+            entry, older = processes[child], prelaunch.get(child)
+            if older is not None and not older.get("created_filetime"):
+                unverified.append({"pid": child, "reason": "prelaunch_identity_incomplete"})
+            elif not _identified(entry):
+                unverified.append({"pid": child, "reason": "current_identity_incomplete"})
+            elif older is not None and older["created_filetime"] == entry["created_filetime"]:
+                # The same process was running before this job started.
+                ignored.append(child)
+            elif not _born_in_root_lifetime(entry, identity):
+                unverified.append({"pid": child, "reason": "created_outside_root_lifetime"})
+            else:
+                verified.append(child)
+                # Only a verified parent extends the chain: an unproven row
+                # cannot lend its children this job's name.
+                queue.append(child)
+    return {
+        "status": "unavailable" if unverified else "ok",
+        "pids": sorted(verified + [entry["pid"] for entry in unverified]),
+        "verified_pids": sorted(verified),
+        "identities": {str(member): processes[member] for member in verified},
+        "unverified": sorted(unverified, key=lambda entry: entry["pid"]),
+        "ignored": sorted(ignored),
+        "note": "a process under this job could not be identified" if unverified else None,
+    }
 
 
 def _windows_alive(pid):
@@ -149,14 +370,16 @@ def alive(pid):
     return state is not None and state[0] != "Z"
 
 
-def survivors(pid, hide_window=False):
+def survivors(pid, hide_window=False, ownership=None):
     """List processes of this job that are still running after its leader exited.
 
     POSIX jobs start in a new session, so the leader's PID is the process group
     every descendant inherits; a zombie holds no resources and is not listed.
+    Windows has no such group, so it needs `ownership`: the launch-time
+    identity evidence `run` recorded, without which nothing can be attributed.
     """
     if os.name == "nt":
-        return _windows_survivors(pid, hide_window)
+        return _windows_survivors(pid, hide_window, ownership)
     if PROC.is_dir():
         found = []
         for entry in PROC.iterdir():
@@ -179,29 +402,71 @@ def survivors(pid, hide_window=False):
     }
 
 
-def stop_survivors(pid, hide_window=False):
+def _windows_stop(pid, hide_window, ownership, before):
+    """Terminate the verified descendants only, each proven again at the kill.
+
+    `taskkill` takes a PID, so the row that named a descendant a moment ago is
+    re-read immediately before signalling it: a number that changed hands since
+    the snapshot is skipped and reported instead of killed.
+    """
+    refused = []
+    for member in before["verified_pids"]:
+        if not _same_identity(before["identities"].get(str(member)),
+                              _windows_identity(member, hide_window)):
+            refused.append({"pid": member, "reason": "identity_changed_before_stop"})
+            continue
+        try:
+            # /T takes the tree under a process this job has been shown to own;
+            # what hangs below a proven descendant is this job's by descent.
+            subprocess.run(
+                ["taskkill", "/PID", str(member), "/T", "/F"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                check=False, timeout=5, **_creation_options(hide_window),
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
+    # Termination is asynchronous; give the verified set a bounded moment to go.
+    deadline = time.monotonic() + 5
+    after = survivors(pid, hide_window, ownership)
+    while after["verified_pids"] and time.monotonic() < deadline:
+        time.sleep(0.025)
+        after = survivors(pid, hide_window, ownership)
+    unverified = sorted(before["unverified"] + refused, key=lambda entry: entry["pid"])
+    status = "ok" if (
+        before["status"] == "ok" and after["status"] == "ok" and not unverified
+    ) else "unavailable"
+    return {
+        "status": status,
+        "pids": before["pids"],
+        "stopped": status == "ok" and not after["verified_pids"],
+        "verified_pids": before["verified_pids"],
+        "unverified": unverified,
+        "ignored": before["ignored"],
+        "note": before["note"] or (
+            "processes under this job were left running because this launch's "
+            "evidence does not name them" if unverified else None
+        ),
+    }
+
+
+def stop_survivors(pid, hide_window=False, ownership=None):
     """Stop what outlived this job's leader, then re-enumerate to prove it.
 
-    `pids` are the survivors found before stopping. The leader has already been
-    reaped by its own waiter, so a reused PID is an accepted, bounded risk here.
+    `pids` are the candidates found before stopping. POSIX signals the process
+    group, which no reused PID can join. Windows has only PIDs, and the leader
+    has already been reaped, so a PID is signalled there only when the launch
+    evidence in `ownership` shows it as a descendant created during the
+    leader's life; anything else is left running and reported in `unverified`,
+    because a process this job cannot name may well belong to somebody else.
     """
-    before = survivors(pid, hide_window)
+    before = survivors(pid, hide_window, ownership)
+    if os.name == "nt":
+        return _windows_stop(pid, hide_window, ownership, before)
     if before["pids"] or before["note"]:
-        if os.name == "nt":
-            for member in before["pids"]:
-                try:
-                    subprocess.run(
-                        ["taskkill", "/PID", str(member), "/T", "/F"],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                        check=False, timeout=5, **_creation_options(hide_window),
-                    )
-                except (OSError, subprocess.SubprocessError):
-                    pass
-        else:
-            try:
-                os.killpg(pid, signal.SIGKILL)
-            except OSError:
-                pass
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except OSError:
+            pass
     # Signal delivery is asynchronous; give the group a bounded moment to go.
     deadline = time.monotonic() + 5
     after = survivors(pid, hide_window)
@@ -212,6 +477,9 @@ def stop_survivors(pid, hide_window=False):
         "status": before["status"],
         "pids": before["pids"],
         "stopped": after["status"] == "ok" and not after["pids"],
+        # One shape for both hosts: a POSIX group signal reaches every member,
+        # so nothing there is ever left behind unattributed.
+        "unverified": [],
     }
 
 
@@ -250,6 +518,11 @@ def run(
         "hidden_console_requested": hide_window,
     }
     record_path = folder / "process.json" if folder is not None else None
+    # Taken before the child exists, so every process it can later be confused
+    # with is already on record as somebody else's. Only a job directory keeps
+    # the evidence, so a run without one does not pay for the enumeration.
+    owns_identity = os.name == "nt" and record_path is not None
+    baseline = _windows_snapshot(hide_window) if owns_identity else None
 
     def save_record():
         if record_path is not None:
@@ -289,6 +562,13 @@ def run(
                     f"Could not start {Path(str(args[0])).name}; check executable configuration"
                 ) from exc
             record.update(status="running", pid=process.pid)
+            if owns_identity:
+                # Read now, while the handle is fresh and the PID is certainly
+                # this process: after the wait below reaps it, the number alone
+                # proves nothing about what is running under it.
+                record["windows_ownership"] = _windows_ownership(
+                    baseline, _windows_root_identity(process, hide_window)
+                )
             save_record()
             try:
                 process.wait(timeout=timeout)
@@ -336,6 +616,19 @@ def run(
             raise
         finally:
             capture.flush()
+            owned_identity = (record.get("windows_ownership") or {}).get("identity")
+            if owns_identity and process is not None and isinstance(owned_identity, dict):
+                # The exit time closes the window a descendant of this job could
+                # have been created in; without it nothing can be attributed.
+                try:
+                    _, exited = _windows_handle_times(process)
+                except (AttributeError, ImportError, OSError, TypeError, ValueError):
+                    exited = None
+                owned_identity["exited_filetime"] = exited
+                if not exited:
+                    record["windows_ownership"].update(
+                        status="unavailable", note="launched process exit identity unavailable"
+                    )
             record.update(
                 finished_utc=datetime.now(timezone.utc).isoformat(),
                 elapsed_seconds=round(time.monotonic() - start, 3),
