@@ -34,6 +34,11 @@ def parser():
     c.add_argument("--report")
     c.add_argument("--output")
     c = command("launch", True)
+    c.description = (
+        "Run the engine once for a project-owned script and return one verdict. "
+        "The command blocks until the engine exits, for up to --timeout seconds, "
+        "so the caller's harness must be told to wait at least that long."
+    )
     c.add_argument("--sha256", required=True, help="Expected SHA-256 of executables.godot from the host config")
     c.add_argument("--mode", choices=["import", "test", "check", "native"], default="import")
     c.add_argument("--script", help="Engine script argument, for example res://tests/test_runner.gd")
@@ -48,6 +53,11 @@ def parser():
     # than a `launch` sub-verb because `launch`'s passthrough is a remainder
     # positional and argparse cannot put another positional in front of one.
     c = command("batch", True)
+    c.description = (
+        "Run the planned launches in order and return one verdict. The command "
+        "blocks until the last run has finished, for up to --max-minutes, so the "
+        "caller's harness must be told to wait at least that long."
+    )
     c.add_argument("--plan", required=True, help="JSON plan listing the runs; see templates/batch-plan.json")
     c.add_argument("--sha256", required=True, help="Expected SHA-256 of executables.godot from the host config")
     c.add_argument("--label", help="Batch identity under artifacts/batches; default is a new UUID")
@@ -59,7 +69,14 @@ def parser():
     # A remainder positional cannot follow another positional, so playtest nests
     # its operation the way bench does: `start` carries the engine passthrough,
     # and `collect` completes one attended session.
-    playtest = sub.add_parser("playtest")
+    playtest = sub.add_parser(
+        "playtest",
+        description=(
+            "Play a build and collect the session. `start` blocks while the "
+            "session runs, for up to --max-minutes (uncapped for handoff), so "
+            "the caller's harness must be told to wait at least that long."
+        ),
+    )
     ops = playtest.add_subparsers(dest="operation", required=True)
     c = ops.add_parser("start")
     c.add_argument("--config")
