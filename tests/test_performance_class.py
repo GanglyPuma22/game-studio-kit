@@ -170,7 +170,7 @@ class RollupTests(unittest.TestCase):
             receipt={"content_digest": self.candidate["content_digest"],
                      "performance_class": "diagnostic"},
         )
-        self.assertEqual(self.verdict()["performance_class"], "mixed")
+        self.assertEqual(self.verdict()["performance_class"], "diagnostic")
 
     def test_a_qualification_taken_from_other_content_does_not_count(self):
         stale = self.row("bench.json")

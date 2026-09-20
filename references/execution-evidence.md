@@ -470,8 +470,9 @@ own `performance_class` rollup is recomputed over the `current` rows only:
 `clean_qualification` when every one of them is a clean qualification,
 `subjective_acceptance` when every one of them is a person's own review
 (`native_visual`, `native_capture_review`, `listening`, `ordinary_input`) with
-no measured class, `mixed` when the classes differ — including a verdict resting
-only on diagnostics — and `unverified` when no row still describes this content.
+no measured class, `diagnostic` when every one of them is a diagnostic,
+`mixed` when the classes differ, and `unverified` when no row still describes
+this content. Only `clean_qualification` qualifies a performance claim.
 `clean_qualification` means the number was measured in a window nothing else
 contended for; it is not a claim that the number is good.
 

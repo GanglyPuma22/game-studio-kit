@@ -115,6 +115,10 @@ def performance_rollup(entries):
         return "clean_qualification"
     if classes == {"subjective_acceptance"}:
         return "subjective_acceptance"
+    if classes == {"diagnostic"}:
+        # Honest about what it is: numbers taken on a busy host, from a plain
+        # launch, that were never meant to qualify anything.
+        return "diagnostic"
     return "mixed"
 
 
