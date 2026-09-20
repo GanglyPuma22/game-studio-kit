@@ -22,7 +22,7 @@ import math
 from pathlib import Path
 import uuid
 from . import launch
-from .common import StudioError, outside_package, relative, safe_id, write_json
+from .common import StudioError, kit_identity, outside_package, relative, safe_id, write_json
 from .launch import MODES, parse_utc
 
 PLAN_KIND = "launch-batch-plan"
@@ -287,6 +287,7 @@ def _rollup(root, label, plan_record, started, deadline, max_minutes,
     return {
         "schema_version": 1,
         "kind": "launch-batch",
+        "kit": kit_identity(),
         "label": label,
         "project": str(root),
         "plan": plan_record,

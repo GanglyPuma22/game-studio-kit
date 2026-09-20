@@ -15,7 +15,9 @@ from pathlib import Path
 import re
 import uuid
 from .adapters.godot import classify_log, self_contained
-from .common import StudioError, outside_package, read_json, relative, safe_id, sha256, write_json
+from .common import (
+    StudioError, kit_identity, outside_package, read_json, relative, safe_id, sha256, write_json,
+)
 from .config import app_path, require_executable
 from .processes import prelaunch_baseline, run, stop_survivors
 
@@ -30,6 +32,7 @@ LIMITS = [
     "headless modes never establish appearance, audible output or ordinary controls",
     "descendants are enumerated by process group (POSIX) or parent walk (Windows); "
     "a process that re-parented out of both is not seen",
+    "ready_seconds is a load-time measurement, never acceptance",
 ]
 PROFILE_KEYS = ("XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "APPDATA", "LOCALAPPDATA")
 INVENTORY_LIMITS = [
@@ -114,6 +117,34 @@ def _remaining(cutoff, limit, launch, run_dir):
     return effective
 
 
+def ready_marker(project):
+    """The literal line substring this project says its engine prints once it is up.
+
+    Declared in `project.json` under `settings.ready_marker`. A project that
+    declares nothing gets no marker and its log is never read while it runs. A
+    project that declares something other than a nonempty string is refused
+    rather than silently measured as never ready.
+    """
+    path = Path(project) / "project.json"
+    if not path.is_file():
+        return None
+    try:
+        record = read_json(path)
+    except StudioError:
+        # A project.json this kit cannot parse is not a timing configuration;
+        # the run still happens, with no marker to watch for.
+        return None
+    settings = record.get("settings") if isinstance(record, dict) else None
+    marker = settings.get("ready_marker") if isinstance(settings, dict) else None
+    if marker is None:
+        return None
+    if not isinstance(marker, str) or not marker:
+        raise StudioError(
+            "project.json settings.ready_marker must be a nonempty literal line substring"
+        )
+    return marker
+
+
 def _readable_digest(path):
     """Hash a file, reporting no digest instead of raising when it cannot be read."""
     try:
@@ -153,6 +184,7 @@ def execute(
     prefixes = list(scrub)
     if not all(isinstance(p, str) and p for p in prefixes):
         raise StudioError("Environment scrub prefixes must be non-empty strings")
+    marker = ready_marker(root)
     label = safe_id(label) if label else uuid.uuid4().hex
     # The scope rung this launch is evidence for; validated like a label so a
     # receipt can be matched to a ladder rung without free text.
@@ -192,6 +224,7 @@ def execute(
     launch = {
         "schema_version": 1,
         "kind": "owned-launch",
+        "kit": kit_identity(),
         "label": label,
         "scope": scope,
         "mode": mode,
@@ -260,7 +293,7 @@ def execute(
         run(
             args, cwd=str(root), timeout=effective, env=environment,
             hide_window=mode != "native", job_dir=run_dir / "process",
-            baseline=baseline,
+            baseline=baseline, ready_marker=marker,
         )
     except StudioError as exc:
         failure = str(exc)
@@ -346,8 +379,15 @@ def _finish(root, run_dir, launch, record, text, verdict, failure, survivors=Non
             "stale": stale, "unreadable": unreadable, "escaped": False, "sha256": digest,
         })
     status = record.get("status", "start_failed") if record else "refused"
+    returncode = (record or {}).get("returncode")
     if verdict is None:
-        if status == "completed":
+        if status == "failed" and returncode not in (None, 0) and diagnostics["phase"] == "load":
+            # The engine exited non-zero with a load-time error as its first
+            # diagnostic: it never reached the game. Said before engine_errors,
+            # which describes a game that ran and complained. No elapsed time
+            # is consulted; a slow host is not a startup failure.
+            verdict = "startup_failure"
+        elif status == "completed":
             if diagnostics["error_count"]:
                 verdict = "engine_errors"
             elif any(entry["escaped"] for entry in result_files):
@@ -368,13 +408,18 @@ def _finish(root, run_dir, launch, record, text, verdict, failure, survivors=Non
     exit_record = {
         "schema_version": 1,
         "kind": "launch-exit",
+        "kit": kit_identity(),
         "label": launch["label"],
         "scope": launch.get("scope"),
         "verdict": verdict,
         "ok": verdict == "completed",
         "status": status,
-        "returncode": (record or {}).get("returncode"),
+        "returncode": returncode,
         "elapsed_seconds": (record or {}).get("elapsed_seconds"),
+        # How long the engine took to print the marker the project declared,
+        # measured from Popen. Null when nothing was declared or nothing
+        # printed it. It is timing, not acceptance.
+        "ready_seconds": (record or {}).get("ready_seconds"),
         "timed_out": status == "timed_out",
         "cleanup": (record or {}).get("cleanup"),
         "survivors": survivors,
@@ -385,6 +430,12 @@ def _finish(root, run_dir, launch, record, text, verdict, failure, survivors=Non
         "finished_utc": datetime.now(timezone.utc).isoformat(),
         "limits": LIMITS,
     }
+    if launch["mode"] == "native" and launch["expected_results"]:
+        # A native launch that had to produce a declared file is the closest
+        # thing this launcher does to a capture, and it was measured on
+        # whatever else the host was running. Anything measured from it is a
+        # diagnostic number; only a cleanroom bench can qualify one.
+        exit_record["performance_class"] = "diagnostic"
     write_json(run_dir / "exit.json", exit_record)
     return {
         **exit_record,

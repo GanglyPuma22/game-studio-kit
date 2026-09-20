@@ -207,6 +207,37 @@ def app_path(config, path, tool=None):
     return resolved
 
 
+def _credential_entries(text):
+    """Yield every `(name, value)` a credential file body declares.
+
+    One parser, so what `credential` reads and what `doctor` reports can never
+    describe two different files.
+    """
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].lstrip()
+        key, separator, value = line.partition("=")
+        if not separator:
+            continue
+        value = value.strip()
+        if len(value) > 1 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        yield key.strip(), value
+
+
+def _credential_file_text(path):
+    """The body of one declared credential file, or None when it cannot be read."""
+    try:
+        # utf-8-sig: a file written by a Windows editor starts with a byte-order
+        # mark, and a BOM in front of the first name is part of that name.
+        return Path(path).expanduser().read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return None
+
+
 def _credential_file_value(path, name):
     """Read `name` out of one declared `KEY=VALUE` file, or None.
 
@@ -215,27 +246,54 @@ def _credential_file_value(path, name):
     for it and is never put into `os.environ`, so nothing this kit starts
     inherits a key it was not given deliberately.
     """
-    try:
-        # utf-8-sig: a file written by a Windows editor starts with a byte-order
-        # mark, and a BOM in front of the first name is part of that name.
-        text = Path(path).expanduser().read_text(encoding="utf-8-sig", errors="replace")
-    except OSError:
+    text = _credential_file_text(path)
+    if text is None:
         return None
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[len("export ") :].lstrip()
-        key, separator, value = line.partition("=")
-        if not separator or key.strip() != name:
-            continue
-        value = value.strip()
-        if len(value) > 1 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        if value:
+    for key, value in _credential_entries(text):
+        if key == name and value:
             return value
     return None
+
+
+def credential_source(config, provider):
+    """Where this provider's key would actually come from: environment, file or nowhere.
+
+    The same order `credential` resolves in, so a report cannot name a source
+    the next call would not use. No value is returned or logged — only which
+    of the two places holds one.
+    """
+    name = config["credentials"].get(provider)
+    if not name:
+        return "none"
+    if os.environ.get(name):
+        return "environment"
+    for path in config.get("credential_files", []):
+        if _credential_file_value(path, name):
+            return "file"
+    return "none"
+
+
+def credential_file_report(config):
+    """Per declared credential file: present, readable, and the names it declares.
+
+    Names only. A name appearing here says the file mentions it, not that it
+    carries a usable value and not that any provider is entitled to use it;
+    `credential_source` is the answer to that question.
+    """
+    report = []
+    for item in config.get("credential_files", []):
+        entry = {"path": item, "present": False, "readable": False, "keys": []}
+        try:
+            entry["present"] = Path(item).expanduser().is_file()
+        except OSError:
+            entry["present"] = False
+        if entry["present"]:
+            text = _credential_file_text(item)
+            if text is not None:
+                entry["readable"] = True
+                entry["keys"] = sorted({key for key, _ in _credential_entries(text) if key})
+        report.append(entry)
+    return report
 
 
 def credential(config, provider):

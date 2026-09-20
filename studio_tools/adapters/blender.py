@@ -9,6 +9,7 @@ import uuid
 from ..common import (
     StudioError,
     file_record,
+    kit_identity,
     outside_package,
     read_json,
     relative,
@@ -148,7 +149,13 @@ def inspect(config, source, output):
         log=output.with_suffix(".log"),
         hide_window=True,
     )
-    return read_json(output)
+    report = read_json(output)
+    if isinstance(report, dict):
+        # Blender wrote the measurements; this records which kit asked for them
+        # and parsed them, so the file names the code that produced it.
+        report = {**report, "kit": kit_identity()}
+        write_json(output, report)
+    return report
 
 
 def export(config, source, collection, output):
@@ -336,7 +343,8 @@ def script_run(
     # leave a directory nothing explains. Everything written here is replaced
     # by the full receipt at the end of the run.
     write_json(run_dir / "run.json", {
-        "schema_version": 1, "kind": "blender-run", "label": label, **identity,
+        "schema_version": 1, "kind": "blender-run", "kit": kit_identity(),
+        "label": label, **identity,
         "passthrough_count": len(extra), "results_before": results_before,
         "started_utc": started.isoformat(), "finished_utc": None,
         "status": "starting", "returncode": None, "elapsed_seconds": None,
@@ -456,6 +464,7 @@ def script_run(
     receipt = {
         "schema_version": 1,
         "kind": "blender-run",
+        "kit": kit_identity(),
         "label": label,
         **identity,
         "passthrough_count": len(extra),
@@ -724,6 +733,7 @@ def reduce_mesh(
     receipt = {
         "schema_version": 1,
         "kind": "blender-reduce",
+        "kit": kit_identity(),
         "label": label,
         "blender": {
             "path": str(executable),

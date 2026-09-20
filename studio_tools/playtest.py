@@ -20,10 +20,14 @@ import subprocess
 import uuid
 from .adapters.godot import classify_log, self_contained
 from .common import (
-    StudioError, file_record, outside_package, read_json, relative, safe_id, sha256, write_json,
+    StudioError, file_record, kit_identity, outside_package, read_json, relative, safe_id,
+    sha256, write_json,
 )
 from .config import app_path, executable, require_executable
-from .launch import IS_WINDOWS, MAX_TIMEOUT, PROFILE_KEYS, _readable_digest, _scrubbed, mode_flags, parse_utc
+from .launch import (
+    IS_WINDOWS, MAX_TIMEOUT, PROFILE_KEYS, _readable_digest, _scrubbed, mode_flags,
+    parse_utc, ready_marker,
+)
 from .processes import alive, prelaunch_baseline, run, start, stop_started, stop_survivors
 
 SESSIONS = ("handoff", "attended", "driven")
@@ -38,6 +42,7 @@ LIMITS = [
     "script-injected input establishes wiring, not normal-input usability",
     "descendants are enumerated by process group (POSIX) or parent walk (Windows); "
     "a process that re-parented out of both is not seen",
+    "ready_seconds is a load-time measurement, never acceptance",
 ]
 # Nobody waited for an attended session, so its receipt claims strictly less.
 ATTENDED_LIMITS = LIMITS + [
@@ -262,6 +267,9 @@ def execute(
             "A driven playtest takes its scene from the harness; set it there rather than with --scene"
         )
     scene = _scene(scene)
+    # Read before any label is reserved, so a project that declares a marker
+    # this kit cannot use is refused rather than half-recorded.
+    marker = ready_marker(root)
     engine_path = Path(require_executable(config, "godot")).expanduser()
     if not engine_path.is_file():
         raise StudioError("Engine executable is missing; set executables.godot in the host config")
@@ -378,6 +386,7 @@ def execute(
     playtest = {
         "schema_version": 1,
         "kind": "playtest",
+        "kit": kit_identity(),
         "label": label,
         "session": session,
         "scene": scene,
@@ -505,6 +514,7 @@ def execute(
         run(
             args, cwd=str(root), timeout=effective, env=environment,
             hide_window=False, job_dir=run_dir / "process", baseline=baseline,
+            ready_marker=marker,
         )
     except StudioError as exc:
         failure = str(exc)
@@ -633,8 +643,14 @@ def _finish(root, run_dir, playtest, record, text, verdict, failure, survivors=N
     result_files = _result_files(root, playtest)
     harness_record, harness_fault = _harness(root, run_dir, playtest)
     status = record.get("status", "start_failed") if record else "refused"
+    returncode = (record or {}).get("returncode")
     if verdict is None:
-        verdict = _health(diagnostics, result_files, "completed") if status == "completed" else status
+        if status == "failed" and returncode not in (None, 0) and diagnostics["phase"] == "load":
+            # The engine exited non-zero on a load-time error: this session
+            # never reached the game, so nobody could have played it.
+            verdict = "startup_failure"
+        else:
+            verdict = _health(diagnostics, result_files, "completed") if status == "completed" else status
         if verdict == "completed" and harness_fault:
             verdict = harness_fault
             failure = failure or "The driven harness did not report a passing route"
@@ -643,6 +659,7 @@ def _finish(root, run_dir, playtest, record, text, verdict, failure, survivors=N
     exit_record = {
         "schema_version": 1,
         "kind": "playtest-exit",
+        "kit": kit_identity(),
         "label": playtest["label"],
         "session": playtest["session"],
         "verdict": verdict,
@@ -651,8 +668,10 @@ def _finish(root, run_dir, playtest, record, text, verdict, failure, survivors=N
         "ok": verdict == "completed",
         "acceptance": "not_established",
         "status": status,
-        "returncode": (record or {}).get("returncode"),
+        "returncode": returncode,
         "elapsed_seconds": (record or {}).get("elapsed_seconds"),
+        # Load-time timing from the marker this project declares, if any.
+        "ready_seconds": (record or {}).get("ready_seconds"),
         "timed_out": status == "timed_out",
         "cleanup": (record or {}).get("cleanup"),
         "survivors": survivors,
@@ -769,6 +788,7 @@ def _collected(config, root, run_dir, record_path, playtest):
     exit_record = {
         "schema_version": 1,
         "kind": "playtest-exit",
+        "kit": kit_identity(),
         "label": playtest["label"],
         "session": "attended",
         "verdict": verdict,
@@ -779,6 +799,8 @@ def _collected(config, root, run_dir, record_path, playtest):
         "status": "unobserved",
         "returncode": None,
         "elapsed_seconds": None,
+        # Nothing waited for this session, so no marker was ever watched for.
+        "ready_seconds": record.get("ready_seconds"),
         "collected_after_seconds": round(
             (datetime.now(timezone.utc) - parse_utc(started)).total_seconds(), 3
         ) if started else None,

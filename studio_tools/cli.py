@@ -89,9 +89,11 @@ def parser():
     c.add_argument("--project", required=True, help="Explicit game/output root outside the toolkit")
     c.add_argument("--label", required=True, help="The attended session to complete, exactly once")
     c = command("evidence")
-    c.add_argument("operation", choices=["launches"])
-    c.add_argument("run_root")
+    c.add_argument("operation", choices=["launches", "verify"])
+    c.add_argument("run_root", nargs="?", help="Run root to index; `launches` only")
     c.add_argument("--output", help="Inventory JSON path; default is a dated file under the run root")
+    c.add_argument("--receipt", help="Receipt whose recorded result files are re-hashed; `verify` only")
+    c.add_argument("--project", help="Project root the receipt's recorded paths are relative to")
     # A remainder positional cannot follow another positional, so bench nests its operation.
     bench = sub.add_parser("bench")
     c = bench.add_subparsers(dest="operation", required=True).add_parser("cleanroom")
@@ -354,8 +356,16 @@ def dispatch(a):
             resolution=a.resolution,
         )
     if a.command == "evidence":
+        if a.operation == "verify":
+            from .evidence import verify_receipt
+
+            if not a.receipt:
+                raise StudioError("evidence verify needs --receipt")
+            return verify_receipt(a.receipt, a.project)
         from .launch import inventory
 
+        if not a.run_root:
+            raise StudioError("evidence launches needs a run root")
         return inventory(a.run_root, a.output)
     if a.command == "host":
         from .host import apply as host_apply, preflight
