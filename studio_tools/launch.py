@@ -217,9 +217,16 @@ def execute(
     environment = _scrubbed(prefixes)
     for key in PROFILE_KEYS:
         environment[key] = app_path(config, profile, "godot")
+    # Snapshot, then bytes, then cutoff. Taken here rather than inside `run`
+    # because on Windows enumerating every process can take half a minute: a
+    # snapshot after the two checks below would sit between a digest this
+    # launch verified and the engine it starts, and would spend part of the
+    # authorized window after that window was judged open.
+    baseline = prelaunch_baseline(hide_window=mode != "native")
     # The digest verified above described bytes that could have been replaced
-    # while this launch was prepared, so the engine is re-read before starting:
-    # only the verified identity may start.
+    # while this launch was prepared, so the engine is re-read after the last
+    # slow step and immediately before starting: only the verified identity
+    # may start.
     if _readable_digest(engine_path) != actual:
         launch.update(status="refused", timeout_seconds_effective=None, process_record=None)
         write_json(run_dir / "owned-launch.json", launch)
@@ -227,15 +234,10 @@ def execute(
             root, run_dir, launch, None, "", "engine_replaced",
             "Engine bytes changed before the launch; the verified identity did not start",
         )
-    # Taken here rather than inside `run`: on Windows the prelaunch process
-    # enumeration is one of the slow steps, and a snapshot taken after the
-    # recheck would spend part of the authorized window after it was judged
-    # open, then hand the engine a timeout computed before that cost.
-    baseline = prelaunch_baseline(hide_window=mode != "native")
-    # Writing the receipts, preparing the profile, hashing the engine and the
-    # snapshot above all consume part of the window, so the authorization is
-    # rechecked last, after every slow step: the wait `run` gets is what is
-    # left of it right now.
+    # Writing the receipts, preparing the profile, the snapshot and hashing the
+    # engine all consume part of the window, so the authorization is rechecked
+    # last, after every slow step: the wait `run` gets is what is left of it
+    # right now.
     effective = _remaining(cutoff, limit, launch, run_dir)
     if effective is None:
         return _finish(

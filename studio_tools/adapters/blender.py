@@ -18,7 +18,7 @@ from ..common import (
 )
 from ..blender_scripts.topology import clean as topology_clean
 from ..config import require_executable, app_path
-from ..processes import run, stop_survivors
+from ..processes import prelaunch_baseline, run, stop_survivors
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "blender_scripts"
 RUN_DEFAULT_TIMEOUT = 600
@@ -331,9 +331,15 @@ def script_run(
     record = {"status": "start_failed"}
     left = None
     result_files = []
+    # Snapshot, then bytes: on Windows enumerating every process can take half
+    # a minute, and taking it inside `run` would put that query between the
+    # digest checked here and the process that starts, so an executable
+    # replaced during the query would start with the verified hash on record.
+    baseline = prelaunch_baseline(hide_window=True)
     # The digest above described bytes that could have been replaced while this
-    # run was prepared, so the executable is read again here: only the verified
-    # identity may start, and a mismatch is a receipt rather than a launch.
+    # run was prepared, so the executable is read again after that last slow
+    # step: only the verified identity may start, and a mismatch is a receipt
+    # rather than a launch.
     if _readable_digest(executable) != blender_digest:
         failure = (
             "Blender executable changed before the run; the verified identity did not start"
@@ -343,7 +349,7 @@ def script_run(
         try:
             run(
                 args, cwd=str(root), timeout=float(limit),
-                hide_window=True, job_dir=run_dir / "process",
+                hide_window=True, job_dir=run_dir / "process", baseline=baseline,
             )
         except StudioError as exc:
             # A nonzero exit or a timeout is this command's answer, not its crash.
