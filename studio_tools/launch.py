@@ -17,7 +17,7 @@ import uuid
 from .adapters.godot import classify_log, self_contained
 from .common import StudioError, outside_package, read_json, relative, safe_id, sha256, write_json
 from .config import app_path, require_executable
-from .processes import run, stop_survivors
+from .processes import prelaunch_baseline, run, stop_survivors
 
 MODES = ("import", "test", "check", "native")
 MAX_TIMEOUT = 3600
@@ -227,9 +227,15 @@ def execute(
             root, run_dir, launch, None, "", "engine_replaced",
             "Engine bytes changed before the launch; the verified identity did not start",
         )
-    # Writing the receipts, preparing the profile and hashing the engine all
-    # consume part of the window, so the authorization is rechecked last, after
-    # every slow step: the wait `run` gets is what is left of it right now.
+    # Taken here rather than inside `run`: on Windows the prelaunch process
+    # enumeration is one of the slow steps, and a snapshot taken after the
+    # recheck would spend part of the authorized window after it was judged
+    # open, then hand the engine a timeout computed before that cost.
+    baseline = prelaunch_baseline(hide_window=mode != "native")
+    # Writing the receipts, preparing the profile, hashing the engine and the
+    # snapshot above all consume part of the window, so the authorization is
+    # rechecked last, after every slow step: the wait `run` gets is what is
+    # left of it right now.
     effective = _remaining(cutoff, limit, launch, run_dir)
     if effective is None:
         return _finish(
@@ -242,6 +248,7 @@ def execute(
         run(
             args, cwd=str(root), timeout=effective, env=environment,
             hide_window=mode != "native", job_dir=run_dir / "process",
+            baseline=baseline,
         )
     except StudioError as exc:
         failure = str(exc)

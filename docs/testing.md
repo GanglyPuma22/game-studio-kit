@@ -74,10 +74,17 @@ python -m unittest discover -s tests -p test_launch_evidence.py -v
 `test_process_identity.py` covers the Windows side of the same cleanup on this
 host, with the CIM rows and the process handle faked as in the cleanroom tests:
 a PID reused after the root exited is reported and not walked into, a child
-created during the root's lifetime is the only kind `taskkill` is reached for, a
-candidate with no creation time or no launch evidence is left running and
-reported in `unverified`, a process already running before the launch is not a
-descendant, and a receipt with unverified descendants never claims `stopped`.
+created during the root's lifetime is the only kind `taskkill` is reached for
+and it is signalled on its own without `/T`, a candidate with no creation time
+or no launch evidence is left running and reported in `unverified`, a process
+already running before the launch is not a descendant, a verified PID that had
+already exited at the kill counts as stopped while one whose lookup failed or
+answered with another process is refused, a process seen as unverified only in
+a mid-cleanup snapshot is still reported, the prelaunch snapshot is taken
+before the launcher's last cutoff check and a launch whose window closes during
+it never starts, `run` reuses a baseline its caller supplies, an interrupt
+during the snapshot still leaves a process record, and a receipt with
+unverified descendants never claims `stopped`.
 The POSIX case in the same file proves group cleanup is unchanged. No process is
 terminated on Windows here, because there is no Windows here.
 

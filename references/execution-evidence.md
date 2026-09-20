@@ -139,12 +139,25 @@ parent chain reaches the engine through rows that are themselves verified,
 whose creation time falls inside the engine's own lifetime (both read from the
 handle the launcher owned, not from the PID), and which was not already running
 in the snapshot taken before the launch; only those are stopped, each one's
-identity read once more immediately before the kill. Everything else that
-merely hangs under that PID is listed in `survivors.unverified` with a reason
-and left running, and the launch is `descendants_unverified`: the operator has
-a process to look at and decide about by hand, and the alternative would be
-this launcher killing a stranger's process tree that happened to inherit the
-number. `stopped` is never true while anything is unverified.
+identity read once more immediately before the kill, and each one signalled on
+its own rather than as a tree. The walk already names every verified child, so
+the proven tree is covered PID by PID, while a tree kill would also take the
+rows that same walk refused and anything spawned under them since the snapshot.
+A verified PID the table no longer holds at the kill has exited by itself and
+counts as stopped. Everything else that merely hangs under that PID is listed
+in `survivors.unverified` with a reason and left running, and the launch is
+`descendants_unverified`: the operator has a process to look at and decide
+about by hand, and the alternative would be this launcher killing a stranger's
+process tree that happened to inherit the number. Every snapshot taken while
+stopping contributes to that list, not only the first, so a process that
+becomes visible mid-cleanup is still reported once the last snapshot comes back
+clean. `stopped` is never true while anything is unverified.
+
+The prelaunch snapshot is taken by the caller, before its final cutoff check,
+because enumerating every process on a Windows host can cost seconds: a
+snapshot taken after the check would spend part of the authorized window after
+it had been judged open and hand the engine a timeout computed before that
+cost.
 
 A `--result` must name engine output: a path inside
 this launch's own directory (its receipts, log or profile) is refused before

@@ -24,7 +24,7 @@ from .common import (
 )
 from .config import app_path, executable, require_executable
 from .launch import IS_WINDOWS, MAX_TIMEOUT, PROFILE_KEYS, _readable_digest, _scrubbed, mode_flags, parse_utc
-from .processes import alive, run, start, stop_started, stop_survivors
+from .processes import alive, prelaunch_baseline, run, start, stop_started, stop_survivors
 
 SESSIONS = ("handoff", "attended", "driven")
 DEFAULT_MAX_MINUTES = 60
@@ -431,6 +431,12 @@ def execute(
             root, run_dir, playtest, None, "", "engine_replaced",
             "Engine bytes changed before the playtest; the verified identity did not start",
         )
+    # Taken before the window is rechecked: on Windows this enumeration costs
+    # seconds, and spending them after the cutoff test would start the engine
+    # outside the window the test had just found open. An attended session
+    # takes none: nothing ever stops its descendants for it, so the evidence
+    # would only delay the human it hands the game to.
+    baseline = prelaunch_baseline(hide_window=False) if session != "attended" else None
     opened, effective = _window(cutoff, limit, playtest, run_dir)
     if not opened:
         return _finish(
@@ -443,7 +449,8 @@ def execute(
         # rather than one that was computed and then never applied.
         playtest["max_minutes_effective"] = None
         try:
-            started = start(args, job_dir=run_dir / "process", cwd=str(root), env=environment)
+            started = start(args, job_dir=run_dir / "process", cwd=str(root),
+                            env=environment, baseline=baseline)
         except StudioError as exc:
             # The runner has already written a start_failed process record; the
             # session receipt must not be left claiming it is still launching,
@@ -485,7 +492,7 @@ def execute(
     try:
         run(
             args, cwd=str(root), timeout=effective, env=environment,
-            hide_window=False, job_dir=run_dir / "process",
+            hide_window=False, job_dir=run_dir / "process", baseline=baseline,
         )
     except StudioError as exc:
         failure = str(exc)
