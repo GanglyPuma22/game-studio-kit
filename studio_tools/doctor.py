@@ -1,11 +1,10 @@
 """Offline discovery is evidence of installation, not production readiness."""
 
-import os
 import platform
 import re
-from .config import executable
+from .config import credential_file_report, credential_source, executable
 from .processes import run
-from .common import StudioError
+from .common import kit_identity, StudioError
 
 ACTIONS = {
     "blender": "Install Blender 5.0.x; set executables.blender to its full executable path; run the fixture round trip.",
@@ -73,10 +72,15 @@ def inspect(config):
                     )
         capabilities[name] = entry
     for provider in ("meshy", "elevenlabs", "fish"):
-        present = bool(os.environ.get(config["credentials"][provider]))
+        # Where the key would actually come from if something asked for it now,
+        # resolved the same way `credential` resolves it. A host that keeps its
+        # keys in a declared file is not "needs_setup" just because nothing put
+        # them in this process's environment.
+        source = credential_source(config, provider)
         capabilities[provider] = {
-            "status": "unverified" if present else "needs_setup",
-            "credential_present": present,
+            "status": "unverified" if source != "none" else "needs_setup",
+            "credential_present": source != "none",
+            "credential_source": source,
             "network_probed": False,
             "next_step": ACTIONS[provider],
         }
@@ -92,8 +96,12 @@ def inspect(config):
         "review_listening": "Record actual output source and named listener with reviewed intervals; PCM presence alone is insufficient.",
     }.items():
         capabilities[name] = {"status": "unverified", "operations": "unverified", "network_probed": False, "next_step": step}
-    present = bool(os.environ.get(config["credentials"].get("gemini", "")))
-    capabilities["review_video_analysis"].update(status="unverified" if present else "needs_setup", credential_present=present)
+    gemini = credential_source(config, "gemini")
+    capabilities["review_video_analysis"].update(
+        status="unverified" if gemini != "none" else "needs_setup",
+        credential_present=gemini != "none",
+        credential_source=gemini,
+    )
     configured = "blender_mcp" in config
     capabilities["blender_mcp"] = {
         "status": "configured" if configured else "needs_setup",
@@ -110,7 +118,12 @@ def inspect(config):
     }
     return {
         "schema_version": 1,
+        "kit": kit_identity(),
         "host": platform.system(),
+        # Each declared credential file, whether it is there, whether this
+        # process can read it, and which names it declares. Names only: no
+        # value from any file or environment variable is ever reported here.
+        "credential_files": credential_file_report(config),
         "capabilities": capabilities,
     }
 

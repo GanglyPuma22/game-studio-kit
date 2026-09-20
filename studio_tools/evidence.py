@@ -2,9 +2,13 @@
 
 from pathlib import Path, PurePosixPath
 from datetime import datetime, timezone
+import re
 import shutil
 import uuid
-from .common import digest, file_record, StudioError, read_json, safe_id, write_json, relative
+from .common import (
+    digest, file_record, kit_identity, StudioError, read_json, safe_id, sha256, write_json,
+    relative,
+)
 from .records import required, verify_file, DIMENSIONS, VERDICTS
 
 EXCLUDED = {".git", ".godot", "artifacts", "__pycache__", ".studio"}
@@ -53,6 +57,207 @@ def canonical_inventory(files, *, portable=True):
     return sorted(files, key=lambda item: item["path"])
 
 
+# What an evidence entry still describes: the candidate as it is now, a
+# candidate whose files have since changed, or a receipt that never recorded
+# which content it was taken from.
+IDENTITIES = ("current", "historical", "unknown")
+# Methods by which a person states a verdict rather than a tool measuring one.
+HUMAN_METHODS = {"native_visual", "native_capture_review", "listening", "ordinary_input"}
+VERIFY_LIMITS = [
+    "re-hashing shows the declared results still have the bytes the receipt recorded; "
+    "it does not show they are correct, complete or acceptable",
+    "only files the receipt itself recorded a digest for are checked",
+]
+
+
+def receipt_identity(receipt, candidate):
+    """Whether a receipt still describes this candidate's content, by digest alone.
+
+    The comparison is between two recorded digests: the one the capture, bench
+    or cleanroom receipt wrote down when it was taken and the one the candidate
+    carries now. Nothing is re-hashed here, so `current` means the receipt was
+    taken from the same inventory the candidate names — not that the files on
+    disk match it today, which is `validate_candidate`'s job.
+
+    A receipt that never recorded a content digest — a launch exit or a
+    cleanroom bench, which know a project but not a candidate — is `unknown`.
+    That is weaker than `historical`: it says nothing was recorded, not that
+    something was and has moved on.
+    """
+    recorded = receipt.get("content_digest") if isinstance(receipt, dict) else None
+    if not isinstance(recorded, str) or not recorded:
+        return "unknown"
+    return "current" if recorded == candidate.get("content_digest") else "historical"
+
+
+def _row_class(entry):
+    """The performance class one evidence row argues for."""
+    declared = entry.get("performance_class")
+    if isinstance(declared, str) and declared:
+        return declared
+    # A row with no class that records a person's own review is a subjective
+    # acceptance; anything else unclassified stays unclassified and will pull
+    # the rollup to mixed rather than quietly counting as either.
+    return "subjective_acceptance" if entry.get("method") in HUMAN_METHODS else "unclassified"
+
+
+def performance_rollup(entries):
+    """One word for what the performance evidence on a verdict adds up to.
+
+    Only rows still describing the current content are counted: a number taken
+    from a build whose files have since changed cannot qualify this one.
+    """
+    current = [entry for entry in entries if entry.get("identity") == "current"]
+    if not current:
+        return "unverified"
+    classes = {_row_class(entry) for entry in current}
+    if classes == {"clean_qualification"}:
+        return "clean_qualification"
+    if classes == {"subjective_acceptance"}:
+        return "subjective_acceptance"
+    return "mixed"
+
+
+def refresh_rollups(candidate, dimension=None):
+    """Recompute the per-verdict evidence counts, and the performance class.
+
+    Counts, not judgements: `evidence_total` is how many rows are attached and
+    `evidence_current` how many of them still describe this candidate. A
+    verdict whose two numbers differ is resting partly on older content.
+    """
+    verdicts = candidate.get("verdicts") or {}
+    for name in ([dimension] if dimension is not None else list(verdicts)):
+        verdict = verdicts.get(name)
+        if not isinstance(verdict, dict):
+            continue
+        entries = verdict.get("evidence") or []
+        verdict["evidence_total"] = len(entries)
+        verdict["evidence_current"] = sum(entry.get("identity") == "current" for entry in entries)
+        if name == "performance":
+            verdict["performance_class"] = performance_rollup(entries)
+    return candidate
+
+
+def attach_evidence(candidate, dimension, evidence, receipt=None):
+    """Attach one capture, bench or cleanroom receipt to a verdict, labelled.
+
+    The entry keeps every hash it arrived with; this only adds what the entry
+    could not know on its own — whether it still describes the candidate it is
+    being attached to, and, for performance, which class of number it is. The
+    verdict's rollups are recomputed here, so they can never be stale with
+    respect to the list beside them.
+    """
+    if dimension not in DIMENSIONS:
+        raise StudioError("Unknown verdict dimension: " + str(dimension))
+    if not isinstance(evidence, dict):
+        raise StudioError("Evidence entry must be a JSON object")
+    verdicts = candidate.setdefault("verdicts", {})
+    verdict = verdicts.setdefault(dimension, {"status": "not_run", "evidence": []})
+    entries = verdict.setdefault("evidence", [])
+    if not isinstance(entries, list):
+        raise StudioError("Verdict evidence must be a list")
+    # The receipt is the record the digest and class were written into; an
+    # archived capture carries both on the entry itself.
+    source = receipt if isinstance(receipt, dict) else evidence
+    entry = dict(evidence)
+    entry["identity"] = receipt_identity(source, candidate)
+    performance_class = source.get("performance_class")
+    if isinstance(performance_class, str) and performance_class:
+        entry["performance_class"] = performance_class
+    entries.append(entry)
+    refresh_rollups(candidate, dimension)
+    return entry
+
+
+def _receipt_root(receipt, project=None):
+    """The project root a receipt's recorded relative paths are anchored to.
+
+    Every receipt this kit writes lands under `<project>/artifacts/...`, so the
+    root is the parent of the `artifacts` directory above it. An explicit
+    project wins, because a receipt copied out of its run directory has nothing
+    left to derive from.
+    """
+    if project is not None:
+        root = Path(project).expanduser().resolve()
+        if not root.is_dir():
+            raise StudioError("Receipt verification needs an existing project directory")
+        return root
+    for parent in Path(receipt).resolve().parents:
+        if parent.name == "artifacts":
+            return parent.parent
+    raise StudioError(
+        "Cannot tell which project this receipt belongs to; pass --project"
+    )
+
+
+def verify_receipt(receipt, project=None):
+    """Re-hash the result files a receipt recorded, and say what changed.
+
+    Reads a receipt written by `launch` or `blender run`, takes every declared
+    result it recorded a digest for, and hashes that file as it is now. No
+    bytes are copied anywhere. `ok` is true only when every recorded file is
+    still exactly what the receipt said, which is a statement about bytes and
+    about nothing else.
+    """
+    path = Path(receipt).expanduser().resolve()
+    record = read_json(path)
+    if not isinstance(record, dict):
+        raise StudioError("Receipt is not a JSON object")
+    root = _receipt_root(path, project)
+    declared = record.get("result_files")
+    if not isinstance(declared, list):
+        raise StudioError("Receipt has no result_files list to verify")
+    files = []
+    unrecorded = []
+    for item in declared:
+        if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+            continue
+        recorded = item.get("sha256")
+        if not isinstance(recorded, str) or not re.fullmatch(r"[0-9a-f]{64}", recorded):
+            # The run itself recorded no digest for this path, so there is
+            # nothing here to compare against and saying "changed" would be a
+            # claim about a file this receipt never vouched for.
+            unrecorded.append(item["path"])
+            continue
+        entry = {"path": item["path"], "recorded_sha256": recorded,
+                 "current_sha256": None, "state": "missing"}
+        try:
+            target = relative(root, item["path"])
+        except StudioError:
+            # A path that no longer resolves inside the project names no file
+            # this receipt can be checked against.
+            files.append(entry)
+            continue
+        if target.is_file():
+            try:
+                entry["current_sha256"] = sha256(target)
+            except OSError:
+                # Present but unreadable cannot be shown to still match.
+                entry["state"] = "changed"
+                files.append(entry)
+                continue
+            entry["state"] = "current" if entry["current_sha256"] == recorded else "changed"
+        files.append(entry)
+    return {
+        "schema_version": 1,
+        "kind": "evidence-verify",
+        "kit": kit_identity(),
+        "receipt": {"path": str(path), "kind": record.get("kind"), "label": record.get("label")},
+        "project": str(root),
+        "checked_utc": datetime.now(timezone.utc).isoformat(),
+        "files": files,
+        "unrecorded": unrecorded,
+        "totals": {
+            "current": sum(entry["state"] == "current" for entry in files),
+            "changed": sum(entry["state"] == "changed" for entry in files),
+            "missing": sum(entry["state"] == "missing" for entry in files),
+        },
+        # A receipt that recorded no digests proves nothing by being re-read.
+        "ok": bool(files) and all(entry["state"] == "current" for entry in files),
+        "limits": VERIFY_LIMITS,
+    }
+
+
 def archive_capture(project, source, candidate, label):
     """Archive already captured bytes; this does not perform or attest review."""
     validate_candidate(candidate, project)
@@ -76,6 +281,10 @@ def archive_capture(project, source, candidate, label):
         "created_at": datetime.now(timezone.utc).isoformat(),
         "review": "not_run",
     }
+    # Taken from this candidate's inventory a moment ago, so it describes the
+    # current content; the label is computed rather than asserted so the two
+    # can never drift apart.
+    result["identity"] = receipt_identity(result, candidate)
     write_json(folder / "capture.json", result)
     return result
 
@@ -107,6 +316,7 @@ def new_candidate(project, candidate_id, engine_version, workflow):
         "schema_version": 1,
         "inventory_version": 2,
         "kind": "candidate",
+        "kit": kit_identity(),
         "candidate_id": candidate_id,
         "content_files": files,
         "content_digest": digest(files),
@@ -120,7 +330,16 @@ def new_candidate(project, candidate_id, engine_version, workflow):
         },
         "settings": project_record.get("settings", {"status": "unverified"}),
         "input_route": project_record.get("input_route", "not_defined"),
-        "verdicts": {d: {"status": "not_run", "evidence": []} for d in DIMENSIONS},
+        "verdicts": {
+            d: {
+                "status": "not_run",
+                "evidence": [],
+                "evidence_current": 0,
+                "evidence_total": 0,
+                **({"performance_class": "unverified"} if d == "performance" else {}),
+            }
+            for d in DIMENSIONS
+        },
         "defects": [],
         "acceptance": {"decision": "pending", "reviewer": None},
     }

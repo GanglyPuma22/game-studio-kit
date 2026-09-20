@@ -704,9 +704,65 @@ def prelaunch_baseline(hide_window=False):
     return _windows_snapshot(hide_window) if os.name == "nt" else None
 
 
+READY_POLL_SECONDS = 0.25
+READY_TAIL_LIMIT = 8192
+
+
+def _scan_ready(reader, marker, tail, start):
+    """Read whatever the child appended since the last read and look for `marker`.
+
+    Returns (ready_seconds or None, carried-over incomplete line). The reader is
+    never rewound, so each byte the child writes is examined once. Only the
+    unterminated remainder is carried over, bounded so a child that never emits
+    a newline cannot grow this buffer without limit.
+    """
+    data = reader.read()
+    if not data:
+        return None, tail
+    text = tail + data.decode("utf-8", errors="replace")
+    lines = text.split("\n")
+    tail = lines.pop()
+    if any(marker in line for line in lines) or marker in tail:
+        return round(time.monotonic() - start, 3), tail
+    return None, tail[-READY_TAIL_LIMIT:]
+
+
+def _wait_for_marker(process, timeout, log, marker, start):
+    """Wait for the child while watching its growing log for a ready marker.
+
+    The log is opened once and read forward at most every READY_POLL_SECONDS,
+    so the wait stays a wait rather than a poll of the process. What comes back
+    is the monotonic time from Popen to the first line containing the
+    substring, or None when the child finished without ever printing it. This
+    measures when the child said it was up; it establishes nothing about what
+    it then did.
+    """
+    deadline = start + timeout
+    found = None
+    tail = ""
+    with open(log, "rb") as reader:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                # The caller tells a timeout apart by this exception type; the
+                # command is withheld so no argv value reaches a traceback.
+                raise subprocess.TimeoutExpired(cmd=[], timeout=timeout)
+            try:
+                process.wait(timeout=min(READY_POLL_SECONDS, remaining))
+            except subprocess.TimeoutExpired:
+                if found is None:
+                    found, tail = _scan_ready(reader, marker, tail, start)
+                continue
+            if found is None:
+                # A child can print the marker and exit inside the same quarter
+                # second, so the last read happens after it has been reaped.
+                found, tail = _scan_ready(reader, marker, tail, start)
+            return found
+
+
 def run(
     args, *, cwd=None, timeout=180, log=None, env=None,
-    hide_window=False, job_dir=None, baseline=None,
+    hide_window=False, job_dir=None, baseline=None, ready_marker=None,
 ):
     """Run a foreground command; optional job_dir must be a new directory.
 
@@ -717,11 +773,19 @@ def run(
     `baseline` is a `prelaunch_baseline()` the caller already took; without one
     the Windows ownership evidence is recorded as unavailable and nothing under
     this job is ever signalled for it. No snapshot is taken here.
+    `ready_marker` is a literal substring a project says its child prints once it
+    is up; the receipt then records how long that took. Without one the log is
+    never read while the child runs.
     """
     if not isinstance(args, (list, tuple)) or not args:
         raise StudioError("Process command must be a nonempty argument array")
     if job_dir is not None and log is not None:
         raise StudioError("Choose job_dir or log, not both")
+    if ready_marker is not None:
+        if not isinstance(ready_marker, str) or not ready_marker:
+            raise StudioError("A ready marker must be a nonempty literal substring")
+        if job_dir is None and log is None:
+            raise StudioError("A ready marker needs a log file; pass job_dir or log")
     folder = Path(job_dir).resolve() if job_dir is not None else None
     if folder is not None:
         try:
@@ -740,6 +804,9 @@ def run(
         "pid": None,
         "returncode": None,
         "hidden_console_requested": hide_window,
+        # Load-time timing only, and null whenever no marker was configured or
+        # the child never printed one. Never an acceptance signal.
+        "ready_seconds": None,
     }
     record_path = folder / "process.json" if folder is not None else None
 
@@ -801,7 +868,12 @@ def run(
                 )
             save_record()
             try:
-                process.wait(timeout=timeout)
+                if ready_marker is None:
+                    process.wait(timeout=timeout)
+                else:
+                    record["ready_seconds"] = _wait_for_marker(
+                        process, timeout, log, ready_marker, start
+                    )
             except subprocess.TimeoutExpired as exc:
                 record["status"] = "timed_out"
                 try:
@@ -870,6 +942,7 @@ def run(
     return {
         "returncode": process.returncode,
         "elapsed_seconds": record["elapsed_seconds"],
+        "ready_seconds": record["ready_seconds"],
         "stdout": text,
         "log": str(log) if log is not None else None,
         "process_record": str(record_path) if record_path is not None else None,

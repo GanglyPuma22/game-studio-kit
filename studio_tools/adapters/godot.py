@@ -30,16 +30,77 @@ def self_contained(executable):
     )
 
 
+ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+ERROR_LINE = re.compile(r"(?:SCRIPT )?ERROR:")
+FIRST_ERROR_LIMIT = 240
+# Signatures Godot prints while it is still loading the project: a script that
+# would not compile, a resource or scene that would not open. They describe a
+# game that never reached its first frame, not one that failed while playing.
+LOAD_SIGNATURES = (
+    "Parse Error",
+    "Failed to load script",
+    "Failed loading resource",
+    "Cannot open file",
+    "Could not load",
+    "Failed to instantiate scene",
+    "Unable to load",
+)
+LOAD_RESOURCE_ERROR = re.compile(r"res://.*: Error")
+# A script error that names one of the engine's per-frame or lifecycle
+# callbacks was raised by code the game was already running.
+RUNTIME_CALLBACK = re.compile(r"\b_(?:process|physics_process|ready|input)\b")
+
+
+def _is_load_error(line):
+    """True when this error line is one Godot prints before the game runs."""
+    return any(signature in line for signature in LOAD_SIGNATURES) or bool(
+        LOAD_RESOURCE_ERROR.search(line)
+    )
+
+
 def classify_log(output):
-    """Classify a completed log without echoing potentially private diagnostics."""
+    """Classify a completed log without echoing potentially private diagnostics.
+
+    `phase` separates a game that never started from one that failed while
+    running, using the first error only: a load-time signature that appears
+    before any runtime script error means the engine did not get as far as the
+    game, and anything else with an error is reported as runtime. Elapsed time
+    is deliberately not consulted — a slow host is not a startup failure.
+
+    `first_error` is that same first error line, stripped of terminal colour
+    escapes and truncated, so an operator sees which failure to chase without
+    the receipt carrying the whole log.
+    """
     # Preserve the adapter's conservative substring detection, including
     # diagnostics prefixed by terminal color escapes or a host wrapper.
     errors = len(re.findall(r"(?:SCRIPT )?ERROR:", output))
     warnings = len(re.findall(r"WARNING:|Orphan StringName:", output))
+    first_error = None
+    phase = None
+    if errors:
+        # Escapes are removed before the line is read or recorded; they do not
+        # affect the counts above, which match the same substrings either way.
+        lines = ANSI.sub("", output).splitlines()
+        index = next(i for i, line in enumerate(lines) if ERROR_LINE.search(line))
+        first = lines[index].strip()
+        first_error = first[:FIRST_ERROR_LIMIT]
+        # A runtime callback is usually named on the `at:` continuation line
+        # Godot prints under the message, so the first error is read together
+        # with its own continuation lines — and with nothing else, or a later
+        # unrelated error would decide this one's phase.
+        block = [first]
+        for line in lines[index + 1:]:
+            if ERROR_LINE.search(line) or not line.strip().startswith("at:"):
+                break
+            block.append(line)
+        runtime = bool(RUNTIME_CALLBACK.search("\n".join(block)))
+        phase = "load" if _is_load_error(first) and not runtime else "runtime"
     return {
         "status": "errors" if errors else "warnings" if warnings else "clean" if output.strip() else "unverified",
         "error_count": errors,
         "warning_count": warnings,
+        "phase": phase,
+        "first_error": first_error,
     }
 
 

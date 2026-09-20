@@ -108,3 +108,43 @@ def safe_id(value):
             "ID must contain only letters, digits, hyphens or underscores"
         )
     return value
+
+
+_KIT_IDENTITY = None
+
+
+def kit_identity():
+    """Which kit wrote a receipt: its declared version and its own source digest.
+
+    The version alone names a release, not the bytes that ran: a working tree
+    between releases, a half-applied update or a local patch all keep it. The
+    digest is taken over every `studio_tools/**/*.py` file, sorted by its
+    POSIX-relative path, with the path and the byte length mixed in so that
+    moving code between two files changes the digest. It says nothing about
+    skills, references or templates, and nothing about whether the kit was
+    installed from a release.
+
+    Computed once per process: the files cannot change under a running
+    interpreter without the modules already loaded from them disagreeing with
+    whatever a later read would report.
+    """
+    global _KIT_IDENTITY
+    if _KIT_IDENTITY is None:
+        from . import __version__
+
+        package = Path(__file__).resolve().parent
+        h = hashlib.sha256()
+        for path in sorted(package.rglob("*.py")):
+            name = path.relative_to(package).as_posix()
+            try:
+                data = path.read_bytes()
+            except OSError:
+                # A source file this process cannot read is still part of the
+                # tree; recording it as unreadable beats silently omitting it.
+                h.update(name.encode("utf-8") + b"\0unreadable\0")
+                continue
+            h.update(name.encode("utf-8") + b"\0" + str(len(data)).encode("ascii") + b"\0")
+            h.update(data)
+        _KIT_IDENTITY = {"version": __version__, "source_digest": h.hexdigest()}
+    # A copy, so a receipt that is edited afterwards cannot change the cache.
+    return dict(_KIT_IDENTITY)

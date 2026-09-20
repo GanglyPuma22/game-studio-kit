@@ -22,7 +22,10 @@ import subprocess
 import threading
 import time
 import uuid
-from .common import StudioError, file_record, outside_package, read_json, relative, safe_id, write_json
+from .common import (
+    StudioError, file_record, kit_identity, outside_package, read_json, relative, safe_id,
+    write_json,
+)
 from .processes import run
 
 MAX_CAPTURE_TIMEOUT = 3600
@@ -1027,6 +1030,7 @@ def execute(
     result = {
         "schema_version": 1,
         "kind": "cleanroom-bench",
+        "kit": kit_identity(),
         "label": label,
         "scope": scope,
         "scope_check": scope_check,
@@ -1043,6 +1047,15 @@ def execute(
         **comparison,
     }
     result["ok"] = result["attributable"] and record.get("status") == "completed"
+    # What a number measured in this window may be used for. Only a window
+    # nothing else contended for, around a capture that actually finished, can
+    # qualify a performance claim; everything else is a diagnostic reading that
+    # explains a symptom and settles nothing.
+    result["performance_class"] = (
+        "clean_qualification"
+        if result["attributable"] and record.get("status") == "completed"
+        else "diagnostic"
+    )
     write_json(bench / "cleanroom.json", result)
     # Absolute paths are a convenience for the caller's stdout only; the receipt
     # on disk stays portable.

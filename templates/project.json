@@ -17,7 +17,8 @@
       1280,
       720
     ],
-    "camera_fov_degrees": 70
+    "camera_fov_degrees": 70,
+    "ready_marker": null
   },
   "input_route": "not_defined",
   "capabilities": {

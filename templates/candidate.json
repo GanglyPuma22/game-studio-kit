@@ -21,23 +21,34 @@
   "verdicts": {
     "visual": {
       "status": "not_run",
-      "evidence": []
+      "evidence": [],
+      "evidence_current": 0,
+      "evidence_total": 0
     },
     "interaction": {
       "status": "not_run",
-      "evidence": []
+      "evidence": [],
+      "evidence_current": 0,
+      "evidence_total": 0
     },
     "motion": {
       "status": "not_run",
-      "evidence": []
+      "evidence": [],
+      "evidence_current": 0,
+      "evidence_total": 0
     },
     "audio": {
       "status": "not_run",
-      "evidence": []
+      "evidence": [],
+      "evidence_current": 0,
+      "evidence_total": 0
     },
     "performance": {
       "status": "not_run",
-      "evidence": []
+      "evidence": [],
+      "evidence_current": 0,
+      "evidence_total": 0,
+      "performance_class": "unverified"
     }
   },
   "defects": [],

@@ -316,7 +316,12 @@ class ProductionReliabilityTests(unittest.TestCase):
         self.assertEqual(godot.classify_log(" \n")["status"], "unverified")
         self.assertEqual(godot.classify_log("scene complete\n")["status"], "clean")
         result = godot.classify_log("WARNING: first\nOrphan StringName: X\n ERROR: late\n")
-        self.assertEqual(result, {"status": "errors", "error_count": 1, "warning_count": 2})
+        # The original status and counts are unchanged by the phase/first-error
+        # fields added beside them.
+        self.assertEqual(
+            {key: result[key] for key in ("status", "error_count", "warning_count")},
+            {"status": "errors", "error_count": 1, "warning_count": 2},
+        )
         self.assertEqual(godot.classify_log("\x1b[31mSCRIPT ERROR: late\x1b[0m")["error_count"], 1)
 
     def test_godot_process_failures_identify_durable_job_evidence(self):
