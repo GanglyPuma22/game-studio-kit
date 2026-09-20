@@ -28,7 +28,9 @@ run claims gets a row there naming the step it appears on, the entry it is
 reached through, and the script or scene that wires it in (`installed_by`).
 
 A feature is accepted only when a person observed it on that route and its row
-links the receipt. Observed in the scene where it was built is not that: an
+records `human_verdict: accepted` with the receipt linked. The verdict is
+`pending` until a person has looked — that is the value the row is created with,
+and it is the absence of a verdict — then `accepted` or `rejected`. Observed in the scene where it was built is not that: an
 isolated scene shows the feature runs, not that the game reaches it. Two features
 that passed in their own scenes went into a handback unwired, because nothing in
 the run had to name the step a player would meet them on. When a row's

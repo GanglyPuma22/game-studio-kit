@@ -2,10 +2,11 @@
   "schema_version": 1,
   "kind": "feature-manifest",
   "canonical_route": [],
+  "route_source": "contract",
   "features": [
     {
       "feature": "example-feature",
-      "route_step": "route-step-id from canonical_route",
+      "route_step": "route-step-id",
       "entry": "res://scenes/example.tscn",
       "launch_flags": [],
       "source_revision": "0000000000000000000000000000000000000000",

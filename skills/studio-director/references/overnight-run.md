@@ -30,7 +30,7 @@ so receipts from different runs are never confused with each other.
 4. Copy [identity-manifest](../../../templates/identity-manifest.json) to `<run>/artifacts/run/identity-manifest.json` and fill it from the production contract (engine path and sha256, project sources in this worktree), or use the manifest path the contract already provides.
 5. `python <KIT>/scripts/studio.py candidate verify --project <run> --manifest <run>/artifacts/run/identity-manifest.json` for the engine, helpers, sources and packages the contract names, hashed from this worktree. A mismatch stops the run. Verification records identities at the moment it runs; it must be run against the same worktree every later stage uses, never a worktree created or swapped afterward.
 6. Read the production contract's `settings.viewport` and `settings.renderer` (`project.json`). `launch --mode native` (`studio_tools/launch.py`'s `mode_flags`) unconditionally passes `--resolution 1920x1080 --rendering-method forward_plus`; there is no flag to change it. If the contract's declared viewport is not exactly `[1920, 1080]` or its declared renderer is not exactly `forward_plus`, record `declared render settings differ from the fixed native launch profile; no performance evidence citable` in `STATE.md` at this checkpoint and refuse stage 4 when it is reached; carry the same sentence into `RETURN.md`'s Not demonstrated section. This is a known limit of `launch --mode native`, not a bug to work around mid-run: the kit fixes native launches to 1920x1080/forward_plus, so this procedure only cites stage 4-7 evidence when the contract already declares that exact resolution and renderer.
-7. Copy [feature-manifest](../../../templates/feature-manifest.json) to `<run>/artifacts/run/feature-manifest.json` and fill `canonical_route` from the production contract: the short ordered list of route steps a player actually walks ([studio-playtest](../../studio-playtest/SKILL.md)). Leave `features` empty; the run appends one row per feature it wires in, because a feature with no row is not part of the run's claim.
+7. Copy [feature-manifest](../../../templates/feature-manifest.json) to `<run>/artifacts/run/feature-manifest.json` and fill `canonical_route` from the production contract's own `canonical_route` ([production contracts](../../../references/production-contracts.md)), recording `"route_source": "contract"`. A contract that predates that field has no route: derive one from its `input_route` and the project's main scene, record `"route_source": "derived"`, and flag it in `RETURN.md` for the user to confirm. Leave `features` empty; the run appends one row per feature it wires in, because a feature with no row is not part of the run's claim.
 
 There is no ledger script: the machine ledgers are the receipts the kit
 commands already write (preflight receipts, `owned-launch.json`,
@@ -168,18 +168,31 @@ column above.
 
 **Tell the harness to wait.** A blocking command only works if the tool call
 carrying it waits as long as the command may run. Set the outer yield directive
-on that call — `// @exec: {"yield_time_ms": N}` in the Codex harness — with N at
-least (`--timeout` in seconds plus 30) times 1000; a `yield_time_ms` inside the
-command's own arguments is not that directive and does not extend the call. With
-no directive the harness returns after its default outer yield, about 30 seconds,
-which is a harness default and not a host cap: an explicit 360-second directive
-has been measured holding a single call for 263 uninterrupted seconds. So a
-return before the verdict JSON means the directive was missing, not that the run
-hung — the engine is still running, and starting a second one puts two engines on
-the same profile. The one legitimate continuation is a single `wait` sized to the
-time the command still has; repeated short waits and empty `write_stdin` calls
-are the polling this procedure forbids, and two audited runs spent 72 and 27
-waits plus 20 empty writes on one launch that way.
+on that call — `// @exec: {"yield_time_ms": N}` in the Codex harness — and size N
+from the bound that command actually enforces, because only `launch` has a
+`--timeout`:
+
+| Command | N in milliseconds |
+|---|---|
+| `launch` | (`--timeout` in seconds plus 30) times 1000 |
+| `batch` | (`--max-minutes` times 60, plus 30) times 1000. An omitted `--max-minutes` is 60 minutes, and that one deadline bounds every run in the plan, so the plan's own timeouts never extend it |
+| `playtest --session driven`, and `--session handoff` with a non-zero `--max-minutes` | (`--max-minutes` times 60, plus 30) times 1000. An omitted `--max-minutes` is 60 minutes |
+| `playtest --session handoff --max-minutes 0` | the harness's maximum: the session ends when the player quits, so there is no bound to size against |
+| `playtest --session attended` | none. Nothing waits for an attended session; it returns at once, and one later `playtest collect` completes it after the person says they are done |
+
+A `yield_time_ms` inside the command's own arguments is not that directive and
+does not extend the call. With no directive the harness returns after its default
+outer yield, about 30 seconds, which is a harness default and not a host cap: an
+explicit 360-second directive has been measured holding a single call for 263
+uninterrupted seconds. So a return before the verdict JSON means the directive
+was missing or undersized, not that the run hung — the engine is still running,
+and starting a second one puts two engines on the same profile. The one
+legitimate continuation is a single `wait` sized to the time the command still
+has; repeated short waits and empty `write_stdin` calls are the polling this
+procedure forbids, and two audited runs spent 72 and 27 waits plus 20 empty
+writes on one launch that way. The uncapped `handoff` row is the one case where
+an early return is normal rather than a missing directive: expect exactly one
+sized `wait` continuation there.
 
 **Scope ladder.** Define the rungs from smallest to full scope before the run,
 each with a `safe_id`-valid ID (letters, digits, hyphens, underscores) and a
@@ -257,14 +270,19 @@ The scorecard may cite only receipts produced under the final candidate's
 tests or source coverage.
 
 **Accepted features.** `<run>/artifacts/run/feature-manifest.json` is the run's
-record of what was wired in and who saw it. `RETURN.md`'s Accepted features line
-points at it, and every feature whose row carries no `human_verdict` is listed
-under Not demonstrated with its reason — including a feature that ran green in
-the scene where it was built, because a feature reached only there is not on the
-canonical route ([studio-playtest](../../studio-playtest/SKILL.md)). Two features
-accepted in isolated scenes were never wired into the route and nobody noticed
-until a person played the game; the manifest exists to make that visible before
-handback.
+record of what was wired in and who saw it. A row's `human_verdict` is `pending`
+(the value it is created with, which is the absence of a verdict), `accepted` or
+`rejected`; only `accepted` with evidence on the canonical route at the final
+`content_digest` is acceptance ([studio-playtest](../../studio-playtest/SKILL.md)).
+`RETURN.md`'s Accepted features line points at the manifest, and every row that
+is not `accepted` is listed under Not demonstrated: a `rejected` row with the
+reason it was rejected, a `pending` row as unreviewed. A feature that ran green
+in the scene where it was built belongs there too, because a feature reached only
+there is not on the canonical route. Two features accepted in isolated scenes
+were never wired into the route and nobody noticed until a person played the
+game; the manifest exists to make that visible before handback. If the route was
+derived rather than supplied (`route_source: derived`), say so on the same line:
+the user is confirming the route as well as the features.
 
 **Snapshot commit (only when authorized).** A run commits nothing by default.
 When the production contract carries the authorization line
@@ -272,17 +290,21 @@ When the production contract carries the authorization line
 handback that leaves the run's own output untracked makes the user baseline it by
 hand:
 
-1. Create branch `run/<run-id>` from the pinned worktree's current commit.
-2. Stage by name (`git add <path>`) only the files this run produced or changed that are part of the game. Never `artifacts/`, never machine-only evidence, never a path the contract's exclusion list names. Count what was left out.
-3. Commit once, message `run <run-id>: snapshot at Return`.
-4. Record the branch ref and the count of excluded files in `STATE.md` and `RETURN.md`.
+1. Decide what is eligible: the files this run produced or changed that are part of the game. Never `artifacts/`, never machine-only evidence, never a path the contract's exclusion list names. Count what was left out.
+2. If nothing is eligible — the run stopped early, or every changed file was excluded — create no branch and commit nothing. Record `snapshot: no eligible changes, ref <current commit>` and the excluded count in both records, and stop here; an empty commit records a baseline that does not exist.
+3. Otherwise create branch `run/<run-id>` from the pinned worktree's current commit.
+4. Stage the eligible files by name (`git add <path>`), never a whole-tree add.
+5. Commit once, message `run <run-id>: snapshot at Return`.
+6. Record the branch ref and the count of excluded files in `STATE.md` and `RETURN.md`.
 
 No push, no merge, no rebase, and no other branch is touched. The commit is a
 baseline the user can diff, never evidence of acceptance: a dimension passes on
 its receipts or not at all. Without the authorization line the run commits
-nothing and records `uncommitted overlay: <staged> staged, <untracked>
-untracked` in both records instead, so the size of the overlay is at least
-known.
+nothing and records `uncommitted overlay: <staged> staged, <modified> modified or
+deleted unstaged, <untracked> untracked` in both records instead, counted from
+`git status --porcelain` in the pinned worktree, so the size of what the user
+inherits is at least known — the unstaged column is there because a run's own
+edits to tracked files land in it.
 
 ## 6. Stop rules
 

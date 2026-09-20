@@ -55,8 +55,9 @@ def parser():
     c = command("batch", True)
     c.description = (
         "Run the planned launches in order and return one verdict. The command "
-        "blocks until the last run has finished, for up to --max-minutes, so the "
-        "caller's harness must be told to wait at least that long."
+        "blocks until the last run has finished, for up to --max-minutes (60 "
+        "when omitted), so the caller's harness must be told to wait at least "
+        "that long."
     )
     c.add_argument("--plan", required=True, help="JSON plan listing the runs; see templates/batch-plan.json")
     c.add_argument("--sha256", required=True, help="Expected SHA-256 of executables.godot from the host config")
@@ -72,9 +73,11 @@ def parser():
     playtest = sub.add_parser(
         "playtest",
         description=(
-            "Play a build and collect the session. `start` blocks while the "
-            "session runs, for up to --max-minutes (uncapped for handoff), so "
-            "the caller's harness must be told to wait at least that long."
+            "Play a build and collect the session. `start` blocks while a "
+            "handoff or driven session runs, for up to --max-minutes (60 when "
+            "omitted, uncapped for handoff at 0), so the caller's harness must "
+            "be told to wait at least that long; an attended session is never "
+            "waited for and is completed by one later collect."
         ),
     )
     ops = playtest.add_subparsers(dest="operation", required=True)
