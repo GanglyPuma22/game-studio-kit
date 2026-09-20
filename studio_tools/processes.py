@@ -433,6 +433,33 @@ def survivors(pid, hide_window=False, ownership=None):
     }
 
 
+def _kill_order(before):
+    """Verified descendants deepest first, so a parent outlives its children.
+
+    Each number is signalled on its own, and every walk that checks the result
+    starts at the root. A parent signalled first takes its row out of the table
+    and the next walk can no longer reach what hung below it: a child whose
+    kill failed would disappear from the enumeration instead of being reported.
+    """
+    identities = before["identities"]
+
+    def depth(member):
+        steps, seen, current = 0, {member}, member
+        entry = identities.get(str(current))
+        while isinstance(entry, dict) and entry.get("ppid") is not None:
+            parent = entry["ppid"]
+            if parent in seen:
+                # A cycle cannot happen in a parent table, but a fake or a
+                # corrupt row must not spin here.
+                break
+            steps, current = steps + 1, parent
+            seen.add(parent)
+            entry = identities.get(str(current))
+        return steps
+
+    return sorted(before["verified_pids"], key=lambda member: (-depth(member), member))
+
+
 def _windows_stop(pid, hide_window, ownership, before):
     """Terminate the verified descendants only, each proven again at the kill.
 
@@ -449,6 +476,11 @@ def _windows_stop(pid, hide_window, ownership, before):
     Every snapshot taken here contributes to `unverified`, not just the first:
     a process this job cannot account for is no less unaccounted for because it
     only became visible while its parent was being stopped.
+
+    Each PID that was signalled is then held until it is proven gone by its own
+    lookup, because the walk alone cannot prove it: once a parent is out of the
+    table nothing below it is reachable from the root, so an enumeration that
+    comes back empty would otherwise pass for a tree that stopped.
     """
     unverified = {}
 
@@ -457,24 +489,28 @@ def _windows_stop(pid, hide_window, ownership, before):
             # First reason wins: it describes the moment the row was first seen.
             unverified.setdefault(entry["pid"], entry)
 
+    def is_this_job(member, current):
+        return _same_identity(before["identities"].get(str(member)), current)
+
     account(before["unverified"])
-    refused, exited = [], []
-    for member in before["verified_pids"]:
+    refused, exited, pending = [], [], set()
+    for member in _kill_order(before):
         state, current = _windows_identity_state(member, hide_window)
         if state == "absent":
             # Gone between the snapshot and this lookup: already stopped, and
             # calling that unverified would report a clean run as a dirty one.
             exited.append(member)
             continue
-        if state != "present" or not _same_identity(
-            before["identities"].get(str(member)), current
-        ):
+        if state != "present" or not is_this_job(member, current):
             refused.append({
                 "pid": member,
                 "reason": ("identity_changed_before_stop" if state == "present"
                            else "identity_unavailable_before_stop"),
             })
             continue
+        # Held from here whether or not the command below could even be run:
+        # an attempt that failed is not a process that stopped.
+        pending.add(member)
         try:
             subprocess.run(
                 ["taskkill", "/PID", str(member), "/F"],
@@ -484,14 +520,34 @@ def _windows_stop(pid, hide_window, ownership, before):
         except (OSError, subprocess.SubprocessError):
             pass
     account(refused)
+
+    def confirm():
+        """Release every signalled PID proven gone; name the ones nothing can be read for."""
+        unreadable = set()
+        for member in sorted(pending):
+            state, current = _windows_identity_state(member, hide_window)
+            if state == "unknown":
+                unreadable.add(member)
+            elif state == "absent" or not is_this_job(member, current):
+                # Absent, or the number already belongs to something else:
+                # either way the process this job signalled is not running.
+                pending.discard(member)
+        return unreadable
+
     # Termination is asynchronous; give the verified set a bounded moment to go.
     deadline = time.monotonic() + 5
     after = survivors(pid, hide_window, ownership)
     account(after["unverified"])
-    while after["verified_pids"] and time.monotonic() < deadline:
+    unreadable = confirm()
+    while (pending or after["verified_pids"]) and time.monotonic() < deadline:
         time.sleep(0.025)
         after = survivors(pid, hide_window, ownership)
         account(after["unverified"])
+        unreadable = confirm()
+    # A PID whose last lookup could not be read is not known to be running and
+    # not known to have stopped, which is exactly what unverified is for.
+    account([{"pid": member, "reason": "stop_unconfirmed"} for member in sorted(unreadable)])
+    unstopped = sorted(pending - unreadable)
     left = sorted(unverified.values(), key=lambda entry: entry["pid"])
     status = "ok" if (
         before["status"] == "ok" and after["status"] == "ok" and not left
@@ -499,14 +555,17 @@ def _windows_stop(pid, hide_window, ownership, before):
     return {
         "status": status,
         "pids": before["pids"],
-        "stopped": status == "ok" and not after["verified_pids"],
+        "stopped": (status == "ok" and not after["verified_pids"] and not pending),
         "verified_pids": before["verified_pids"],
         "exited_pids": sorted(exited),
+        "unstopped_pids": unstopped,
         "unverified": left,
         "ignored": before["ignored"],
         "note": before["note"] or (
             "processes under this job were left running because this launch's "
-            "evidence does not name them" if left else None
+            "evidence does not name them" if left else
+            "a process this job signalled was still running when cleanup ended"
+            if unstopped else None
         ),
     }
 
@@ -521,7 +580,10 @@ def stop_survivors(pid, hide_window=False, ownership=None):
     leader's life; anything else is left running and reported in `unverified`,
     because a process this job cannot name may well belong to somebody else.
     A verified PID that had already exited when its turn came is reported in
-    `exited_pids`: it stopped, it was simply not this job that stopped it.
+    `exited_pids`: it stopped, it was simply not this job that stopped it. One
+    that was signalled and is still there when cleanup ends is in
+    `unstopped_pids`, and one whose last lookup could not be read is
+    `stop_unconfirmed` in `unverified`; `stopped` is false for either.
     """
     before = survivors(pid, hide_window, ownership)
     if os.name == "nt":

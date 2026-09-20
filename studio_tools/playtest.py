@@ -422,8 +422,16 @@ def execute(
         profile.mkdir()
         for key in PROFILE_KEYS:
             environment[key] = app_path(config, profile, "godot")
+    # Snapshot, then bytes, then cutoff: on Windows this enumeration costs
+    # seconds, and taking it after the two checks below would leave a slow
+    # query between the digest this session verified and the engine it starts,
+    # and would spend part of the window after the window was found open. An
+    # attended session takes none: nothing ever stops its descendants for it,
+    # so the evidence would only delay the human it hands the game to.
+    baseline = prelaunch_baseline(hide_window=False) if session != "attended" else None
     # The digest verified above described bytes that could have been replaced
-    # while this session was prepared, so only the verified identity may start.
+    # while this session was prepared, so the engine is re-read after that last
+    # slow step: only the verified identity may start.
     if _readable_digest(engine_path) != actual:
         playtest.update(status="refused", max_minutes_effective=None, process_record=None)
         write_json(run_dir / "playtest.json", playtest)
@@ -431,12 +439,6 @@ def execute(
             root, run_dir, playtest, None, "", "engine_replaced",
             "Engine bytes changed before the playtest; the verified identity did not start",
         )
-    # Taken before the window is rechecked: on Windows this enumeration costs
-    # seconds, and spending them after the cutoff test would start the engine
-    # outside the window the test had just found open. An attended session
-    # takes none: nothing ever stops its descendants for it, so the evidence
-    # would only delay the human it hands the game to.
-    baseline = prelaunch_baseline(hide_window=False) if session != "attended" else None
     opened, effective = _window(cutoff, limit, playtest, run_dir)
     if not opened:
         return _finish(

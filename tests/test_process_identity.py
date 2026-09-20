@@ -7,6 +7,7 @@ nothing else.
 """
 
 from datetime import datetime, timedelta, timezone
+import itertools
 import os
 from pathlib import Path
 import sys
@@ -42,6 +43,42 @@ def ownership(*prelaunch, status="ok", identity=ROOT):
     }
 
 
+class Host:
+    """A fake Windows process table that a signalled PID actually leaves.
+
+    One object answers both the per-PID lookup and `taskkill`, so a kill this
+    test lets through takes the row out while one named in `survive` stays: the
+    difference the cleanup loop now has to notice on its own, because a walk
+    from the root cannot see past a parent that is already gone.
+    """
+
+    def __init__(self, *rows, survive=()):
+        self.table = {entry["pid"]: entry for entry in rows}
+        self.survive = set(survive)
+        self.commands = []
+
+    def lookup(self):
+        return patch("studio_tools.processes._windows_identity_state", self.state)
+
+    def taskkill(self):
+        return patch("studio_tools.processes.subprocess.run", self.terminate)
+
+    def state(self, pid, hide_window):
+        entry = self.table.get(pid)
+        return ("present", entry) if entry is not None else ("absent", None)
+
+    def terminate(self, args, **kwargs):
+        self.commands.append(tuple(args))
+        member = int(args[2])
+        if member not in self.survive:
+            self.table.pop(member, None)
+        return SimpleNamespace(returncode=0)
+
+    @property
+    def kills(self):
+        return [int(command[2]) for command in self.commands]
+
+
 class WindowsIdentityCase(unittest.TestCase):
     def windows(self):
         return patch("studio_tools.processes.os.name", "nt")
@@ -49,6 +86,17 @@ class WindowsIdentityCase(unittest.TestCase):
     def options(self):
         # This host has no Windows creation flags to pass to subprocess.
         return patch("studio_tools.processes._creation_options", return_value={})
+
+    def deadline(self, step=2):
+        """A clock that reaches the five-second cleanup deadline in a few polls.
+
+        Only `_windows_stop` reads the module's clock, and a test that waits
+        out a real deadline proves nothing the step size does not.
+        """
+        ticks = itertools.count(0, step)
+        return patch("studio_tools.processes.time",
+                     SimpleNamespace(monotonic=lambda: next(ticks),
+                                     sleep=lambda seconds: None))
 
     def identities(self, *rows):
         """`_windows_identity_state` answering from a table, as the live host would.
@@ -91,24 +139,25 @@ class WindowsDescendantClassificationTests(WindowsIdentityCase):
         child = row(20, 10, "110")
         grandchild = row(30, 20, "120")
         unrelated = snapshot(row(99, 1, "50", name="explorer.exe"))
+        host = Host(child, grandchild)
         with self.windows(), self.options(), \
                 patch("studio_tools.processes._windows_snapshot",
                       side_effect=[snapshot(child, grandchild), unrelated]), \
-                self.identities(child, grandchild), \
-                patch("studio_tools.processes.subprocess.run") as terminate:
+                host.lookup(), host.taskkill():
             result = processes.stop_survivors(10, hide_window=True, ownership=ownership())
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["pids"], [20, 30])
         self.assertEqual(result["verified_pids"], [20, 30])
         self.assertEqual(result["unverified"], [])
         self.assertTrue(result["stopped"])
+        # Each proven PID on its own and deepest first, so the parent's row is
+        # still there to be walked while its child is being confirmed gone.
         self.assertEqual(
-            [tuple(entry.args[0]) for entry in terminate.call_args_list],
-            [("taskkill", "/PID", "20", "/F"), ("taskkill", "/PID", "30", "/F")],
+            host.commands,
+            [("taskkill", "/PID", "30", "/F"), ("taskkill", "/PID", "20", "/F")],
         )
-        # Each proven PID on its own: the walk already enqueued the verified
-        # grandchild, so the tree is covered without /T taking anything else.
         self.assertEqual(result["exited_pids"], [])
+        self.assertEqual(result["unstopped_pids"], [])
 
     def test_a_candidate_without_a_creation_time_is_reported_not_terminated(self):
         with self.windows(), self.options(), \
@@ -146,15 +195,15 @@ class WindowsDescendantClassificationTests(WindowsIdentityCase):
         # Same number, different process: the creation time says so.
         current = row(20, 10, "150")
         before = row(20, 10, "50", name="agent.exe")
+        host = Host(current)
         with self.windows(), self.options(), \
                 patch("studio_tools.processes._windows_snapshot",
                       side_effect=[snapshot(current), snapshot()]), \
-                self.identities(current), \
-                patch("studio_tools.processes.subprocess.run") as terminate:
+                host.lookup(), host.taskkill():
             result = processes.stop_survivors(10, ownership=ownership(before))
         self.assertEqual(result["verified_pids"], [20])
         self.assertEqual(result["ignored"], [])
-        terminate.assert_called_once()
+        self.assertEqual(host.kills, [20])
 
     def test_a_prelaunch_row_without_a_creation_time_blocks_termination(self):
         blind = {"pid": 20, "created_filetime": None}
@@ -208,15 +257,14 @@ class WindowsTerminationBoundaryTests(WindowsIdentityCase):
         # have taken it along, which is exactly what it is not this job's to do.
         child = row(20, 10, "110")
         stranger = row(30, 20, "900", name="unrelated.exe")
+        host = Host(child, stranger)
         with self.windows(), self.options(), \
                 patch("studio_tools.processes._windows_snapshot",
                       side_effect=[snapshot(child, stranger), snapshot(stranger)]), \
-                self.identities(child, stranger), \
-                patch("studio_tools.processes.subprocess.run") as terminate:
+                host.lookup(), host.taskkill():
             result = processes.stop_survivors(10, ownership=ownership())
         self.assertEqual(result["verified_pids"], [20])
-        self.assertEqual([tuple(entry.args[0]) for entry in terminate.call_args_list],
-                         [("taskkill", "/PID", "20", "/F")])
+        self.assertEqual(host.commands, [("taskkill", "/PID", "20", "/F")])
         self.assertEqual(result["unverified"],
                          [{"pid": 30, "reason": "created_outside_root_lifetime"}])
         self.assertFalse(result["stopped"])
@@ -265,15 +313,54 @@ class WindowsTerminationBoundaryTests(WindowsIdentityCase):
         # clean while a process nobody can name was still running.
         child = row(20, 10, "110")
         latecomer = row(30, 20, "900", name="unrelated.exe")
+        host = Host(child)
         with self.windows(), self.options(), \
                 patch("studio_tools.processes._windows_snapshot",
                       side_effect=[snapshot(child), snapshot(child, latecomer), snapshot()]), \
-                self.identities(child), \
-                patch("studio_tools.processes.subprocess.run"):
+                host.lookup(), host.taskkill():
             result = processes.stop_survivors(10, ownership=ownership())
         self.assertEqual(result["status"], "unavailable")
         self.assertEqual(result["unverified"],
                          [{"pid": 30, "reason": "created_outside_root_lifetime"}])
+        self.assertFalse(result["stopped"])
+
+    def test_a_kill_that_failed_deep_in_the_tree_is_not_reported_as_stopped(self):
+        # The parent went, so a walk from the root cannot reach the grandchild
+        # at all: an empty enumeration would pass for a tree that stopped, and
+        # only the grandchild's own lookup can say it is still running.
+        child = row(20, 10, "110")
+        grandchild = row(30, 20, "120")
+        host = Host(child, grandchild, survive=[30])
+        walks = [snapshot(child, grandchild)]
+        with self.windows(), self.options(), self.deadline(), \
+                patch("studio_tools.processes._windows_snapshot",
+                      side_effect=lambda hide_window: walks.pop(0) if walks else snapshot()), \
+                host.lookup(), host.taskkill():
+            result = processes.stop_survivors(10, ownership=ownership())
+        # Deepest first: the grandchild is signalled while its parent's row is
+        # still in the table, so the walk can still account for it.
+        self.assertEqual(host.kills, [30, 20])
+        self.assertEqual(result["unstopped_pids"], [30])
+        self.assertFalse(result["stopped"])
+        self.assertIn("still running", result["note"])
+
+    def test_a_signalled_pid_that_cannot_be_read_again_is_unconfirmed(self):
+        child = row(20, 10, "110")
+        # Present at the kill, then the host stops answering about it: nothing
+        # says it stopped and nothing says it is running.
+        answers = [("present", child)]
+        walks = [snapshot(child)]
+        with self.windows(), self.options(), self.deadline(), \
+                patch("studio_tools.processes._windows_snapshot",
+                      side_effect=lambda hide_window: walks.pop(0) if walks else snapshot()), \
+                patch("studio_tools.processes._windows_identity_state",
+                      side_effect=lambda pid, hide_window: (
+                          answers.pop(0) if answers else ("unknown", None))), \
+                patch("studio_tools.processes.subprocess.run"):
+            result = processes.stop_survivors(10, ownership=ownership())
+        self.assertEqual(result["unverified"], [{"pid": 20, "reason": "stop_unconfirmed"}])
+        self.assertEqual(result["unstopped_pids"], [])
+        self.assertEqual(result["status"], "unavailable")
         self.assertFalse(result["stopped"])
 
     def test_a_host_that_cannot_enumerate_reports_instead_of_guessing(self):
@@ -416,6 +503,33 @@ class PrelaunchSnapshotTests(unittest.TestCase):
         owned = read_json(run_dir / "owned-launch.json")
         self.assertEqual(owned["status"], "refused")
         self.assertIsNone(owned["timeout_seconds_effective"])
+        self.assertFalse((run_dir / "process").exists())
+
+    def test_the_engine_is_rehashed_after_the_prelaunch_snapshot(self):
+        engine = Path(self.tmp.name) / "swappable engine"
+        engine.write_bytes(b"verified engine bytes")
+        engine.chmod(0o755)
+        config = load(overrides={"executables": {"godot": str(engine)}, "timeout": 5})
+        expected = sha256(engine)
+
+        def slow_snapshot(hide_window=False):
+            # Half a minute of PowerShell, and the bytes are swapped during it:
+            # a digest checked before this would describe an engine that is no
+            # longer the one about to start.
+            engine.write_bytes(b"replaced engine bytes")
+            return snapshot()
+
+        with patch("studio_tools.launch.prelaunch_baseline", slow_snapshot), \
+                patch("studio_tools.launch.run") as started:
+            result = launch.execute(config, self.root, sha256_expected=expected,
+                                    label="swapped-in-snapshot")
+            started.assert_not_called()
+        self.assertEqual(result["verdict"], "engine_replaced")
+        self.assertFalse(result["ok"])
+        run_dir = self.root / "artifacts/launches/swapped-in-snapshot"
+        owned = read_json(run_dir / "owned-launch.json")
+        self.assertEqual(owned["status"], "refused")
+        self.assertIsNone(owned["process_record"])
         self.assertFalse((run_dir / "process").exists())
 
     def test_run_uses_a_supplied_baseline_instead_of_taking_its_own(self):

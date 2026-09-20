@@ -80,11 +80,14 @@ or no launch evidence is left running and reported in `unverified`, a process
 already running before the launch is not a descendant, a verified PID that had
 already exited at the kill counts as stopped while one whose lookup failed or
 answered with another process is refused, a process seen as unverified only in
-a mid-cleanup snapshot is still reported, the prelaunch snapshot is taken
-before the launcher's last cutoff check and a launch whose window closes during
-it never starts, `run` reuses a baseline its caller supplies, an interrupt
-during the snapshot still leaves a process record, and a receipt with
-unverified descendants never claims `stopped`.
+a mid-cleanup snapshot is still reported, the verified set is signalled deepest
+first and a kill that failed deep in the tree is reported rather than hidden by
+a walk that can no longer reach it, a signalled PID nothing can be read about
+is `stop_unconfirmed`, the prelaunch snapshot is taken before the launcher's
+last engine-digest and cutoff checks so a launch whose engine is replaced or
+whose window closes during it never starts, `run` reuses a baseline its caller
+supplies, an interrupt during the snapshot still leaves a process record, and a
+receipt with unverified descendants never claims `stopped`.
 The POSIX case in the same file proves group cleanup is unchanged. No process is
 terminated on Windows here, because there is no Windows here.
 

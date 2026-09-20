@@ -144,7 +144,16 @@ its own rather than as a tree. The walk already names every verified child, so
 the proven tree is covered PID by PID, while a tree kill would also take the
 rows that same walk refused and anything spawned under them since the snapshot.
 A verified PID the table no longer holds at the kill has exited by itself and
-counts as stopped. Everything else that merely hangs under that PID is listed
+counts as stopped. The verified set is signalled deepest first, so a parent's
+row is still in the table while its children are being accounted for, and each
+PID that was signalled is then read on its own until it is proven gone: once a
+parent is out of the table nothing below it is reachable from the engine's PID,
+so an enumeration that comes back empty is not by itself proof that a tree
+stopped. `stopped` is true only when every signalled PID was confirmed gone,
+the final walk found no verified survivor and nothing was ever unverified; a
+PID still present at the deadline is reported in `survivors.unstopped_pids`,
+and one whose last lookup could not be read is `stop_unconfirmed` in
+`survivors.unverified`. Everything else that merely hangs under that PID is listed
 in `survivors.unverified` with a reason and left running, and the launch is
 `descendants_unverified`: the operator has a process to look at and decide
 about by hand, and the alternative would be this launcher killing a stranger's
@@ -153,11 +162,15 @@ stopping contributes to that list, not only the first, so a process that
 becomes visible mid-cleanup is still reported once the last snapshot comes back
 clean. `stopped` is never true while anything is unverified.
 
-The prelaunch snapshot is taken by the caller, before its final cutoff check,
-because enumerating every process on a Windows host can cost seconds: a
-snapshot taken after the check would spend part of the authorized window after
-it had been judged open and hand the engine a timeout computed before that
-cost.
+The prelaunch snapshot is taken by the caller, before both of its final
+checks, because enumerating every process on a Windows host can cost seconds.
+The order is snapshot, then bytes, then cutoff: a snapshot taken after the
+digest recheck would sit between a verified engine and the process that starts,
+so bytes replaced during the query would run with the verified hash on record,
+and a snapshot taken after the cutoff recheck would spend part of the
+authorized window after it had been judged open and hand the engine a timeout
+computed before that cost. `blender run` takes it before its own executable
+recheck for the same reason.
 
 A `--result` must name engine output: a path inside
 this launch's own directory (its receipts, log or profile) is refused before
