@@ -33,5 +33,5 @@ Updated: <UTC>  Compactions so far: <n>
 - Doctor (engine version check):
 - Launch inventory:
 - Cleanroom captures:
-- Feature manifest (`artifacts/run/feature-manifest.json`; rows still without a `human_verdict`):
-- Snapshot commit (`run/<run-id>` ref and excluded-file count under `snapshot_commit: authorized`; otherwise `uncommitted overlay: <staged> staged, <untracked> untracked`):
+- Feature manifest (`artifacts/run/feature-manifest.json`; `route_source`, and the rows not yet `human_verdict: accepted`):
+- Snapshot commit (`run/<run-id>` ref and excluded-file count under `snapshot_commit: authorized`, or `snapshot: no eligible changes, ref <current commit>`; otherwise `uncommitted overlay: <staged> staged, <modified> modified or deleted unstaged, <untracked> untracked`):

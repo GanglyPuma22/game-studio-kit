@@ -13,10 +13,11 @@ EXECUTION = ROOT / "skills/studio-godot/references/execution.md"
 PLAYTEST = ROOT / "skills/studio-playtest/SKILL.md"
 REVIEW = ROOT / "skills/studio-review/SKILL.md"
 GAME_DESIGN = ROOT / "skills/studio-game-design/SKILL.md"
+CONTRACTS = ROOT / "references/production-contracts.md"
 MANIFEST = ROOT / "templates/feature-manifest.json"
 RETURN = ROOT / "templates/return.md"
 STATE = ROOT / "templates/state.md"
-CHANGED_MARKDOWN = (PROCEDURE, BLOCK, PLAYTEST, REVIEW, GAME_DESIGN, RETURN, STATE)
+CHANGED_MARKDOWN = (PROCEDURE, BLOCK, PLAYTEST, REVIEW, GAME_DESIGN, CONTRACTS, RETURN, STATE)
 
 
 def text(path):
@@ -35,6 +36,32 @@ class WaitingGuidanceTests(unittest.TestCase):
             self.assertIn("plus 30) times", body, path.name)
             self.assertIn("30 seconds", body, path.name)
             self.assertIn("verdict JSON", body, path.name)
+            self.assertIn("undersized", body, path.name)
+
+    def test_sizing_is_stated_per_command_because_only_launch_has_a_timeout(self):
+        # `batch` and `playtest` have no `--timeout`, so one formula could not
+        # be followed; the procedure carries the table and the block summarises it.
+        procedure = text(PROCEDURE)
+        self.assertIn("only `launch` has a\n`--timeout`", procedure)
+        for row in (
+            "| `launch` | (`--timeout` in seconds plus 30) times 1000 |",
+            "(`--max-minutes` times 60, plus 30) times 1000",
+            "`playtest --session handoff --max-minutes 0` | the harness's maximum",
+            "| `playtest --session attended` | none.",
+        ):
+            self.assertIn(row, procedure)
+        self.assertIn("An omitted `--max-minutes` is 60 minutes", procedure)
+        block = text(BLOCK)
+        self.assertIn("only `launch` has a `--timeout`", block)
+        self.assertIn("(`--max-minutes` times 60, plus 30) times 1000", block)
+        self.assertIn("`playtest --session attended` is never waited for", block)
+        execution = text(EXECUTION)
+        self.assertIn("That formula is `launch`'s own", execution)
+        self.assertIn("sized from `--max-minutes` instead", execution)
+
+    def test_an_uncapped_handoff_is_the_one_expected_continuation(self):
+        self.assertIn("expect exactly one\nsized `wait` continuation there", text(PROCEDURE))
+        self.assertIn("a single sized `wait` after an early return is expected", text(BLOCK))
 
     def test_the_only_continuation_is_one_sized_wait(self):
         for path in (PROCEDURE, BLOCK, EXECUTION):
@@ -88,6 +115,7 @@ class FeatureManifestTests(unittest.TestCase):
             self.assertIn(field, row)
         self.assertEqual(row["human_verdict"], "pending")
         self.assertIsInstance(row["evidence"], list)
+        self.assertEqual(record["route_source"], "contract")
 
     def test_template_is_a_listed_resource(self):
         resources = set(read_json(ROOT / "studio-kit.json")["resources"])
@@ -99,9 +127,33 @@ class FeatureManifestTests(unittest.TestCase):
         self.assertIn("feature-manifest.json", text(RETURN) + text(STATE))
         ret = procedure[procedure.index("## 5. Return"):procedure.index("## 6. Stop rules")]
         self.assertIn("**Accepted features.**", ret)
-        self.assertIn("`human_verdict`", ret)
+        self.assertIn("`pending`", ret)
+        self.assertIn("`accepted`", ret)
+        self.assertIn("`rejected` row with the\nreason it was rejected, a `pending` row as unreviewed", ret)
         self.assertIn("Not demonstrated", ret)
         self.assertIn("Accepted features", text(RETURN))
+        self.assertIn("`rejected` with the reason, `pending` as unreviewed", text(RETURN))
+
+    def test_pending_is_not_acceptance(self):
+        review = text(REVIEW)
+        self.assertIn("`human_verdict: accepted`", review)
+        self.assertIn("nothing but `accepted` satisfies this", review)
+        self.assertIn("treated as `pending`", review)
+        playtest = text(PLAYTEST)
+        self.assertIn("`human_verdict: accepted`", playtest)
+        self.assertIn("then `accepted` or `rejected`", playtest)
+
+    def test_the_canonical_route_has_a_declared_source(self):
+        contracts = text(CONTRACTS)
+        self.assertIn("`canonical_route`", contracts)
+        self.assertIn('{"id": "<route-step-id>", "description": "<what the player does>"}', contracts)
+        self.assertIn('"route_source": "contract"', contracts)
+        self.assertIn('"route_source": "derived"', contracts)
+        self.assertIn("`input_route`", contracts)
+        procedure = text(PROCEDURE)
+        self.assertIn('recording `"route_source": "contract"`', procedure)
+        self.assertIn('record `"route_source": "derived"`', procedure)
+        self.assertIn("route_source", text(RETURN) + text(STATE))
 
     def test_playtest_owns_the_canonical_route_and_review_owns_the_wiring_gap(self):
         playtest = text(PLAYTEST)
@@ -111,7 +163,7 @@ class FeatureManifestTests(unittest.TestCase):
         self.assertIn("Observed in the scene where it was built is not that", playtest)
         review = text(REVIEW)
         self.assertIn("wiring gap", review)
-        self.assertIn("`human_verdict`", review)
+        self.assertIn("human_verdict", review)
         self.assertIn("`content_digest`", review)
 
 
@@ -141,13 +193,26 @@ class SnapshotCommitTests(unittest.TestCase):
         self.assertIn("`run <run-id>: snapshot at Return`", ret)
         self.assertIn("A run commits nothing by default", ret)
         self.assertIn("No push, no merge, no rebase", ret)
-        self.assertIn("uncommitted overlay: <staged> staged, <untracked>", ret)
+        self.assertIn("uncommitted overlay: <staged> staged, <modified> modified or\ndeleted unstaged, <untracked> untracked", ret)
+        self.assertIn("git status --porcelain", ret)
+
+    def test_an_authorized_run_with_nothing_eligible_commits_nothing(self):
+        procedure = text(PROCEDURE)
+        ret = procedure[procedure.index("## 5. Return"):procedure.index("## 6. Stop rules")]
+        self.assertIn("snapshot: no eligible changes, ref <current commit>", ret)
+        self.assertIn("create no branch and commit nothing", ret)
+        self.assertIn("an empty commit records a baseline that does not exist", ret)
+        for path in (RETURN, STATE):
+            self.assertIn("snapshot: no eligible changes, ref <current commit>", text(path), path.name)
 
     def test_both_records_carry_the_snapshot_line(self):
         for path in (RETURN, STATE):
             body = text(path)
             self.assertIn("run/<run-id>", body, path.name)
-            self.assertIn("uncommitted overlay: <staged> staged, <untracked> untracked", body, path.name)
+            self.assertIn(
+                "uncommitted overlay: <staged> staged, <modified> modified or deleted unstaged, <untracked> untracked",
+                body, path.name,
+            )
 
 
 class PortabilityTests(unittest.TestCase):

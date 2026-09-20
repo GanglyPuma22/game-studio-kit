@@ -58,11 +58,14 @@ ordinary controls.
 The tool call that carries a `launch` must be told to wait as long as the launch
 may run: set that call's outer yield directive (`// @exec: {"yield_time_ms": N}`
 in the Codex harness) with N at least (`--timeout` in seconds plus 30) times
-1000. A `yield_time_ms` among the command's own arguments is not that directive
+1000. That formula is `launch`'s own. `batch` and `playtest` have no `--timeout`
+and are sized from `--max-minutes` instead; the per-command table is in
+[overnight-run](../../studio-director/references/overnight-run.md). A
+`yield_time_ms` among the command's own arguments is not that directive
 and does not extend the call. A harness returning after its default outer yield,
 about 30 seconds, has neither capped nor ended the launch: the engine is still
-running, so a return before the verdict JSON means the directive was missing,
-never that the run hung and never a reason to start a second engine. The one
+running, so a return before the verdict JSON means the directive was missing or
+undersized, never that the run hung and never a reason to start a second engine. The one
 continuation that is not polling is a single `wait` sized to the time the launch
 has left, never repeated short waits and never an empty `write_stdin`.
 

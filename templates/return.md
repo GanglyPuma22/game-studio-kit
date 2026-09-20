@@ -6,7 +6,7 @@
 - Landings completed / attempted:
 - Encounters or scripted events reached:
 - Recorded route and listening notes (path, observer):
-- Accepted features (`artifacts/run/feature-manifest.json`; rows with a `human_verdict` and evidence on the canonical route):
+- Accepted features (`artifacts/run/feature-manifest.json`; rows with `human_verdict: accepted` and evidence on the canonical route; say so here when `route_source` is `derived` and the route still needs the user's confirmation):
 
 ## Scorecard
 | Stage | Scope rung | Passed | Verdict artifact | Notes |
@@ -27,13 +27,13 @@ pending the user until every mandatory dimension above is `pass`.
 
 ## Not demonstrated
 - (every contract goal without a passing artifact, with the reason)
-- (every feature-manifest row without a `human_verdict`, with the reason; a feature observed only in the scene where it was built belongs here)
+- (every feature-manifest row that is not `accepted`: `rejected` with the reason, `pending` as unreviewed; a feature observed only in the scene where it was built belongs here)
 
 ## Evidence index
 - Launch inventory (`studio evidence launches`):
 - Identity receipt (`studio candidate verify`):
 - Cleanroom captures:
-- Snapshot commit (`run/<run-id>` ref and excluded-file count, written only when the contract carries `snapshot_commit: authorized`; otherwise `uncommitted overlay: <staged> staged, <untracked> untracked`):
+- Snapshot commit (`run/<run-id>` ref and excluded-file count, written only when the contract carries `snapshot_commit: authorized`, or `snapshot: no eligible changes, ref <current commit>` when nothing was eligible; otherwise `uncommitted overlay: <staged> staged, <modified> modified or deleted unstaged, <untracked> untracked`):
 
 ## Budget used
 - Wall clock / cutoff:

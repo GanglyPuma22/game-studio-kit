@@ -8,6 +8,8 @@ An asset moves `working → exported → imported → reviewed → accepted`. So
 
 Audio cues link the preserved original to prepared runtime audio, event/location, bus, priority, variation, loop bounds, measured duration/channel/rate, rights and listening verdict. Use `audio measure` for 16-bit PCM WAV; prepare keeps the original intact. Encoded provider audio is measured/transcoded with an explicitly configured FFmpeg/FFprobe route. Output format is not proof of listening quality.
 
+A contract declares `canonical_route`: the ordered list of route steps a player actually walks from the normal start, each `{"id": "<route-step-id>", "description": "<what the player does>"}`, for example `[{"id": "spawn-exit", "description": "leave the start area on foot"}, {"id": "first-slope", "description": "climb the slope to the overlook"}]`. A run copies it into its [feature manifest](../templates/feature-manifest.json) and records `"route_source": "contract"`. A contract written before this field declares no route: derive one from the project record's `input_route` and the main scene, record `"route_source": "derived"`, and flag the derived route in `RETURN.md` for the user to confirm, because a route nobody declared is a guess about what a player does. Acceptance of a feature is bound to this route, so the route has to exist before the features do.
+
 Create a candidate **after final content changes**:
 
 ```text
