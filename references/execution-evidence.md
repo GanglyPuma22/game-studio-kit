@@ -162,15 +162,34 @@ stopping contributes to that list, not only the first, so a process that
 becomes visible mid-cleanup is still reported once the last snapshot comes back
 clean. `stopped` is never true while anything is unverified.
 
-The prelaunch snapshot is taken by the caller, before both of its final
-checks, because enumerating every process on a Windows host can cost seconds.
-The order is snapshot, then bytes, then cutoff: a snapshot taken after the
+The prelaunch snapshot belongs to the caller and is never taken by the runner:
+on Windows it is a PowerShell enumeration of every process on the host, and a
+caller measuring a quiet machine (the cleanroom bench) would otherwise see this
+toolkit's own query as a newcomer with CPU time. A caller takes it where its
+receipts, its measurements and its interrupt handling can afford it and passes
+it in; `cleanroom` takes it before its quiet-host snapshot and its sampler
+start, and a job whose descendants nobody will stop takes none at all. Without
+one, `windows_ownership` is recorded as unavailable with the note "no prelaunch
+baseline was supplied", and cleanup then reports what it found instead of
+signalling it.
+
+Where a caller does take it, the order is snapshot, then bytes, then cutoff,
+because enumerating every process can cost seconds: a snapshot taken after the
 digest recheck would sit between a verified engine and the process that starts,
 so bytes replaced during the query would run with the verified hash on record,
 and a snapshot taken after the cutoff recheck would spend part of the
 authorized window after it had been judged open and hand the engine a timeout
 computed before that cost. `blender run` takes it before its own executable
-recheck for the same reason.
+recheck for the same reason, after writing a first `run.json`, and an interrupt
+during the query ends in that run's `interrupted` receipt rather than a
+reserved directory nothing explains.
+
+Cleanup itself is bounded: every query it makes draws on one budget of
+30 seconds, the identities of all the PIDs it is about to signal are read in a
+single query rather than one each, and what the budget did not allow to be read
+is reported unread rather than guessed at. A descendant that only becomes
+visible in a walk taken after the first kill is signalled and held like the
+rest, because once its parent's row is gone no later walk can reach it.
 
 A `--result` must name engine output: a path inside
 this launch's own directory (its receipts, log or profile) is refused before

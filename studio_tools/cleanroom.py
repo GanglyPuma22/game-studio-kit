@@ -23,7 +23,7 @@ import threading
 import time
 import uuid
 from .common import StudioError, file_record, outside_package, read_json, relative, safe_id, write_json
-from .processes import run
+from .processes import prelaunch_baseline, run
 
 MAX_CAPTURE_TIMEOUT = 3600
 DEFAULT_SAMPLE_INTERVAL = 10.0
@@ -949,6 +949,11 @@ def execute(
     except FileExistsError:
         raise StudioError("Bench directory exists; choose a new label") from None
     owner = os.getpid() if self_pid is None else self_pid
+    # Taken before the quiet-host snapshot and the sampler: on Windows this is
+    # a PowerShell enumeration, and one started after either of them would show
+    # up as a newcomer with CPU time of this toolkit's own making, which is
+    # exactly the contamination the bench exists to detect.
+    baseline = prelaunch_baseline(hide_window=False)
     if settle:
         time.sleep(settle)
     before = snapshot_reader()
@@ -971,7 +976,8 @@ def execute(
     failure = None
     sampler.start()
     try:
-        run(list(capture), cwd=str(root), timeout=limit, job_dir=bench / "capture", hide_window=False)
+        run(list(capture), cwd=str(root), timeout=limit, job_dir=bench / "capture",
+            hide_window=False, baseline=baseline)
     except StudioError as exc:
         failure = str(exc)
     finally:

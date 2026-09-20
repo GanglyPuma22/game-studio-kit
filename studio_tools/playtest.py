@@ -428,7 +428,17 @@ def execute(
     # and would spend part of the window after the window was found open. An
     # attended session takes none: nothing ever stops its descendants for it,
     # so the evidence would only delay the human it hands the game to.
-    baseline = prelaunch_baseline(hide_window=False) if session != "attended" else None
+    try:
+        baseline = prelaunch_baseline(hide_window=False) if session != "attended" else None
+    except KeyboardInterrupt:
+        # The receipts for this label already exist; an interrupt during the
+        # enumeration must leave them saying so rather than "launching".
+        playtest.update(status="interrupted", max_minutes_effective=None,
+                        process_record=None)
+        write_json(run_dir / "playtest.json", playtest)
+        _finish(root, run_dir, playtest, None, "", "interrupted",
+                "playtest interrupted before the engine started")
+        raise
     # The digest verified above described bytes that could have been replaced
     # while this session was prepared, so the engine is re-read after that last
     # slow step: only the verified identity may start.
