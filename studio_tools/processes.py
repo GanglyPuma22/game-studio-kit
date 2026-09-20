@@ -67,23 +67,38 @@ def _proc_state(pid):
         return None
 
 
-def _windows_rows(query, hide_window):
-    """Return parsed Win32_Process rows, or None when the query is unavailable."""
+def _windows_query(query, hide_window):
+    """Run one CIM query: ("ok", rows) when it answered, ("failed", None) when it did not.
+
+    An answer holding no rows is still an answer: it says the table has nothing
+    matching. Keeping that apart from a query that never ran is what lets
+    cleanup call a survivor that has already exited stopped rather than
+    unaccounted for.
+    """
     shell = shutil.which("pwsh") or shutil.which("powershell")
     if not shell:
-        return None
+        return "failed", None
     try:
         done = subprocess.run(
             [shell, "-NoProfile", "-NonInteractive", "-Command", query],
             capture_output=True, text=True, timeout=30, check=False,
             **_creation_options(hide_window),
         )
-        rows = json.loads(done.stdout) if not done.returncode and done.stdout.strip() else None
+        if done.returncode:
+            return "failed", None
+        text = done.stdout.strip()
+        rows = json.loads(text) if text else []
     except (OSError, ValueError, subprocess.SubprocessError):
-        return None
+        return "failed", None
     if isinstance(rows, dict):
-        return [rows]
-    return rows if isinstance(rows, list) else None
+        return "ok", [rows]
+    return ("ok", rows) if isinstance(rows, list) else ("failed", None)
+
+
+def _windows_rows(query, hide_window):
+    """Return parsed Win32_Process rows, or None when the query is unavailable."""
+    state, rows = _windows_query(query, hide_window)
+    return rows if state == "ok" else None
 
 
 # A PID alone names a slot in the process table, not a process: Windows hands
@@ -125,13 +140,29 @@ def _windows_snapshot(hide_window):
     return {"status": "ok", "processes": found, "note": None}
 
 
-def _windows_identity(pid, hide_window):
-    """Read what one PID holds right now, or None when it cannot be read."""
-    rows = _windows_rows(
+def _windows_identity_state(pid, hide_window):
+    """What the table holds for one PID: ("present", row), ("absent", None) or ("unknown", None).
+
+    Three different facts, and cleanup acts differently on each: a row that is
+    present may have changed hands since the snapshot, an absent PID is a
+    process that has already exited, and a query that failed says neither.
+    """
+    state, rows = _windows_query(
         f"Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}' | " + CIM_IDENTITY,
         hide_window,
     )
-    return _windows_row(rows[0]) if rows else None
+    if state != "ok":
+        return "unknown", None
+    if not rows:
+        return "absent", None
+    entry = _windows_row(rows[0])
+    # A row that cannot be parsed is not proof of anything, absence included.
+    return ("present", entry) if entry is not None else ("unknown", None)
+
+
+def _windows_identity(pid, hide_window):
+    """Read what one PID holds right now, or None when it cannot be read."""
+    return _windows_identity_state(pid, hide_window)[1]
 
 
 def _windows_handle_times(process):
@@ -407,44 +438,75 @@ def _windows_stop(pid, hide_window, ownership, before):
 
     `taskkill` takes a PID, so the row that named a descendant a moment ago is
     re-read immediately before signalling it: a number that changed hands since
-    the snapshot is skipped and reported instead of killed.
+    the snapshot is skipped and reported instead of killed, and one the table no
+    longer holds has stopped itself and is recorded in `exited_pids`.
+
+    Only the proven number is signalled. The walk in `_windows_survivors`
+    already enqueued every verified child, so the whole proven tree is covered
+    PID by PID, while `/T` would also take whatever the same enumeration
+    refused to name and anything spawned under it since the snapshot.
+
+    Every snapshot taken here contributes to `unverified`, not just the first:
+    a process this job cannot account for is no less unaccounted for because it
+    only became visible while its parent was being stopped.
     """
-    refused = []
+    unverified = {}
+
+    def account(entries):
+        for entry in entries:
+            # First reason wins: it describes the moment the row was first seen.
+            unverified.setdefault(entry["pid"], entry)
+
+    account(before["unverified"])
+    refused, exited = [], []
     for member in before["verified_pids"]:
-        if not _same_identity(before["identities"].get(str(member)),
-                              _windows_identity(member, hide_window)):
-            refused.append({"pid": member, "reason": "identity_changed_before_stop"})
+        state, current = _windows_identity_state(member, hide_window)
+        if state == "absent":
+            # Gone between the snapshot and this lookup: already stopped, and
+            # calling that unverified would report a clean run as a dirty one.
+            exited.append(member)
+            continue
+        if state != "present" or not _same_identity(
+            before["identities"].get(str(member)), current
+        ):
+            refused.append({
+                "pid": member,
+                "reason": ("identity_changed_before_stop" if state == "present"
+                           else "identity_unavailable_before_stop"),
+            })
             continue
         try:
-            # /T takes the tree under a process this job has been shown to own;
-            # what hangs below a proven descendant is this job's by descent.
             subprocess.run(
-                ["taskkill", "/PID", str(member), "/T", "/F"],
+                ["taskkill", "/PID", str(member), "/F"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 check=False, timeout=5, **_creation_options(hide_window),
             )
         except (OSError, subprocess.SubprocessError):
             pass
+    account(refused)
     # Termination is asynchronous; give the verified set a bounded moment to go.
     deadline = time.monotonic() + 5
     after = survivors(pid, hide_window, ownership)
+    account(after["unverified"])
     while after["verified_pids"] and time.monotonic() < deadline:
         time.sleep(0.025)
         after = survivors(pid, hide_window, ownership)
-    unverified = sorted(before["unverified"] + refused, key=lambda entry: entry["pid"])
+        account(after["unverified"])
+    left = sorted(unverified.values(), key=lambda entry: entry["pid"])
     status = "ok" if (
-        before["status"] == "ok" and after["status"] == "ok" and not unverified
+        before["status"] == "ok" and after["status"] == "ok" and not left
     ) else "unavailable"
     return {
         "status": status,
         "pids": before["pids"],
         "stopped": status == "ok" and not after["verified_pids"],
         "verified_pids": before["verified_pids"],
-        "unverified": unverified,
+        "exited_pids": sorted(exited),
+        "unverified": left,
         "ignored": before["ignored"],
         "note": before["note"] or (
             "processes under this job were left running because this launch's "
-            "evidence does not name them" if unverified else None
+            "evidence does not name them" if left else None
         ),
     }
 
@@ -458,6 +520,8 @@ def stop_survivors(pid, hide_window=False, ownership=None):
     evidence in `ownership` shows it as a descendant created during the
     leader's life; anything else is left running and reported in `unverified`,
     because a process this job cannot name may well belong to somebody else.
+    A verified PID that had already exited when its turn came is reported in
+    `exited_pids`: it stopped, it was simply not this job that stopped it.
     """
     before = survivors(pid, hide_window, ownership)
     if os.name == "nt":
@@ -483,9 +547,21 @@ def stop_survivors(pid, hide_window=False, ownership=None):
     }
 
 
+def prelaunch_baseline(hide_window=False):
+    """The process table as it was before a job started, or None off Windows.
+
+    On Windows this is a full CIM enumeration and can cost seconds, which is
+    why a caller working against an authorized cutoff takes it here, before its
+    last cutoff check, rather than paying for it inside `run` after the window
+    was already judged still open. Everywhere else there is nothing to take:
+    a POSIX job is identified by its process group, not by a prior snapshot.
+    """
+    return _windows_snapshot(hide_window) if os.name == "nt" else None
+
+
 def run(
     args, *, cwd=None, timeout=180, log=None, env=None,
-    hide_window=False, job_dir=None,
+    hide_window=False, job_dir=None, baseline=None,
 ):
     """Run a foreground command; optional job_dir must be a new directory.
 
@@ -493,6 +569,8 @@ def run(
     an atomic process.json before launch and after exit/failure. It contains no
     argv or environment. hide_window suppresses Windows console creation, not
     arbitrary GUI windows. Callers still choose a verified background operation.
+    `baseline` is a `prelaunch_baseline()` the caller already took; without one
+    a Windows job directory gets its own, taken here.
     """
     if not isinstance(args, (list, tuple)) or not args:
         raise StudioError("Process command must be a nonempty argument array")
@@ -518,17 +596,21 @@ def run(
         "hidden_console_requested": hide_window,
     }
     record_path = folder / "process.json" if folder is not None else None
-    # Taken before the child exists, so every process it can later be confused
-    # with is already on record as somebody else's. Only a job directory keeps
-    # the evidence, so a run without one does not pay for the enumeration.
-    owns_identity = os.name == "nt" and record_path is not None
-    baseline = _windows_snapshot(hide_window) if owns_identity else None
 
     def save_record():
         if record_path is not None:
             write_json(record_path, record)
 
+    # Written before the snapshot below, which can take seconds: an interrupt
+    # during it must not leave a reserved job directory with no receipt in it.
     save_record()
+    # The baseline is from before the child exists, so every process it can
+    # later be confused with is already on record as somebody else's. Only a
+    # job directory keeps the evidence, so a run without one does not pay for
+    # the enumeration; a caller that already took one does not pay twice.
+    owns_identity = os.name == "nt" and record_path is not None
+    if owns_identity and baseline is None:
+        baseline = _windows_snapshot(hide_window)
     process = None
     # Redirect to a file, not a pipe: partial output survives timeout and does
     # not depend on draining a descendant's inherited pipe during cleanup.
@@ -646,7 +728,7 @@ def run(
     }
 
 
-def start(args, *, job_dir, cwd=None, env=None, hide_window=False):
+def start(args, *, job_dir, cwd=None, env=None, hide_window=False, baseline=None):
     """Start a job, record it, and return while it is still running.
 
     The opposite trade from `run`, and the only form that makes one: the caller
@@ -656,6 +738,11 @@ def start(args, *, job_dir, cwd=None, env=None, hide_window=False):
     are written exactly as `run` writes them, so one reader serves both forms,
     but the record keeps `status: running` and `owned: false` for good: nothing
     here ever observes the exit, and a later caller can only ask `alive`.
+
+    A `baseline` the caller took with `prelaunch_baseline()` is recorded as the
+    same `windows_ownership` evidence `run` writes. None is taken here: a
+    session that is meant to outlive this process should not be delayed by an
+    enumeration its caller can pay for before it decides to start at all.
     """
     if not isinstance(args, (list, tuple)) or not args:
         raise StudioError("Process command must be a nonempty argument array")
@@ -691,6 +778,12 @@ def start(args, *, job_dir, cwd=None, env=None, hide_window=False):
                 f"Could not start {Path(str(args[0])).name}; check executable configuration"
             ) from exc
     record.update(status="running", pid=process.pid)
+    if os.name == "nt" and baseline is not None:
+        # Read now, while the PID is certainly this process: nothing here will
+        # ever see it exit, so this is the only moment it can be identified.
+        record["windows_ownership"] = _windows_ownership(
+            baseline, _windows_root_identity(process, hide_window)
+        )
     try:
         write_json(record_path, record)
     except BaseException:
