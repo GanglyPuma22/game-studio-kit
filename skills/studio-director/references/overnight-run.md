@@ -18,8 +18,8 @@ is both the run directory and the project root every kit command uses via
 `--project`. Say this once; the rest of the procedure writes only `<run>`.
 Everything the run writes lives under `<run>/artifacts/`: the hand-maintained
 records sit at `<run>/artifacts/run/` (`STATE.md`, `RETURN.md`, the identity
-manifest, and preflight receipts under `<run>/artifacts/run/host/`, one per
-attempt); everything else lands where the kit commands already put it
+manifest, `feature-manifest.json`, and preflight receipts under
+`<run>/artifacts/run/host/`, one per attempt); everything else lands where the kit commands already put it
 (`<run>/artifacts/launches/`, `<run>/artifacts/bench/`, `<run>/artifacts/identity/`,
 `<run>/artifacts/candidate.json`). Every launch and bench label must start with `<run-id>-`
 so receipts from different runs are never confused with each other.
@@ -30,6 +30,7 @@ so receipts from different runs are never confused with each other.
 4. Copy [identity-manifest](../../../templates/identity-manifest.json) to `<run>/artifacts/run/identity-manifest.json` and fill it from the production contract (engine path and sha256, project sources in this worktree), or use the manifest path the contract already provides.
 5. `python <KIT>/scripts/studio.py candidate verify --project <run> --manifest <run>/artifacts/run/identity-manifest.json` for the engine, helpers, sources and packages the contract names, hashed from this worktree. A mismatch stops the run. Verification records identities at the moment it runs; it must be run against the same worktree every later stage uses, never a worktree created or swapped afterward.
 6. Read the production contract's `settings.viewport` and `settings.renderer` (`project.json`). `launch --mode native` (`studio_tools/launch.py`'s `mode_flags`) unconditionally passes `--resolution 1920x1080 --rendering-method forward_plus`; there is no flag to change it. If the contract's declared viewport is not exactly `[1920, 1080]` or its declared renderer is not exactly `forward_plus`, record `declared render settings differ from the fixed native launch profile; no performance evidence citable` in `STATE.md` at this checkpoint and refuse stage 4 when it is reached; carry the same sentence into `RETURN.md`'s Not demonstrated section. This is a known limit of `launch --mode native`, not a bug to work around mid-run: the kit fixes native launches to 1920x1080/forward_plus, so this procedure only cites stage 4-7 evidence when the contract already declares that exact resolution and renderer.
+7. Copy [feature-manifest](../../../templates/feature-manifest.json) to `<run>/artifacts/run/feature-manifest.json` and fill `canonical_route` from the production contract: the short ordered list of route steps a player actually walks ([studio-playtest](../../studio-playtest/SKILL.md)). Leave `features` empty; the run appends one row per feature it wires in, because a feature with no row is not part of the run's claim.
 
 There is no ledger script: the machine ledgers are the receipts the kit
 commands already write (preflight receipts, `owned-launch.json`,
@@ -46,7 +47,8 @@ express, and when each launch needs its own `bench cleanroom` window: stage 4
 wants one capture per rung, each with its own snapshot pair, and a batch inside
 one wrapper produces a single attribution window instead. The batch rollup is a
 crash record, never a file to read for progress.
-`STATE.md` and `RETURN.md` are the only hand-maintained run records: `RETURN.md` is write-once, at the
+`STATE.md`, `RETURN.md` and `<run>/artifacts/run/feature-manifest.json` are the
+only hand-maintained run records: `RETURN.md` is write-once, at the
 end (Section 5). `STATE.md` is rewritten atomically from its template only at
 defined checkpoints: after each preflight attempt, at each stage transition, and at handback. It
 gets no other edits.
@@ -164,6 +166,21 @@ stage deadline is the stage's start time, recorded in `STATE.md` at its
 stage-transition checkpoint, plus that stage's budget from the Max minutes
 column above.
 
+**Tell the harness to wait.** A blocking command only works if the tool call
+carrying it waits as long as the command may run. Set the outer yield directive
+on that call — `// @exec: {"yield_time_ms": N}` in the Codex harness — with N at
+least (`--timeout` in seconds plus 30) times 1000; a `yield_time_ms` inside the
+command's own arguments is not that directive and does not extend the call. With
+no directive the harness returns after its default outer yield, about 30 seconds,
+which is a harness default and not a host cap: an explicit 360-second directive
+has been measured holding a single call for 263 uninterrupted seconds. So a
+return before the verdict JSON means the directive was missing, not that the run
+hung — the engine is still running, and starting a second one puts two engines on
+the same profile. The one legitimate continuation is a single `wait` sized to the
+time the command still has; repeated short waits and empty `write_stdin` calls
+are the polling this procedure forbids, and two audited runs spent 72 and 27
+waits plus 20 empty writes on one launch that way.
+
 **Scope ladder.** Define the rungs from smallest to full scope before the run,
 each with a `safe_id`-valid ID (letters, digits, hyphens, underscores) and a
 one-line description; for a planetary terrain game: `macro-terrain` (macro
@@ -208,8 +225,13 @@ python <KIT>/scripts/studio.py bench cleanroom --project <run> --config <host co
 
 The nested `launch` runs as its own process; the outer command's `--config`
 does not propagate to it, so pass `--config <host config>` to both. The
-command owns the wait. Make no tool calls until it returns; read its one
-verdict. A capture whose `attributable` is false, or that lacks the snapshot
+command owns the wait: set the outer yield directive on the tool call that
+carries it (Launch deadlines, Section 2) from the capture `--timeout`, not from
+the nested launch's. Make no tool calls until it returns; read its one verdict.
+Inside a cleanroom window this is stricter than elsewhere, because every
+continuation lands in the agent activity log and a timestamp inside the window
+sets `attributable` to false — the sized outer directive is what keeps a capture
+citable. A capture whose `attributable` is false, or that lacks the snapshot
 pair, cannot be cited. Close only processes the run itself started; record
 everything else in the reasons and leave it running.
 
@@ -233,6 +255,34 @@ The scorecard may cite only receipts produced under the final candidate's
 `content_digest` (Section 2); a receipt left over from an earlier
 `content_digest` is not evidence. Preserve failures. Never claim acceptance from exit codes, unit
 tests or source coverage.
+
+**Accepted features.** `<run>/artifacts/run/feature-manifest.json` is the run's
+record of what was wired in and who saw it. `RETURN.md`'s Accepted features line
+points at it, and every feature whose row carries no `human_verdict` is listed
+under Not demonstrated with its reason — including a feature that ran green in
+the scene where it was built, because a feature reached only there is not on the
+canonical route ([studio-playtest](../../studio-playtest/SKILL.md)). Two features
+accepted in isolated scenes were never wired into the route and nobody noticed
+until a person played the game; the manifest exists to make that visible before
+handback.
+
+**Snapshot commit (only when authorized).** A run commits nothing by default.
+When the production contract carries the authorization line
+`snapshot_commit: authorized`, the last Return step is one commit, because a
+handback that leaves the run's own output untracked makes the user baseline it by
+hand:
+
+1. Create branch `run/<run-id>` from the pinned worktree's current commit.
+2. Stage by name (`git add <path>`) only the files this run produced or changed that are part of the game. Never `artifacts/`, never machine-only evidence, never a path the contract's exclusion list names. Count what was left out.
+3. Commit once, message `run <run-id>: snapshot at Return`.
+4. Record the branch ref and the count of excluded files in `STATE.md` and `RETURN.md`.
+
+No push, no merge, no rebase, and no other branch is touched. The commit is a
+baseline the user can diff, never evidence of acceptance: a dimension passes on
+its receipts or not at all. Without the authorization line the run commits
+nothing and records `uncommitted overlay: <staged> staged, <untracked>
+untracked` in both records instead, so the size of the overlay is at least
+known.
 
 ## 6. Stop rules
 

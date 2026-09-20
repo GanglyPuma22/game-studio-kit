@@ -33,3 +33,5 @@ Updated: <UTC>  Compactions so far: <n>
 - Doctor (engine version check):
 - Launch inventory:
 - Cleanroom captures:
+- Feature manifest (`artifacts/run/feature-manifest.json`; rows still without a `human_verdict`):
+- Snapshot commit (`run/<run-id>` ref and excluded-file count under `snapshot_commit: authorized`; otherwise `uncommitted overlay: <staged> staged, <untracked> untracked`):
