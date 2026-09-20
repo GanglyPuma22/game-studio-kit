@@ -122,6 +122,7 @@
     "templates/batch-plan.json",
     "templates/audio-cues.json",
     "templates/candidate.json",
+    "templates/feature-manifest.json",
     "templates/identity-manifest.json",
     "templates/project.json",
     "templates/return.md",

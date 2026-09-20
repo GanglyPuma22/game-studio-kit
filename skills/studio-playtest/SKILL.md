@@ -19,6 +19,22 @@ Two routes exist and they prove different things.
 
 The boundary is the one [acceptance](../../references/acceptance.md) already draws: **script-injected input establishes wiring, not normal-input usability.** A harness that walks a character across a terrain seam without falling through it has shown the collision shape is there. It has not shown the walk feels right, that the camera stayed comfortable, or that a player would ever go that way. A harness result never substitutes for a human verdict, and a passing harness on a route no person has played is a reason to schedule a `handoff` session, not a reason to skip one.
 
+## The canonical route
+
+The project owns a short ordered list of route steps a player actually walks from
+the normal start: the canonical route. A run records it as `canonical_route` in
+[feature-manifest](../../templates/feature-manifest.json), and every feature the
+run claims gets a row there naming the step it appears on, the entry it is
+reached through, and the script or scene that wires it in (`installed_by`).
+
+A feature is accepted only when a person observed it on that route and its row
+links the receipt. Observed in the scene where it was built is not that: an
+isolated scene shows the feature runs, not that the game reaches it. Two features
+that passed in their own scenes went into a handback unwired, because nothing in
+the run had to name the step a player would meet them on. When a row's
+`installed_by` points at a scene the route never enters, the feature is built and
+not installed, and it is reported that way.
+
 ## Choose the session mode, and pay its cost
 
 | `--session` | Use it when | What it costs |
