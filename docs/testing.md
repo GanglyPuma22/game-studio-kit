@@ -80,14 +80,16 @@ or no launch evidence is left running and reported in `unverified`, a process
 already running before the launch is not a descendant, a verified PID that had
 already exited at the kill counts as stopped while one whose lookup failed or
 answered with another process is refused, a process seen as unverified only in
-a mid-cleanup snapshot is still reported, the verified set is signalled deepest
-first and a kill that failed deep in the tree is reported rather than hidden by
-a walk that can no longer reach it, a signalled PID nothing can be read about
-is `stop_unconfirmed`, the prelaunch snapshot is taken before the launcher's
+a mid-cleanup snapshot is still reported, a descendant that only appears in a
+post-kill walk is signalled and held like the rest, the verified set is
+signalled deepest first and a kill that failed deep in the tree is reported
+rather than hidden by a walk that can no longer reach it, a signalled PID
+nothing can be read about is `stop_unconfirmed`, every cleanup query is held to
+one shrinking budget, the prelaunch snapshot is taken before the launcher's
 last engine-digest and cutoff checks so a launch whose engine is replaced or
-whose window closes during it never starts, `run` reuses a baseline its caller
-supplies, an interrupt during the snapshot still leaves a process record, and a
-receipt with unverified descendants never claims `stopped`.
+whose window closes during it never starts, `run` records the caller's baseline
+and never enumerates on its own, and a receipt with unverified descendants
+never claims `stopped`.
 The POSIX case in the same file proves group cleanup is unchanged. No process is
 terminated on Windows here, because there is no Windows here.
 
@@ -110,8 +112,9 @@ before or after the operation name, a mistyped project that is refused without
 being created, a declared result that cannot be read before the run refused for
 want of a baseline, a helper the script left running stopped and reported with
 `ok` false, an unenumerable process tree treated the same way, a
-KeyboardInterrupt during the run and during the receipts it prepares writing an
-interrupted receipt before it continues, a script edited while it ran reported
+KeyboardInterrupt during the run, during the prelaunch process enumeration and
+during the receipts it prepares writing an interrupted receipt before it
+continues, a script edited while it ran reported
 as both hashes and not ok while a sibling resolved through `__file__` still
 works, the owned tree stopped before any result is hashed, a declared result
 symlinked into the run's own directory reported invalid, an executable replaced

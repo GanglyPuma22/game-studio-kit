@@ -222,7 +222,17 @@ def execute(
     # snapshot after the two checks below would sit between a digest this
     # launch verified and the engine it starts, and would spend part of the
     # authorized window after that window was judged open.
-    baseline = prelaunch_baseline(hide_window=mode != "native")
+    try:
+        baseline = prelaunch_baseline(hide_window=mode != "native")
+    except KeyboardInterrupt:
+        # The receipts for this label already exist; an interrupt during the
+        # enumeration must leave them saying so rather than "launching".
+        launch.update(status="interrupted", timeout_seconds_effective=None,
+                      process_record=None)
+        write_json(run_dir / "owned-launch.json", launch)
+        _finish(root, run_dir, launch, None, "", "interrupted",
+                "launch interrupted before the engine started")
+        raise
     # The digest verified above described bytes that could have been replaced
     # while this launch was prepared, so the engine is re-read after the last
     # slow step and immediately before starting: only the verified identity

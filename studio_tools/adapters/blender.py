@@ -331,16 +331,39 @@ def script_run(
     record = {"status": "start_failed"}
     left = None
     result_files = []
-    # Snapshot, then bytes: on Windows enumerating every process can take half
-    # a minute, and taking it inside `run` would put that query between the
-    # digest checked here and the process that starts, so an executable
-    # replaced during the query would start with the verified hash on record.
-    baseline = prelaunch_baseline(hide_window=True)
-    # The digest above described bytes that could have been replaced while this
-    # run was prepared, so the executable is read again after that last slow
-    # step: only the verified identity may start, and a mismatch is a receipt
-    # rather than a launch.
-    if _readable_digest(executable) != blender_digest:
+    # The label is reserved on disk from here, and the next step is slow, so it
+    # gets a receipt now: an interrupt during the enumeration below must not
+    # leave a directory nothing explains. Everything written here is replaced
+    # by the full receipt at the end of the run.
+    write_json(run_dir / "run.json", {
+        "schema_version": 1, "kind": "blender-run", "label": label, **identity,
+        "passthrough_count": len(extra), "results_before": results_before,
+        "started_utc": started.isoformat(), "finished_utc": None,
+        "status": "starting", "returncode": None, "elapsed_seconds": None,
+        "timed_out": False, "cleanup": None, "survivors": None,
+        "result_files": [], "failure": None, "ok": False, "limits": RUN_LIMITS,
+    })
+    try:
+        # Snapshot, then bytes: on Windows enumerating every process can take
+        # half a minute, and taking it inside `run` would put that query
+        # between the digest checked next and the process that starts, so an
+        # executable replaced during the query would start with the verified
+        # hash on record. It is taken here, under this run's own interrupt
+        # handling, because it is the first slow step after the label exists.
+        baseline = prelaunch_baseline(hide_window=True)
+        # The digest above described bytes that could have been replaced while
+        # this run was prepared, so the executable is read again after that
+        # last slow step: only the verified identity may start, and a mismatch
+        # is a receipt rather than a launch.
+        unchanged = _readable_digest(executable) == blender_digest
+    except KeyboardInterrupt as exc:
+        # Ctrl+C before anything started still ends in this run's receipt,
+        # exactly like an interrupt during the run itself.
+        interrupt, baseline, unchanged = exc, None, False
+        failure = "Blender run interrupted before the script started"
+    if interrupt is not None:
+        status = "interrupted"
+    elif not unchanged:
         failure = (
             "Blender executable changed before the run; the verified identity did not start"
         )

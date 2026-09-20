@@ -16,6 +16,11 @@ from .common import StudioError, write_json
 # Module level so a test can point the POSIX enumeration at a host without it.
 PROC = Path("/proc")
 
+# One CIM query is a PowerShell start and can block; cleanup makes several, so
+# it gets one total budget rather than a fresh allowance for every question.
+QUERY_SECONDS = 30
+CLEANUP_BUDGET_SECONDS = 30
+
 
 def _creation_options(hide_window):
     if os.name != "nt":
@@ -67,21 +72,24 @@ def _proc_state(pid):
         return None
 
 
-def _windows_query(query, hide_window):
+def _windows_query(query, hide_window, timeout=QUERY_SECONDS):
     """Run one CIM query: ("ok", rows) when it answered, ("failed", None) when it did not.
 
     An answer holding no rows is still an answer: it says the table has nothing
     matching. Keeping that apart from a query that never ran is what lets
     cleanup call a survivor that has already exited stopped rather than
-    unaccounted for.
+    unaccounted for. A caller with no time left asks for none: a query that
+    cannot be given a moment to answer is not started at all.
     """
+    if timeout is not None and timeout <= 0:
+        return "failed", None
     shell = shutil.which("pwsh") or shutil.which("powershell")
     if not shell:
         return "failed", None
     try:
         done = subprocess.run(
             [shell, "-NoProfile", "-NonInteractive", "-Command", query],
-            capture_output=True, text=True, timeout=30, check=False,
+            capture_output=True, text=True, timeout=timeout, check=False,
             **_creation_options(hide_window),
         )
         if done.returncode:
@@ -95,9 +103,9 @@ def _windows_query(query, hide_window):
     return ("ok", rows) if isinstance(rows, list) else ("failed", None)
 
 
-def _windows_rows(query, hide_window):
+def _windows_rows(query, hide_window, timeout=QUERY_SECONDS):
     """Return parsed Win32_Process rows, or None when the query is unavailable."""
-    state, rows = _windows_query(query, hide_window)
+    state, rows = _windows_query(query, hide_window, timeout)
     return rows if state == "ok" else None
 
 
@@ -126,9 +134,9 @@ def _windows_row(row):
         return None
 
 
-def _windows_snapshot(hide_window):
+def _windows_snapshot(hide_window, timeout=QUERY_SECONDS):
     """Enumerate every process with its identity, or report the host cannot."""
-    rows = _windows_rows("Get-CimInstance Win32_Process | " + CIM_IDENTITY, hide_window)
+    rows = _windows_rows("Get-CimInstance Win32_Process | " + CIM_IDENTITY, hide_window, timeout)
     if rows is None:
         # Keep telling an operator which of the two it is: one is fixable here.
         note = ("process enumeration failed" if shutil.which("pwsh") or shutil.which("powershell")
@@ -140,24 +148,51 @@ def _windows_snapshot(hide_window):
     return {"status": "ok", "processes": found, "note": None}
 
 
-def _windows_identity_state(pid, hide_window):
-    """What the table holds for one PID: ("present", row), ("absent", None) or ("unknown", None).
+def _windows_identity_states(pids, hide_window, timeout=QUERY_SECONDS):
+    """What the table holds for a set of PIDs, in one query.
 
-    Three different facts, and cleanup acts differently on each: a row that is
+    Each PID answers ("present", row), ("absent", None) or ("unknown", None):
+    three different facts, and cleanup acts differently on each. A row that is
     present may have changed hands since the snapshot, an absent PID is a
-    process that has already exited, and a query that failed says neither.
+    process that has already exited, and a query that failed says neither. One
+    query answers for the whole set because each one is a PowerShell start, and
+    a job with a handful of workers would otherwise spend a bounded cleanup on
+    process starts alone.
     """
+    wanted = sorted({int(member) for member in pids})
+    if not wanted:
+        return {}
+    clause = " OR ".join(f"ProcessId={member}" for member in wanted)
     state, rows = _windows_query(
-        f"Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}' | " + CIM_IDENTITY,
-        hide_window,
+        f"Get-CimInstance Win32_Process -Filter '{clause}' | " + CIM_IDENTITY,
+        hide_window, timeout,
     )
     if state != "ok":
-        return "unknown", None
-    if not rows:
-        return "absent", None
-    entry = _windows_row(rows[0])
-    # A row that cannot be parsed is not proof of anything, absence included.
-    return ("present", entry) if entry is not None else ("unknown", None)
+        return {member: ("unknown", None) for member in wanted}
+    answered, unreadable = {}, False
+    for raw in rows:
+        entry = _windows_row(raw)
+        if entry is None:
+            # A row that cannot be parsed is not proof of anything, and it may
+            # be any of the PIDs asked about, so none of them may be called absent.
+            unreadable = True
+        else:
+            answered[entry["pid"]] = entry
+    found = {}
+    for member in wanted:
+        entry = answered.get(member)
+        if entry is not None:
+            found[member] = ("present", entry)
+        else:
+            found[member] = ("unknown", None) if unreadable else ("absent", None)
+    return found
+
+
+def _windows_identity_state(pid, hide_window, timeout=QUERY_SECONDS):
+    """What the table holds for one PID, in the same three answers."""
+    return _windows_identity_states([pid], hide_window, timeout).get(
+        int(pid), ("unknown", None)
+    )
 
 
 def _windows_identity(pid, hide_window):
@@ -260,7 +295,11 @@ def _windows_ownership(baseline, identity):
     inventory of unrelated software running on the host.
     """
     note = None
-    if not isinstance(baseline, dict) or baseline.get("status") != "ok":
+    if baseline is None:
+        # The caller owns this snapshot now, and took none: cleanup will refuse
+        # to signal anything under this job rather than guess what is its own.
+        note = "no prelaunch baseline was supplied"
+    elif not isinstance(baseline, dict) or baseline.get("status") != "ok":
         note = "prelaunch process snapshot unavailable"
     elif not _identified(identity):
         note = "launched process identity unavailable"
@@ -287,7 +326,7 @@ def _windows_candidates(children, pid):
     return sorted(found)
 
 
-def _windows_survivors(pid, hide_window, ownership=None):
+def _windows_survivors(pid, hide_window, ownership=None, timeout=QUERY_SECONDS):
     """Name only the descendants this job's launch evidence can account for.
 
     Windows has no process group to enumerate, so the parent table is all there
@@ -298,7 +337,7 @@ def _windows_survivors(pid, hide_window, ownership=None):
     it was not already running when the job started. Anything else is a
     candidate reported as unverified, never a process to signal.
     """
-    snapshot = _windows_snapshot(hide_window)
+    snapshot = _windows_snapshot(hide_window, timeout)
     if snapshot["status"] != "ok":
         return {"status": "unavailable", "pids": [], "verified_pids": [], "identities": {},
                 "unverified": [], "ignored": [], "note": snapshot["note"]}
@@ -401,16 +440,18 @@ def alive(pid):
     return state is not None and state[0] != "Z"
 
 
-def survivors(pid, hide_window=False, ownership=None):
+def survivors(pid, hide_window=False, ownership=None, timeout=QUERY_SECONDS):
     """List processes of this job that are still running after its leader exited.
 
     POSIX jobs start in a new session, so the leader's PID is the process group
     every descendant inherits; a zombie holds no resources and is not listed.
     Windows has no such group, so it needs `ownership`: the launch-time
     identity evidence `run` recorded, without which nothing can be attributed.
+    `timeout` bounds the Windows enumeration, so a caller working to a deadline
+    can ask for what is left of it rather than a fresh half minute.
     """
     if os.name == "nt":
-        return _windows_survivors(pid, hide_window, ownership)
+        return _windows_survivors(pid, hide_window, ownership, timeout)
     if PROC.is_dir():
         found = []
         for entry in PROC.iterdir():
@@ -471,18 +512,33 @@ def _windows_stop(pid, hide_window, ownership, before):
     Only the proven number is signalled. The walk in `_windows_survivors`
     already enqueued every verified child, so the whole proven tree is covered
     PID by PID, while `/T` would also take whatever the same enumeration
-    refused to name and anything spawned under it since the snapshot.
+    refused to name and anything spawned under it since the snapshot. The
+    verified set is signalled deepest first, so a parent's row is still in the
+    table while its children are being accounted for.
 
-    Every snapshot taken here contributes to `unverified`, not just the first:
-    a process this job cannot account for is no less unaccounted for because it
-    only became visible while its parent was being stopped.
+    Every walk taken here contributes, not just the first: a process this job
+    cannot account for is no less unaccounted for because it only became
+    visible while its parent was being stopped, and a descendant this job's
+    evidence does prove is signalled and held even when it was spawned after
+    the first walk. Each signalled PID is then read until it is proven gone,
+    because the walk alone cannot prove it: once a parent is out of the table
+    nothing below it is reachable from the root, so an enumeration that comes
+    back empty would otherwise pass for a tree that stopped.
 
-    Each PID that was signalled is then held until it is proven gone by its own
-    lookup, because the walk alone cannot prove it: once a parent is out of the
-    table nothing below it is reachable from the root, so an enumeration that
-    comes back empty would otherwise pass for a tree that stopped.
+    Every query here draws on one budget. Each is a PowerShell start that can
+    block, and cleanup of a job with several workers would otherwise hold its
+    caller for minutes; when the budget is gone the remaining questions are not
+    asked, and what could not be read is reported as unread.
     """
     unverified = {}
+    identities = dict(before["identities"])
+    handled, pending = set(), set()
+    refused, exited, found = [], [], []
+    spent_by = time.monotonic() + CLEANUP_BUDGET_SECONDS
+
+    def query_seconds():
+        """What one query may take: what is left of the budget, capped, never negative."""
+        return max(0.0, min(spent_by - time.monotonic(), QUERY_SECONDS))
 
     def account(entries):
         for entry in entries:
@@ -490,26 +546,10 @@ def _windows_stop(pid, hide_window, ownership, before):
             unverified.setdefault(entry["pid"], entry)
 
     def is_this_job(member, current):
-        return _same_identity(before["identities"].get(str(member)), current)
+        return _same_identity(identities.get(str(member)), current)
 
-    account(before["unverified"])
-    refused, exited, pending = [], [], set()
-    for member in _kill_order(before):
-        state, current = _windows_identity_state(member, hide_window)
-        if state == "absent":
-            # Gone between the snapshot and this lookup: already stopped, and
-            # calling that unverified would report a clean run as a dirty one.
-            exited.append(member)
-            continue
-        if state != "present" or not is_this_job(member, current):
-            refused.append({
-                "pid": member,
-                "reason": ("identity_changed_before_stop" if state == "present"
-                           else "identity_unavailable_before_stop"),
-            })
-            continue
-        # Held from here whether or not the command below could even be run:
-        # an attempt that failed is not a process that stopped.
+    def signal(member):
+        """Signal one PID and hold it: an attempt that failed is not a process that stopped."""
         pending.add(member)
         try:
             subprocess.run(
@@ -519,13 +559,53 @@ def _windows_stop(pid, hide_window, ownership, before):
             )
         except (OSError, subprocess.SubprocessError):
             pass
+
+    account(before["unverified"])
+    order = _kill_order(before)
+    # Nothing proven, nothing to ask about: a job with no verified descendant
+    # must not spend a query, least of all on a host being measured.
+    states = _windows_identity_states(order, hide_window, query_seconds()) if order else {}
+    for member in order:
+        handled.add(member)
+        state, current = states.get(member, ("unknown", None))
+        if state == "absent":
+            # Gone between the snapshot and this lookup: already stopped, and
+            # calling that unverified would report a clean run as a dirty one.
+            exited.append(member)
+        elif state != "present" or not is_this_job(member, current):
+            refused.append({
+                "pid": member,
+                "reason": ("identity_changed_before_stop" if state == "present"
+                           else "identity_unavailable_before_stop"),
+            })
+        else:
+            signal(member)
     account(refused)
+
+    def collect(after):
+        """Take in one post-kill walk: what it cannot name, and what it proves is ours."""
+        account(after["unverified"])
+        for member in after["verified_pids"]:
+            if member in handled:
+                continue
+            # A verified descendant that appeared while its parent was being
+            # stopped is this job's by the same evidence, and once that parent
+            # is out of the table no later walk can reach it: signal it now.
+            handled.add(member)
+            entry = after["identities"].get(str(member))
+            if entry is not None:
+                identities[str(member)] = entry
+            found.append(member)
+            signal(member)
 
     def confirm():
         """Release every signalled PID proven gone; name the ones nothing can be read for."""
         unreadable = set()
-        for member in sorted(pending):
-            state, current = _windows_identity_state(member, hide_window)
+        if not pending:
+            return unreadable
+        for member, (state, current) in _windows_identity_states(
+            pending, hide_window, query_seconds()
+        ).items():
             if state == "unknown":
                 unreadable.add(member)
             elif state == "absent" or not is_this_job(member, current):
@@ -536,13 +616,16 @@ def _windows_stop(pid, hide_window, ownership, before):
 
     # Termination is asynchronous; give the verified set a bounded moment to go.
     deadline = time.monotonic() + 5
-    after = survivors(pid, hide_window, ownership)
-    account(after["unverified"])
+    after = survivors(pid, hide_window, ownership, timeout=query_seconds())
+    collect(after)
     unreadable = confirm()
-    while (pending or after["verified_pids"]) and time.monotonic() < deadline:
+    while (
+        (pending or after["verified_pids"])
+        and time.monotonic() < deadline and query_seconds() > 0
+    ):
         time.sleep(0.025)
-        after = survivors(pid, hide_window, ownership)
-        account(after["unverified"])
+        after = survivors(pid, hide_window, ownership, timeout=query_seconds())
+        collect(after)
         unreadable = confirm()
     # A PID whose last lookup could not be read is not known to be running and
     # not known to have stopped, which is exactly what unverified is for.
@@ -554,9 +637,9 @@ def _windows_stop(pid, hide_window, ownership, before):
     ) else "unavailable"
     return {
         "status": status,
-        "pids": before["pids"],
+        "pids": sorted(set(before["pids"]) | set(found)),
         "stopped": (status == "ok" and not after["verified_pids"] and not pending),
-        "verified_pids": before["verified_pids"],
+        "verified_pids": sorted(set(before["verified_pids"]) | set(found)),
         "exited_pids": sorted(exited),
         "unstopped_pids": unstopped,
         "unverified": left,
@@ -632,7 +715,8 @@ def run(
     argv or environment. hide_window suppresses Windows console creation, not
     arbitrary GUI windows. Callers still choose a verified background operation.
     `baseline` is a `prelaunch_baseline()` the caller already took; without one
-    a Windows job directory gets its own, taken here.
+    the Windows ownership evidence is recorded as unavailable and nothing under
+    this job is ever signalled for it. No snapshot is taken here.
     """
     if not isinstance(args, (list, tuple)) or not args:
         raise StudioError("Process command must be a nonempty argument array")
@@ -663,16 +747,14 @@ def run(
         if record_path is not None:
             write_json(record_path, record)
 
-    # Written before the snapshot below, which can take seconds: an interrupt
-    # during it must not leave a reserved job directory with no receipt in it.
     save_record()
-    # The baseline is from before the child exists, so every process it can
-    # later be confused with is already on record as somebody else's. Only a
-    # job directory keeps the evidence, so a run without one does not pay for
-    # the enumeration; a caller that already took one does not pay twice.
+    # A `baseline` is the caller's to take and is never taken here: on Windows
+    # it is a PowerShell enumeration of every process on the host, and a caller
+    # measuring a quiet machine would see this toolkit's own query as a
+    # newcomer with CPU time. Only a job directory keeps the evidence, and
+    # without a baseline it is recorded as unavailable, which makes a later
+    # `stop_survivors` report what it found instead of signalling it.
     owns_identity = os.name == "nt" and record_path is not None
-    if owns_identity and baseline is None:
-        baseline = _windows_snapshot(hide_window)
     process = None
     # Redirect to a file, not a pipe: partial output survives timeout and does
     # not depend on draining a descendant's inherited pipe during cleanup.
@@ -709,9 +791,13 @@ def run(
             if owns_identity:
                 # Read now, while the handle is fresh and the PID is certainly
                 # this process: after the wait below reaps it, the number alone
-                # proves nothing about what is running under it.
+                # proves nothing about what is running under it. Without a
+                # baseline there is nothing to attribute it against, and asking
+                # the host anyway could cost a query nobody can use.
                 record["windows_ownership"] = _windows_ownership(
-                    baseline, _windows_root_identity(process, hide_window)
+                    baseline,
+                    _windows_root_identity(process, hide_window)
+                    if baseline is not None else None,
                 )
             save_record()
             try:
@@ -802,9 +888,9 @@ def start(args, *, job_dir, cwd=None, env=None, hide_window=False, baseline=None
     here ever observes the exit, and a later caller can only ask `alive`.
 
     A `baseline` the caller took with `prelaunch_baseline()` is recorded as the
-    same `windows_ownership` evidence `run` writes. None is taken here: a
-    session that is meant to outlive this process should not be delayed by an
-    enumeration its caller can pay for before it decides to start at all.
+    same `windows_ownership` evidence `run` writes. None is taken here: the
+    enumeration belongs to the caller, which knows when its own receipts,
+    measurements and interrupt handling can afford it.
     """
     if not isinstance(args, (list, tuple)) or not args:
         raise StudioError("Process command must be a nonempty argument array")
@@ -840,11 +926,12 @@ def start(args, *, job_dir, cwd=None, env=None, hide_window=False, baseline=None
                 f"Could not start {Path(str(args[0])).name}; check executable configuration"
             ) from exc
     record.update(status="running", pid=process.pid)
-    if os.name == "nt" and baseline is not None:
+    if os.name == "nt":
         # Read now, while the PID is certainly this process: nothing here will
         # ever see it exit, so this is the only moment it can be identified.
         record["windows_ownership"] = _windows_ownership(
-            baseline, _windows_root_identity(process, hide_window)
+            baseline,
+            _windows_root_identity(process, hide_window) if baseline is not None else None,
         )
     try:
         write_json(record_path, record)

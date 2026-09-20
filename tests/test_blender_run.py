@@ -510,6 +510,29 @@ class BlenderRunOwnershipTests(BlenderRunCase):
         self.assertEqual(receipt["cleanup"], "owned_tree_stopped")
         self.assertEqual(receipt["result_files"][0]["path"], "artifacts/bakes/normal.png")
 
+    def test_an_interrupt_while_the_baseline_is_taken_still_writes_a_receipt(self):
+        # The prelaunch enumeration is this run's first slow step and the label
+        # is already reserved, so Ctrl+C there must end the same way an
+        # interrupt during the run does: with a receipt, not a bare directory.
+        def interrupted(hide_window=False):
+            raise KeyboardInterrupt()
+
+        with patch("studio_tools.adapters.blender.prelaunch_baseline", interrupted), \
+                patch("studio_tools.adapters.blender.run") as started:
+            with self.assertRaises(KeyboardInterrupt):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    cli.main(["blender", "run", "--project", str(self.root),
+                              "--config", str(self.host_config), "--source", "source/asset.blend",
+                              "--script", "tools/rebake.py", "--label", "ctrl-c-baseline",
+                              "--result", "artifacts/bakes/normal.png"])
+            started.assert_not_called()
+        receipt = read_json(self.run_dir("ctrl-c-baseline") / "run.json")
+        self.assertEqual(receipt["status"], "interrupted")
+        self.assertFalse(receipt["ok"])
+        self.assertIn("interrupted before the script started", receipt["failure"])
+        self.assertIsNone(receipt["survivors"])
+        self.assertFalse((self.run_dir("ctrl-c-baseline") / "process").exists())
+
     def test_a_script_that_changes_during_the_run_is_not_ok(self):
         self.script("tools/selfedit.py",
                     "from pathlib import Path\n"

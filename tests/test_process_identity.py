@@ -52,20 +52,30 @@ class Host:
     from the root cannot see past a parent that is already gone.
     """
 
-    def __init__(self, *rows, survive=()):
+    def __init__(self, *rows, survive=(), hangs=False):
         self.table = {entry["pid"]: entry for entry in rows}
         self.survive = set(survive)
+        self.hangs = hangs
         self.commands = []
+        # What each batched lookup was allowed to spend, in the order asked.
+        self.timeouts = []
 
     def lookup(self):
-        return patch("studio_tools.processes._windows_identity_state", self.state)
+        return patch("studio_tools.processes._windows_identity_states", self.states)
 
     def taskkill(self):
         return patch("studio_tools.processes.subprocess.run", self.terminate)
 
-    def state(self, pid, hide_window):
-        entry = self.table.get(pid)
-        return ("present", entry) if entry is not None else ("absent", None)
+    def states(self, pids, hide_window, timeout=None):
+        self.timeouts.append(timeout)
+        if self.hangs:
+            # A host that never answers: every PID stays unread.
+            return {int(member): ("unknown", None) for member in pids}
+        found = {}
+        for member in pids:
+            entry = self.table.get(int(member))
+            found[int(member)] = ("present", entry) if entry is not None else ("absent", None)
+        return found
 
     def terminate(self, args, **kwargs):
         self.commands.append(tuple(args))
@@ -99,17 +109,18 @@ class WindowsIdentityCase(unittest.TestCase):
                                      sleep=lambda seconds: None))
 
     def identities(self, *rows):
-        """`_windows_identity_state` answering from a table, as the live host would.
+        """`_windows_identity_states` answering from a table, as the live host would.
 
         A PID the table does not hold is absent, which is what the live query
         reports for a process that exited between the snapshot and the kill.
         """
         table = {entry["pid"]: entry for entry in rows}
         return patch(
-            "studio_tools.processes._windows_identity_state",
-            side_effect=lambda pid, hide_window: (
-                ("present", table[pid]) if pid in table else ("absent", None)
-            ),
+            "studio_tools.processes._windows_identity_states",
+            side_effect=lambda pids, hide_window, timeout=None: {
+                member: (("present", table[member]) if member in table else ("absent", None))
+                for member in pids
+            },
         )
 
 
@@ -121,7 +132,7 @@ class WindowsDescendantClassificationTests(WindowsIdentityCase):
         with self.windows(), self.options(), \
                 patch("studio_tools.processes._windows_snapshot",
                       return_value=snapshot(stranger, below)), \
-                patch("studio_tools.processes._windows_identity_state") as identity, \
+                patch("studio_tools.processes._windows_identity_states") as identity, \
                 patch("studio_tools.processes.subprocess.run") as terminate:
             result = processes.stop_survivors(10, ownership=ownership())
         self.assertEqual(result["status"], "unavailable")
@@ -163,7 +174,7 @@ class WindowsDescendantClassificationTests(WindowsIdentityCase):
         with self.windows(), self.options(), \
                 patch("studio_tools.processes._windows_snapshot",
                       return_value=snapshot(row(20, 10, None))), \
-                patch("studio_tools.processes._windows_identity_state") as identity, \
+                patch("studio_tools.processes._windows_identity_states") as identity, \
                 patch("studio_tools.processes.subprocess.run") as terminate:
             result = processes.stop_survivors(10, ownership=ownership())
         self.assertEqual(result["status"], "unavailable")
@@ -181,7 +192,7 @@ class WindowsDescendantClassificationTests(WindowsIdentityCase):
         with self.windows(), self.options(), \
                 patch("studio_tools.processes._windows_snapshot",
                       side_effect=[snapshot(older), snapshot(older)]), \
-                patch("studio_tools.processes._windows_identity_state") as identity, \
+                patch("studio_tools.processes._windows_identity_states") as identity, \
                 patch("studio_tools.processes.subprocess.run") as terminate:
             result = processes.stop_survivors(10, ownership=ownership(older))
         self.assertEqual(result["status"], "ok")
@@ -297,8 +308,9 @@ class WindowsTerminationBoundaryTests(WindowsIdentityCase):
                 with self.windows(), self.options(), \
                         patch("studio_tools.processes._windows_snapshot",
                               side_effect=[snapshot(child), snapshot(recycled)]), \
-                        patch("studio_tools.processes._windows_identity_state",
-                              return_value=answer), \
+                        patch("studio_tools.processes._windows_identity_states",
+                              side_effect=lambda pids, hide_window, timeout=None: {
+                                  member: answer for member in pids}), \
                         patch("studio_tools.processes.subprocess.run") as terminate:
                     result = processes.stop_survivors(10, ownership=ownership())
                 self.assertEqual(result["status"], "unavailable")
@@ -334,7 +346,7 @@ class WindowsTerminationBoundaryTests(WindowsIdentityCase):
         walks = [snapshot(child, grandchild)]
         with self.windows(), self.options(), self.deadline(), \
                 patch("studio_tools.processes._windows_snapshot",
-                      side_effect=lambda hide_window: walks.pop(0) if walks else snapshot()), \
+                      side_effect=lambda hide_window, timeout=None: walks.pop(0) if walks else snapshot()), \
                 host.lookup(), host.taskkill():
             result = processes.stop_survivors(10, ownership=ownership())
         # Deepest first: the grandchild is signalled while its parent's row is
@@ -344,6 +356,59 @@ class WindowsTerminationBoundaryTests(WindowsIdentityCase):
         self.assertFalse(result["stopped"])
         self.assertIn("still running", result["note"])
 
+    def test_a_descendant_that_appears_while_stopping_is_signalled_too(self):
+        # The child spawns one more worker just before it is killed: the first
+        # post-kill walk can still reach it through the child's row, and once
+        # that row is gone no later walk can, so it is taken in now.
+        child = row(20, 10, "110")
+        latecomer = row(30, 20, "130")
+        host = Host(child, latecomer, survive=[30])
+        walks = [snapshot(child), snapshot(child, latecomer)]
+        with self.windows(), self.options(), self.deadline(), \
+                patch("studio_tools.processes._windows_snapshot",
+                      side_effect=lambda hide_window, timeout=None: (
+                          walks.pop(0) if walks else snapshot())), \
+                host.lookup(), host.taskkill():
+            result = processes.stop_survivors(10, ownership=ownership())
+        self.assertEqual(host.kills, [20, 30])
+        self.assertEqual(result["verified_pids"], [20, 30])
+        self.assertEqual(result["pids"], [20, 30])
+        # Its kill did not take, and the empty walk that follows is no proof.
+        self.assertEqual(result["unstopped_pids"], [30])
+        self.assertFalse(result["stopped"])
+
+    def test_every_cleanup_query_is_held_to_one_budget(self):
+        # Each query is a PowerShell start that can block for half a minute;
+        # a host that never answers must not hold cleanup for minutes.
+        child = row(20, 10, "110")
+        asked, walks = [], []
+        answers = [{20: ("present", child)}]
+
+        def states(pids, hide_window, timeout=None):
+            asked.append(timeout)
+            return answers.pop(0) if answers else {
+                int(member): ("unknown", None) for member in pids}
+
+        def walk(hide_window, timeout=None):
+            walks.append(timeout)
+            return snapshot(child) if len(walks) == 1 else snapshot()
+
+        with self.windows(), self.options(), self.deadline(step=8), \
+                patch("studio_tools.processes._windows_snapshot", side_effect=walk), \
+                patch("studio_tools.processes._windows_identity_states", side_effect=states), \
+                patch("studio_tools.processes.subprocess.run"):
+            result = processes.stop_survivors(10, ownership=ownership())
+        bounded = asked + walks[1:]
+        self.assertTrue(bounded)
+        self.assertTrue(all(0 <= value <= processes.QUERY_SECONDS for value in bounded))
+        # Never a fresh allowance: what is left of the budget only shrinks, and
+        # a question with nothing left to spend is not asked at all.
+        self.assertEqual(asked, sorted(asked, reverse=True))
+        self.assertEqual(min(bounded), 0)
+        self.assertLess(len(asked) + len(walks), 10)
+        self.assertEqual(result["unverified"], [{"pid": 20, "reason": "stop_unconfirmed"}])
+        self.assertFalse(result["stopped"])
+
     def test_a_signalled_pid_that_cannot_be_read_again_is_unconfirmed(self):
         child = row(20, 10, "110")
         # Present at the kill, then the host stops answering about it: nothing
@@ -352,10 +417,11 @@ class WindowsTerminationBoundaryTests(WindowsIdentityCase):
         walks = [snapshot(child)]
         with self.windows(), self.options(), self.deadline(), \
                 patch("studio_tools.processes._windows_snapshot",
-                      side_effect=lambda hide_window: walks.pop(0) if walks else snapshot()), \
-                patch("studio_tools.processes._windows_identity_state",
-                      side_effect=lambda pid, hide_window: (
-                          answers.pop(0) if answers else ("unknown", None))), \
+                      side_effect=lambda hide_window, timeout=None: walks.pop(0) if walks else snapshot()), \
+                patch("studio_tools.processes._windows_identity_states",
+                      side_effect=lambda pids, hide_window, timeout=None: {
+                          member: (answers.pop(0) if answers else ("unknown", None))
+                          for member in pids}), \
                 patch("studio_tools.processes.subprocess.run"):
             result = processes.stop_survivors(10, ownership=ownership())
         self.assertEqual(result["unverified"], [{"pid": 20, "reason": "stop_unconfirmed"}])
@@ -532,38 +598,25 @@ class PrelaunchSnapshotTests(unittest.TestCase):
         self.assertIsNone(owned["process_record"])
         self.assertFalse((run_dir / "process").exists())
 
-    def test_run_uses_a_supplied_baseline_instead_of_taking_its_own(self):
+    def test_run_records_the_caller_baseline_and_never_enumerates_itself(self):
         given = snapshot(row(99, 1, "50", name="explorer.exe"))
         with self.windows(), \
                 patch("studio_tools.processes._creation_options", return_value={}), \
-                patch("studio_tools.processes._windows_snapshot",
-                      return_value=snapshot()) as own:
+                patch("studio_tools.processes._windows_snapshot") as own:
             processes.run([sys.executable, "-c", "pass"],
                           job_dir=Path(self.tmp.name) / "given", baseline=given)
-            own.assert_not_called()
             record = read_json(Path(self.tmp.name) / "given/process.json")
             self.assertEqual(record["windows_ownership"]["prelaunch"],
                              [{"pid": 99, "created_filetime": "50"}])
-            # A caller that supplies none still gets one taken here, which is
-            # what the Blender adapter relies on.
+            # A caller that supplies none gets evidence saying exactly that,
+            # and no PowerShell of this toolkit's own making on a host somebody
+            # may be measuring; cleanup then reports instead of signalling.
             processes.run([sys.executable, "-c", "pass"],
                           job_dir=Path(self.tmp.name) / "own")
-            own.assert_called_once()
-
-    def test_an_interrupt_during_the_snapshot_still_leaves_a_process_record(self):
-        job = Path(self.tmp.name) / "interrupted"
-        with self.windows(), patch("studio_tools.processes._creation_options", return_value={}), \
-                patch("studio_tools.processes._windows_snapshot",
-                      side_effect=KeyboardInterrupt), \
-                patch("studio_tools.processes.subprocess.Popen") as popen:
-            with self.assertRaises(KeyboardInterrupt):
-                processes.run([sys.executable, "-c", "pass"], job_dir=job)
-            popen.assert_not_called()
-        # The directory was reserved by this run, so it must not be left with
-        # nothing in it saying what reserved it.
-        record = read_json(job / "process.json")
-        self.assertIn(record["status"], ("starting", "interrupted"))
-        self.assertIsNone(record["pid"])
+            own.assert_not_called()
+            blind = read_json(Path(self.tmp.name) / "own/process.json")["windows_ownership"]
+            self.assertEqual(blind["status"], "unavailable")
+            self.assertEqual(blind["note"], "no prelaunch baseline was supplied")
 
 
 class PosixSurvivorTests(unittest.TestCase):
