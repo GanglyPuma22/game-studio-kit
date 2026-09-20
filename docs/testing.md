@@ -274,3 +274,79 @@ evidence.
 ```text
 python -m unittest discover -s tests -p test_cleanroom_host.py -v
 ```
+
+## Receipt identity, startup phase, ready timing and kit provenance
+
+These six files use temporary directories and small Python child processes; no
+engine, provider, desktop or network is involved.
+
+`test_capture_identity.py` covers the `current`/`historical`/`unknown` label a
+capture, bench or cleanroom row gets when it is attached to a candidate verdict:
+a receipt from this content labelled current, one from another content labelled
+historical, a receipt carrying no digest labelled unknown rather than
+historical, an archived capture labelling itself and its own `capture.json`, the
+attached row keeping every hash it arrived with and the caller's dictionary left
+unmutated, `evidence_total`/`evidence_current` recomputed on each attach and by
+`refresh_rollups` over rows attached by hand, an unknown dimension refused, and
+the shipped `templates/candidate.json` carrying the new keys at zero.
+
+`test_startup_failure.py` covers the log classifier's `phase` and `first_error`
+and the verdict built on them: each load-time signature reported as `load`, a
+script error naming a running callback reported as `runtime`, a load-worded
+error raised from `_process` reported as runtime, only the first error deciding
+the phase in either order, no error meaning no phase, the first error stripped
+of colour escapes and truncated to 240 characters, the original
+`status`/`error_count`/`warning_count` unchanged, a non-zero exit with a load
+phase becoming `startup_failure` in both `launch` and `playtest`, a runtime
+fault staying `failed`, a load phase with exit zero staying `engine_errors`, and
+a timeout staying `timed_out` however the log reads.
+
+`test_ready_marker.py` uses a `python -c` child that prints the marker after a
+short sleep. It covers `ready_seconds` measured from process creation and
+written to `process.json`, a child that never prints it recording null, a marker
+printed just before exit still seen, a marker on an unterminated line counted,
+a run without a marker never reading the log while it waits, the read paced at
+no more than four times a second, a watched run still timing out with owned
+cleanup, a marker with no log file and a marker that is not a nonempty string
+both refused, the project's declared marker reaching the runner and `exit.json`
+for both `launch` and a driven `playtest`, a malformed declaration refused
+before a run label is reserved, the limit sentence present in both receipts, and
+no argv value or environment value in any receipt of a watched run.
+
+`test_performance_class.py` covers `clean_qualification` for an attributable
+window around a completed capture, `diagnostic` for a contended window and for a
+capture that timed out, `diagnostic` on a native launch that declared a result,
+no class at all on a launch that declared none or ran headless, and the verdict
+rollup: unverified on a fresh candidate, a bench class copied onto the row,
+a human review alone rolling up to `subjective_acceptance`, differing classes
+and a lone diagnostic rolling up to `mixed`, and a qualification taken from
+other content counted in `evidence_total` but not in `evidence_current` and not
+qualifying anything.
+
+`test_kit_identity.py` covers `kit_identity()` naming this version and digesting
+this source tree, being computed once and handed out as a copy, changing when a
+`.py` file under the package changes and not when a neighbouring `.md` does, the
+block appearing in both launch receipts, a new candidate and the doctor report,
+and carrying no host path. It also covers `evidence verify`: unchanged results
+reported `current` with `ok` true, changed bytes `changed`, a deleted result
+`missing`, a receipt that recorded nothing not ok, a declared result the run
+never produced listed as `unrecorded`, the project derived from the run
+directory or given explicitly, a receipt with no `result_files` refused, and the
+same verdict and exit code through `cli.main`.
+
+`test_doctor_credentials.py` covers `credential_source` returning `environment`,
+`file` or `none` in the same order `credential` resolves in, an empty value not
+counting as a source, the declared-file report's `present`/`readable`/key names
+including an unreadable file, and the doctor report itself: a file-backed host
+reported `unverified` rather than `needs_setup` for both the providers and the
+video-analysis credential, an unconfigured host still `needs_setup`, the setup
+plan reading the same statuses, and no key value anywhere in the report.
+
+```text
+python -m unittest discover -s tests -p test_capture_identity.py -v
+python -m unittest discover -s tests -p test_startup_failure.py -v
+python -m unittest discover -s tests -p test_ready_marker.py -v
+python -m unittest discover -s tests -p test_performance_class.py -v
+python -m unittest discover -s tests -p test_kit_identity.py -v
+python -m unittest discover -s tests -p test_doctor_credentials.py -v
+```
