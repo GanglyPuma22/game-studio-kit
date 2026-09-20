@@ -167,8 +167,8 @@ on Windows it is a PowerShell enumeration of every process on the host, and a
 caller measuring a quiet machine (the cleanroom bench) would otherwise see this
 toolkit's own query as a newcomer with CPU time. A caller takes it where its
 receipts, its measurements and its interrupt handling can afford it and passes
-it in; `cleanroom` takes it before its quiet-host snapshot and its sampler
-start, and a job whose descendants nobody will stop takes none at all. Without
+it in; a job whose descendants nobody will stop, such as the cleanroom bench's
+own capture, takes none at all. Without
 one, `windows_ownership` is recorded as unavailable with the note "no prelaunch
 baseline was supplied", and cleanup then reports what it found instead of
 signalling it.
