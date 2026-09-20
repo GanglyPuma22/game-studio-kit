@@ -415,3 +415,94 @@ active-hours span longer than the 18 hours Windows allows before it launches
 PowerShell at all. `--output` and `--receipt` must be outside
 the installed toolkit, like every other output. On non-Windows hosts preflight
 reports `host_kind: unsupported` and apply refuses.
+
+## Fields that say what a receipt does not prove
+
+**Evidence identity (`identity`, `evidence_current`, `evidence_total`).** Every
+capture, bench or cleanroom row attached to a candidate verdict carries
+`identity`: `current` when the receipt's recorded content digest is the
+candidate's own, `historical` when it recorded a different one, and `unknown`
+when it recorded none at all — a launch exit or a cleanroom bench knows a
+project, never a candidate, so `unknown` means nothing was written down rather
+than that something has moved on. The comparison is between two digests already
+on record; no file is re-hashed, so `current` says the receipt was taken from
+the inventory this candidate names, not that the files on disk still match it
+(`validate-record` is what checks that). Each verdict also carries
+`evidence_total` and `evidence_current`, recomputed whenever a row is attached.
+A verdict whose two numbers differ is resting partly on content that has since
+changed; neither number is a judgement about what the evidence showed.
+
+**Startup failure (`phase`, `first_error`, `verdict: startup_failure`).** The log
+classifier now reports `phase` — `load`, `runtime` or null — and `first_error`,
+the first `ERROR:`/`SCRIPT ERROR:` line stripped of terminal colour escapes and
+truncated to 240 characters. `load` means the first error in the log was a
+load-time signature (a parse error, a script or resource that would not load, a
+scene that would not instantiate) and that error's own `at:` continuation did
+not name a running callback; anything else with an error is `runtime`. When a
+launch or playtest exits non-zero and the phase is `load`, the verdict is
+`startup_failure`, reported ahead of `engine_errors` because the game never
+reached the point where its own diagnostics would mean anything. Elapsed time is
+never consulted: a slow host is not a startup failure, and a fast one is no
+evidence the game came up. A `load` phase alongside exit zero remains
+`engine_errors`, and a timeout remains `timed_out` however the log reads.
+
+**Ready marker (`ready_seconds`).** A project may declare
+`settings.ready_marker` in its `project.json`: a literal line substring its
+engine prints once it is up. The runner then checks the growing log no more than
+four times a second while it waits for the child, and records `ready_seconds` —
+monotonic seconds from process creation to the first line containing that
+substring — in `process.json`, and `launch` and `playtest` copy it into
+`exit.json`. It is null when nothing was declared and when the child never
+printed it, and a run with no marker never reads the log while it waits at all.
+This is a load-time measurement and nothing more: it does not show the game is
+playable, that the scene finished loading, or that anything printed after the
+marker was correct. `ready_seconds is a load-time measurement, never acceptance`
+is in the `limits` of both receipts for that reason. A project whose declared
+marker is not a nonempty string is refused before a run label is reserved.
+
+**Performance class (`performance_class`).** A cleanroom bench writes
+`clean_qualification` when its window was `attributable` and its capture
+completed, and `diagnostic` otherwise. A native `launch` that had to produce a
+declared result writes `diagnostic`; every other launch writes no class at all,
+because it measured nothing worth classifying. When such a receipt is attached
+to `verdicts.performance`, its class is copied onto the row and the verdict's
+own `performance_class` rollup is recomputed over the `current` rows only:
+`clean_qualification` when every one of them is a clean qualification,
+`subjective_acceptance` when every one of them is a person's own review
+(`native_visual`, `native_capture_review`, `listening`, `ordinary_input`) with
+no measured class, `mixed` when the classes differ — including a verdict resting
+only on diagnostics — and `unverified` when no row still describes this content.
+`clean_qualification` means the number was measured in a window nothing else
+contended for; it is not a claim that the number is good.
+
+**Kit identity (`kit`) and result re-hashing.** Every receipt recording an
+operation — `owned-launch.json`, `exit.json`, `playtest.json`, Blender's
+`run.json`, `reduce.json` and inspection output, `cleanroom.json`, a new
+`candidate.json`, the batch summary and the doctor report — carries `kit`:
+`{"version", "source_digest"}`, where the digest is taken over every
+`studio_tools/**/*.py` file with its path and byte length mixed in. The version
+alone names a release, which a working tree, a half-applied update or a local
+patch all keep; the digest names the Python that actually ran. It says nothing
+about which skills, references or templates were present, and nothing about
+whether the kit came from a release. `studio evidence verify --receipt <path>`
+re-hashes the files a receipt recorded a digest for and reports each as
+`current`, `changed` or `missing`, with `ok` true only when every one is
+current and at least one was recorded. No result bytes are copied anywhere, and
+a file still matching its digest is a statement about bytes alone — not that it
+is correct, complete or acceptable.
+
+**Credential source (`credential_source`, `credential_files`).** `doctor` now
+reports, per provider, where a key would actually come from if something asked
+for one right now: `environment` when the configured variable is set, `file`
+when a declared `credential_files` entry holds a nonempty value for it, and
+`none` otherwise — the same order `credential` resolves in, so the report cannot
+name a source the next call would not use. `status` is `unverified` whenever a
+key is present from either source and `needs_setup` otherwise; a host that keeps
+its keys in a declared file is no longer told to set up a provider it has
+already configured. The report also lists each declared file with `present`,
+`readable` and the key names it declares. Names only: no value from any file or
+environment variable is reported, and a name appearing in that list means the
+file mentions it, not that it carries a usable value and not that any account is
+entitled to use it. Nothing is loaded into `os.environ`, so nothing this kit
+starts inherits a key it was not given deliberately, and `unverified` remains
+what it always was — a key exists, no provider was contacted.
