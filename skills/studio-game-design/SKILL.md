@@ -15,4 +15,14 @@ Use an event table such as `idle + E within range → responding → one clip + 
 
 Propose only the smallest encounter that answers the work card's question. Distinguish a functional cue from a final voice and a procedural object from an approved production design. Hand motion requirements to [animation](../studio-animation/SKILL.md), cue/event mapping to [audio](../studio-audio/SKILL.md), and decided state/feedback to [Godot](../studio-godot/SKILL.md). Return measurable acceptance questions, not an expanding lore document.
 
+## Creature tiers
+
+A creature claim names one of these three tiers, and each has a test that settles it.
+
+- **Animated asset.** It plays clips. Test: nothing it does depends on what the player does.
+- **Resident.** It has a state controller that changes its behaviour from at least one stimulus. Test: name the stimulus, the state it leaves and the state it enters.
+- **Gameplay-ready encounter.** Stimulus, decision, response, interruption and recovery, all of it observed by a person on the canonical route ([studio-playtest](../studio-playtest/SKILL.md)). Test: a person approached, acted, walked away mid-response, and watched it recover.
+
+A report states which tier it claims, and only the gameplay-ready encounter may be called gameplay-ready. Looping clips reported as residents is the failure this exists to prevent: the word was upgraded, the behaviour was not.
+
 For exploration questions, use [actionable discovery](../../references/actionable-discovery.md). For companion timing/continuity, use [knowledge and delivery](../../references/companion-delivery.md). These are small design references; they do not authorize game-specific lore, state frameworks or live voice integration.
