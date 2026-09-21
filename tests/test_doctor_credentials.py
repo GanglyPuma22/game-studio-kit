@@ -77,7 +77,31 @@ class CredentialFileReportTests(CredentialCase):
     def test_a_missing_file_is_reported_rather_than_hidden(self):
         missing = str(self.dir / "absent.env")
         report = credential_file_report(load(overrides={"credential_files": [missing]}))
-        self.assertEqual(report, [{"path": missing, "present": False, "readable": False, "keys": []}])
+        self.assertEqual(report, [{"index": 0, "name": "absent.env", "present": False,
+                                   "readable": False, "keys": []}])
+
+    def test_only_the_basename_and_position_identify_a_declared_file(self):
+        first = self.keyfile("meshy.env", f"MESHY_API_KEY={SECRET}\n")
+        second = self.keyfile("fish.env", f"FISH_AUDIO_API_KEY={SECRET}\n")
+        report = credential_file_report(load(overrides={"credential_files": [first, second]}))
+        self.assertEqual([entry["index"] for entry in report], [0, 1])
+        self.assertEqual([entry["name"] for entry in report], ["meshy.env", "fish.env"])
+        text = json.dumps(report)
+        # The directory a host keeps its keys in is host layout, not evidence.
+        self.assertNotIn(str(self.dir), text)
+        self.assertNotIn("path", text)
+
+    def test_a_windows_spelled_entry_still_reports_a_bare_name(self):
+        from studio_tools.config import _credential_file_name
+
+        for item, name in (
+            ("/home/someone/.keys/meshy.env", "meshy.env"),
+            ("C:\\Users\\someone\\keys\\meshy.env", "meshy.env"),
+            ("\\\\server\\share\\keys.env", "keys.env"),
+            ("keys.env", "keys.env"),
+        ):
+            with self.subTest(item=item):
+                self.assertEqual(_credential_file_name(item), name)
 
     def test_a_file_this_process_cannot_read_is_present_but_not_readable(self):
         path = Path(self.keyfile("locked.env", f"MESHY_API_KEY={SECRET}\n"))

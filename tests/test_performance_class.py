@@ -17,9 +17,11 @@ from unittest.mock import patch
 from test_cleanroom_host import proc, snap, stub_sampler
 
 from studio_tools import cleanroom, launch, processes
-from studio_tools.common import digest, file_record, read_json, sha256
+from studio_tools.common import StudioError, digest, file_record, read_json, sha256
 from studio_tools.config import load
-from studio_tools.evidence import attach_evidence, new_candidate, performance_rollup
+from studio_tools.evidence import (
+    attach_evidence, new_candidate, performance_rollup, validate_candidate,
+)
 
 
 class CleanroomClassTests(unittest.TestCase):
@@ -180,6 +182,51 @@ class RollupTests(unittest.TestCase):
         self.assertEqual(self.verdict()["evidence_total"], 1)
         self.assertEqual(self.verdict()["evidence_current"], 0)
         self.assertEqual(self.verdict()["performance_class"], "unverified")
+
+    def test_only_a_clean_qualification_can_carry_a_performance_pass(self):
+        for performance_class, expected in (
+            ("clean_qualification", None),
+            ("diagnostic", "diagnostic"),
+        ):
+            with self.subTest(performance_class=performance_class):
+                candidate = new_candidate(self.root, "candidate", "4.5.1", "test")
+                self.candidate = candidate
+                attach_evidence(
+                    candidate, "performance", self.row("bench.json"),
+                    receipt={"content_digest": candidate["content_digest"],
+                             "performance_class": performance_class},
+                )
+                candidate["verdicts"]["performance"]["status"] = "pass"
+                if expected is None:
+                    validate_candidate(candidate, self.root)
+                else:
+                    with self.assertRaisesRegex(StudioError, "clean_qualification"):
+                        validate_candidate(candidate, self.root)
+
+    def test_a_human_review_alone_cannot_carry_a_performance_pass(self):
+        candidate = new_candidate(self.root, "candidate", "4.5.1", "test")
+        self.candidate = candidate
+        attach_evidence(candidate, "performance",
+                        self.row("review.json", method="native_capture_review"))
+        candidate["verdicts"]["performance"]["status"] = "pass"
+        self.assertEqual(candidate["verdicts"]["performance"]["performance_class"],
+                         "subjective_acceptance")
+        with self.assertRaisesRegex(StudioError, "clean_qualification"):
+            validate_candidate(candidate, self.root)
+
+    def test_a_mixture_cannot_carry_a_performance_pass(self):
+        candidate = new_candidate(self.root, "candidate", "4.5.1", "test")
+        self.candidate = candidate
+        for name, performance_class in (("bench.json", "clean_qualification"),
+                                        ("launch.json", "diagnostic")):
+            attach_evidence(
+                candidate, "performance", self.row(name),
+                receipt={"content_digest": candidate["content_digest"],
+                         "performance_class": performance_class},
+            )
+        candidate["verdicts"]["performance"]["status"] = "pass"
+        with self.assertRaisesRegex(StudioError, "clean_qualification"):
+            validate_candidate(candidate, self.root)
 
     def test_the_rollup_of_nothing_is_unverified(self):
         self.assertEqual(performance_rollup([]), "unverified")

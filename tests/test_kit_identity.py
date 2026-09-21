@@ -115,7 +115,9 @@ class VerifyTests(ReceiptCase):
         self.assertEqual([f["state"] for f in result["files"]], ["current"])
         self.assertEqual(result["files"][0]["current_sha256"],
                          result["files"][0]["recorded_sha256"])
-        self.assertEqual(result["totals"], {"current": 1, "changed": 0, "missing": 0})
+        self.assertEqual(result["totals"],
+                         {"current": 1, "changed": 0, "missing": 0, "malformed": 0})
+        self.assertEqual(result["malformed"], [])
         self.assertEqual(result["project"], str(self.root))
         self.assertEqual(result["kit"], kit_identity())
 
@@ -148,6 +150,35 @@ class VerifyTests(ReceiptCase):
         self.assertEqual(result["unrecorded"], ["artifacts/never.json"])
         self.assertEqual(result["files"], [])
         self.assertFalse(result["ok"])
+
+    def test_malformed_result_entries_are_listed_and_force_not_ok(self):
+        receipt = self.launch_with_result("malformed")
+        record = read_json(receipt)
+        record["result_files"] = [
+            record["result_files"][0],
+            "not an object at all",
+            {"path": 7, "sha256": None},
+            {"path": "artifacts/other.json", "sha256": 12345},
+            {"path": "artifacts/third.json", "sha256": "not-a-digest"},
+        ]
+        write_json(receipt, record)
+        result = verify_receipt(receipt)
+        self.assertFalse(result["ok"])
+        self.assertEqual([entry["index"] for entry in result["malformed"]], [1, 2, 3, 4])
+        self.assertEqual(result["totals"]["malformed"], 4)
+        # The one well-formed row is still checked rather than abandoned.
+        self.assertEqual([entry["state"] for entry in result["files"]], ["current"])
+        # A path that is not a string is never echoed back out of the receipt.
+        self.assertNotIn("path", result["malformed"][0])
+        self.assertNotIn("path", result["malformed"][1])
+        self.assertEqual(result["malformed"][2]["path"], "artifacts/other.json")
+        self.assertEqual(result["malformed"][3]["path"], "artifacts/third.json")
+
+    def test_a_null_digest_is_unrecorded_rather_than_malformed(self):
+        self.execute("print('ran')", label="null", results=["artifacts/never.json"])
+        result = verify_receipt(self.root / "artifacts/launches/null/exit.json")
+        self.assertEqual(result["unrecorded"], ["artifacts/never.json"])
+        self.assertEqual(result["malformed"], [])
 
     def test_the_project_is_derived_from_the_run_directory_or_given(self):
         receipt = self.launch_with_result("derived")

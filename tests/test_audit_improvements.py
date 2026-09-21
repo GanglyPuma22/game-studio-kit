@@ -31,7 +31,7 @@ class AuditTests(unittest.TestCase):
         p = self.root / 'artifacts/review.txt'
         p.write_text('Original review fixture, no perceptual claim')
         return {**file_record(self.root, p), 'content_digest': candidate['content_digest'],
-                'method': method, 'observer': 'offline fixture'}
+                'identity': 'current', 'method': method, 'observer': 'offline fixture'}
 
     def test_legacy_host_order_validates_without_rewriting_digest(self):
         c = self.candidate()

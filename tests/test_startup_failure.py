@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from studio_tools import launch, playtest, processes
-from studio_tools.adapters.godot import FIRST_ERROR_LIMIT, classify_log
+from studio_tools.adapters.godot import FIRST_ERROR_LIMIT, classify_log, error_signature
 from studio_tools.common import read_json, sha256, write_json
 from studio_tools.config import load
 
@@ -74,11 +74,61 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(len(result["first_error"]), FIRST_ERROR_LIMIT)
         self.assertTrue(result["first_error"].startswith("ERROR: detail"))
 
+    def test_any_project_frame_means_the_game_was_executing(self):
+        # The frame's function name is not an allowlist: a handler a project
+        # named itself is the game running just as much as _process is.
+        for function in ("_on_button_pressed", "_unhandled_input", "spawn_wave", "_process"):
+            with self.subTest(function=function):
+                log = ("ERROR: Failed loading resource: res://wave.tscn\n"
+                       f"   at: {function} (res://arena.gd:88)\n")
+                self.assertEqual(classify_log(log)["phase"], "runtime")
+
+    def test_an_engine_frame_under_a_load_signature_stays_load(self):
+        for frame in (
+            "   at: GDScript::reload (modules/gdscript/gdscript.cpp:2831)\n",
+            "   at: ResourceLoader::_load (core/io/resource_loader.cpp:283)\n",
+            "   at: load_source_code (core/object/script_language.h:104)\n",
+            "",
+        ):
+            with self.subTest(frame=frame):
+                log = "SCRIPT ERROR: Parse Error: Identifier not declared\n" + frame
+                self.assertEqual(classify_log(log)["phase"], "load")
+
+    def test_a_frame_in_neither_form_does_not_prove_the_game_ran(self):
+        log = "ERROR: Could not load res://main.tscn\n   at: somewhere\n"
+        self.assertEqual(classify_log(log)["phase"], "load")
+
     def test_the_original_counts_and_status_are_unchanged(self):
         result = classify_log("WARNING: first\nOrphan StringName: X\n ERROR: late\n")
         self.assertEqual(result["status"], "errors")
         self.assertEqual(result["error_count"], 1)
         self.assertEqual(result["warning_count"], 2)
+
+
+class SignatureTests(unittest.TestCase):
+    def test_host_paths_and_urls_are_replaced_but_resources_are_kept(self):
+        line = (
+            "ERROR: Failed to load script res://ui/menu.gd:41 from "
+            "C:\\Users\\someone\\projects\\game\\ui\\menu.gd and "
+            "https://cdn.example.com/build/patch.pck and /home/someone/.keys/id"
+        )
+        signature = error_signature(line)
+        self.assertTrue(signature.startswith("ERROR: Failed to load script res://ui/menu.gd:41"))
+        for secret in ("C:\\Users", "someone", "cdn.example.com", "/home/", ".keys"):
+            with self.subTest(secret=secret):
+                self.assertNotIn(secret, signature)
+        self.assertEqual(signature.count("<path>"), 3)
+
+    def test_everything_after_a_user_path_is_dropped(self):
+        signature = error_signature(
+            "ERROR: Could not load user://saves/player-someone-2026.save for reading"
+        )
+        self.assertEqual(signature, "ERROR: Could not load user://")
+
+    def test_the_signature_is_capped(self):
+        self.assertEqual(FIRST_ERROR_LIMIT, 200)
+        signature = error_signature("ERROR: " + "detail " * 200)
+        self.assertEqual(len(signature), FIRST_ERROR_LIMIT)
 
 
 class LaunchCase(unittest.TestCase):
@@ -126,6 +176,24 @@ class LaunchVerdictTests(LaunchCase):
         result = self.execute(self.child(PARSE_ERROR, code=0), label="zero")
         self.assertEqual(result["verdict"], "engine_errors")
         self.assertEqual(result["diagnostics"]["phase"], "load")
+
+    def test_a_host_path_in_the_log_never_reaches_a_receipt(self):
+        message = (
+            "ERROR: Cannot open file C:\\Users\\someone\\game\\main.tscn "
+            "listed at https://cdn.example.com/manifest.json"
+        )
+        result = self.execute(self.child(message), label="paths")
+        self.assertEqual(result["verdict"], "startup_failure")
+        self.assertEqual(result["diagnostics"]["phase"], "load")
+        self.assertIn("<path>", result["diagnostics"]["first_error"])
+        run_dir = self.root / "artifacts/launches/paths"
+        for name in ("exit.json", "diagnostics.json"):
+            text = (run_dir / name).read_text(encoding="utf-8")
+            for secret in ("C:", "someone", "cdn.example.com"):
+                with self.subTest(receipt=name, secret=secret):
+                    self.assertNotIn(secret, text)
+        # The raw line stays where the raw output always was: the log.
+        self.assertIn("cdn.example.com", (run_dir / "process/stdout.log").read_text(encoding="utf-8"))
 
     def test_a_timeout_is_still_a_timeout_however_the_log_reads(self):
         code = f"import sys,time;print({PARSE_ERROR!r},flush=True);time.sleep(30)"

@@ -18,6 +18,7 @@ from studio_tools.evidence import (
     performance_rollup,
     receipt_identity,
     refresh_rollups,
+    validate_candidate,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -126,6 +127,96 @@ class AttachTests(CaptureIdentityCase):
         # Empty verdicts stay at zero rather than gaining a claim.
         self.assertEqual(candidate["verdicts"]["motion"]["evidence_total"], 0)
         self.assertEqual(performance_rollup([]), "unverified")
+
+
+class ValidationTests(CaptureIdentityCase):
+    """A verdict may not rest on evidence that no longer describes the build."""
+
+    METHODS = {"visual": "native_visual", "motion": "native_visual",
+               "interaction": "ordinary_input", "audio": "listening",
+               "performance": "profiler_measurement"}
+
+    def passing(self, candidate, dimension):
+        entry = self.capture(candidate, name=dimension + ".txt", method=self.METHODS[dimension])
+        if dimension == "audio":
+            entry["listening"] = {"performed": True, "playback_route": "offline fixture route",
+                                  "interval_seconds": [0, 4]}
+        receipt = {"content_digest": candidate["content_digest"]}
+        if dimension == "performance":
+            receipt["performance_class"] = "clean_qualification"
+        attach_evidence(candidate, dimension, entry, receipt=receipt)
+        candidate["verdicts"][dimension]["status"] = "pass"
+        return candidate["verdicts"][dimension]["evidence"][-1]
+
+    def test_a_pass_backed_by_current_evidence_validates(self):
+        candidate = self.candidate()
+        self.passing(candidate, "visual")
+        validate_candidate(candidate, self.root)
+
+    def test_a_pass_with_no_current_row_is_refused(self):
+        for identity in (None, "historical", "unknown"):
+            with self.subTest(identity=identity):
+                candidate = self.candidate()
+                entry = self.passing(candidate, "visual")
+                if identity is None:
+                    entry.pop("identity")
+                else:
+                    entry["identity"] = identity
+                refresh_rollups(candidate)
+                with self.assertRaisesRegex(StudioError, "identity=current"):
+                    validate_candidate(candidate, self.root)
+
+    def test_a_stored_rollup_that_disagrees_with_its_own_rows_is_refused(self):
+        for key, value in (("evidence_total", 5), ("evidence_current", 0)):
+            with self.subTest(key=key):
+                candidate = self.candidate()
+                self.passing(candidate, "visual")
+                candidate["verdicts"]["visual"][key] = value
+                with self.assertRaisesRegex(StudioError, key + " disagrees"):
+                    validate_candidate(candidate, self.root)
+
+    def test_a_stored_performance_class_that_disagrees_is_refused(self):
+        candidate = self.candidate()
+        self.passing(candidate, "performance")
+        candidate["verdicts"]["performance"]["performance_class"] = "subjective_acceptance"
+        with self.assertRaisesRegex(StudioError, "performance_class disagrees"):
+            validate_candidate(candidate, self.root)
+
+    def test_a_record_storing_no_rollups_at_all_still_validates(self):
+        # A legacy candidate has nothing to disagree with, and every rule above
+        # reads the rows rather than the summary.
+        candidate = self.candidate()
+        self.passing(candidate, "visual")
+        for verdict in candidate["verdicts"].values():
+            for key in ("evidence_total", "evidence_current", "performance_class"):
+                verdict.pop(key, None)
+        validate_candidate(candidate, self.root)
+
+    def accepted(self):
+        candidate = self.candidate()
+        for dimension in self.METHODS:
+            self.passing(candidate, dimension)
+        candidate["settings"] = {"renderer": "gl_compatibility", "viewport": [1280, 720]}
+        candidate["input_route"] = "offline fixture route"
+        candidate["acceptance"] = {"decision": "accepted", "reviewer": "offline fixture",
+                                   "rationale": "offline fixture"}
+        return candidate
+
+    def test_acceptance_needs_every_mandatory_dimension_passing_on_current_evidence(self):
+        validate_candidate(self.accepted(), self.root)
+        for dimension in self.METHODS:
+            with self.subTest(dimension=dimension):
+                candidate = self.accepted()
+                candidate["verdicts"][dimension]["evidence"][0]["identity"] = "historical"
+                refresh_rollups(candidate)
+                with self.assertRaises(StudioError):
+                    validate_candidate(candidate, self.root)
+
+    def test_a_dimension_marked_not_applicable_still_needs_only_a_reason(self):
+        candidate = self.accepted()
+        candidate["verdicts"]["audio"] = {"status": "not_applicable", "reason": "silent fixture",
+                                          "evidence": [], "evidence_current": 0, "evidence_total": 0}
+        validate_candidate(candidate, self.root)
 
 
 class TemplateTests(unittest.TestCase):

@@ -273,16 +273,33 @@ def credential_source(config, provider):
     return "none"
 
 
+def _credential_file_name(item):
+    """The declared file's own name, never the directory holding it.
+
+    A doctor report is pasted into issues and handed to other agents, and the
+    directory of a key file is host layout: an account name, a mounted share, a
+    deployment root. The zero-based position in `credential_files` is enough to
+    say which entry is meant. The Windows form is applied after the host form
+    so a config written on Windows and read here still yields a bare name
+    rather than a whole backslash path; a POSIX filename that actually contains
+    a backslash is trimmed too, which errs towards saying less.
+    """
+    return PureWindowsPath(Path(item).name).name
+
+
 def credential_file_report(config):
     """Per declared credential file: present, readable, and the names it declares.
 
-    Names only. A name appearing here says the file mentions it, not that it
+    Names only, in two senses. The file is identified by its own basename and
+    its position in the configured list, never by the path it sits at. And the
+    keys are names: one appearing here says the file mentions it, not that it
     carries a usable value and not that any provider is entitled to use it;
     `credential_source` is the answer to that question.
     """
     report = []
-    for item in config.get("credential_files", []):
-        entry = {"path": item, "present": False, "readable": False, "keys": []}
+    for index, item in enumerate(config.get("credential_files", [])):
+        entry = {"index": index, "name": _credential_file_name(item),
+                 "present": False, "readable": False, "keys": []}
         try:
             entry["present"] = Path(item).expanduser().is_file()
         except OSError:
