@@ -13,11 +13,13 @@ import unittest
 
 from studio_tools.common import StudioError, digest, file_record
 from studio_tools.evidence import (
+    IDENTITIES,
     attach_evidence,
     new_candidate,
     performance_rollup,
     receipt_identity,
     refresh_rollups,
+    row_identity,
     validate_candidate,
 )
 
@@ -165,6 +167,36 @@ class ValidationTests(CaptureIdentityCase):
                 refresh_rollups(candidate)
                 with self.assertRaisesRegex(StudioError, "identity=current"):
                     validate_candidate(candidate, self.root)
+
+    def test_an_identity_this_kit_does_not_know_is_refused_by_name(self):
+        for spelling in ("currnet", "CURRENT", "recent", "", True):
+            with self.subTest(spelling=spelling):
+                candidate = self.candidate()
+                entry = self.passing(candidate, "visual")
+                entry["identity"] = spelling
+                with self.assertRaisesRegex(StudioError, "must be current, historical or unknown"):
+                    validate_candidate(candidate, self.root)
+
+    def test_the_refusal_names_the_row_it_found(self):
+        candidate = self.candidate()
+        entry = self.passing(candidate, "visual")
+        entry["identity"] = "currnet"
+        with self.assertRaises(StudioError) as failure:
+            validate_candidate(candidate, self.root)
+        self.assertIn(entry["path"], str(failure.exception))
+
+    def test_a_row_with_no_label_is_legacy_and_counts_as_unknown(self):
+        candidate = self.candidate()
+        entry = self.passing(candidate, "visual")
+        entry.pop("identity")
+        self.assertEqual(row_identity(entry), "unknown")
+        self.assertIn(row_identity(entry), IDENTITIES)
+        refresh_rollups(candidate)
+        self.assertEqual(candidate["verdicts"]["visual"]["evidence_current"], 0)
+        self.assertEqual(candidate["verdicts"]["visual"]["evidence_total"], 1)
+        # Legacy is not invalid; it simply cannot carry a pass.
+        candidate["verdicts"]["visual"]["status"] = "unverified"
+        validate_candidate(candidate, self.root)
 
     def test_a_stored_rollup_that_disagrees_with_its_own_rows_is_refused(self):
         for key, value in (("evidence_total", 5), ("evidence_current", 0)):

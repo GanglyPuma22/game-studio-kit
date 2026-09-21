@@ -94,6 +94,28 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(record["cleanup"], "owned_tree_stopped")
         self.assertIsNone(record["ready_seconds"])
 
+    def test_a_run_that_came_up_and_then_hung_keeps_its_load_time(self):
+        job = self.dir / "hung"
+        code = f"import time,sys;time.sleep(0.3);print({MARKER!r},flush=True);time.sleep(30)"
+        with self.assertRaisesRegex(StudioError, "timed out"):
+            processes.run([sys.executable, "-c", code], timeout=1,
+                          job_dir=job, ready_marker=MARKER)
+        record = read_json(job / "process.json")
+        self.assertEqual(record["status"], "timed_out")
+        self.assertEqual(record["cleanup"], "owned_tree_stopped")
+        # The engine did come up; the timeout says what happened next, not that
+        # the load never happened.
+        self.assertIsNotNone(record["ready_seconds"])
+        self.assertGreaterEqual(record["ready_seconds"], 0.3)
+
+    def test_a_marker_spanning_a_line_break_is_refused(self):
+        for bad in (MARKER + "\nREADY", MARKER + "\rREADY", "\n"):
+            with self.subTest(marker=bad):
+                with self.assertRaisesRegex(StudioError, "one line"):
+                    processes.run([sys.executable, "-c", "pass"], timeout=5,
+                                  job_dir=self.dir / f"line{len(bad)}{bad.strip()}",
+                                  ready_marker=bad)
+
     def test_a_marker_without_anywhere_to_read_from_is_refused(self):
         with self.assertRaisesRegex(StudioError, "log file"):
             processes.run([sys.executable, "-c", "pass"], timeout=5, ready_marker=MARKER)
@@ -146,9 +168,10 @@ class ReadyClockTests(unittest.TestCase):
         # second being prepared is not charged for that second.
         tick = Tick(1000.0)
         child = ScriptedChild(tick)
+        record = {"ready_seconds": None}
         with patch("studio_tools.processes.time.monotonic", tick):
             with self.assertRaises(subprocess.TimeoutExpired):
-                processes._wait_for_marker(child, 1.0, self.log(), MARKER, 900.0)
+                processes._wait_for_marker(child, 1.0, self.log(), MARKER, 900.0, record)
         self.assertAlmostEqual(sum(child.asked), 1.0, places=6)
         self.assertEqual(tick.now, 1001.0)
 
@@ -157,11 +180,33 @@ class ReadyClockTests(unittest.TestCase):
             with self.subTest(spawned=spawned):
                 tick = Tick(1000.0)
                 child = ScriptedChild(tick, waits=2)
+                record = {"ready_seconds": None}
                 with patch("studio_tools.processes.time.monotonic", tick):
-                    found = processes._wait_for_marker(
-                        child, 5.0, self.log(MARKER + "\n"), MARKER, spawned
+                    processes._wait_for_marker(
+                        child, 5.0, self.log(MARKER + "\n"), MARKER, spawned, record
                     )
-                self.assertEqual(found, expected)
+                self.assertEqual(record["ready_seconds"], expected)
+
+    def test_a_marker_written_in_the_last_moment_is_read_before_the_timeout(self):
+        # The child printed it between the final poll and the deadline; the
+        # scan at the deadline is the only chance to see it.
+        tick = Tick(1000.0)
+        child = ScriptedChild(tick)
+        log = self.log()
+        record = {"ready_seconds": None}
+
+        def wait(timeout=None):
+            child.asked.append(timeout)
+            tick.now += timeout
+            if len(child.asked) == 4:
+                log.write_bytes((MARKER + "\n").encode("utf-8"))
+            raise subprocess.TimeoutExpired(cmd=[], timeout=timeout)
+
+        child.wait = wait
+        with patch("studio_tools.processes.time.monotonic", tick):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                processes._wait_for_marker(child, 1.0, log, MARKER, 1000.0, record)
+        self.assertEqual(record["ready_seconds"], 1.0)
 
 
 class ProjectCase(unittest.TestCase):
@@ -222,6 +267,17 @@ class LaunchReadyTests(ProjectCase):
                 launch.execute(self.config, self.root, sha256_expected=self.sha, label="bad")
         run.assert_not_called()
         self.assertFalse((self.root / "artifacts/launches/bad").exists())
+
+    def test_a_project_declaring_a_multiline_marker_is_refused(self):
+        for bad in (MARKER + "\nREADY", MARKER + "\r\nREADY"):
+            with self.subTest(marker=bad):
+                self.declare(bad)
+                with patch("studio_tools.launch.run") as run:
+                    with self.assertRaisesRegex(StudioError, "one line"):
+                        launch.execute(self.config, self.root,
+                                       sha256_expected=self.sha, label="multiline")
+                run.assert_not_called()
+                self.assertFalse((self.root / "artifacts/launches/multiline").exists())
 
     def test_the_timing_never_becomes_an_acceptance_claim(self):
         self.declare(MARKER)

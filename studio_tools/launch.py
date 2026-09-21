@@ -122,8 +122,11 @@ def ready_marker(project):
 
     Declared in `project.json` under `settings.ready_marker`. A project that
     declares nothing gets no marker and its log is never read while it runs. A
-    project that declares something other than a nonempty string is refused
-    rather than silently measured as never ready.
+    project that declares something other than a nonempty single-line string is
+    refused rather than silently measured as never ready: the log is matched a
+    line at a time, so a marker spanning a line break could never be found, and
+    a receipt reporting `ready_seconds: null` for it would be describing the
+    marker rather than the engine.
     """
     path = Path(project) / "project.json"
     if not path.is_file():
@@ -141,6 +144,11 @@ def ready_marker(project):
     if not isinstance(marker, str) or not marker:
         raise StudioError(
             "project.json settings.ready_marker must be a nonempty literal line substring"
+        )
+    if "\n" in marker or "\r" in marker:
+        raise StudioError(
+            "project.json settings.ready_marker must fit on one line; the log is "
+            "matched a line at a time, so a marker containing a line break can never match"
         )
     return marker
 
