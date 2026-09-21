@@ -105,7 +105,33 @@ class AttachTests(CaptureIdentityCase):
         self.assertEqual(verdict["evidence_current"], 1)
         self.assertEqual([e["identity"] for e in verdict["evidence"]], ["current", "historical"])
 
-    def test_a_bench_receipt_supplies_the_identity_the_entry_cannot(self):
+    def test_a_bench_row_binds_the_measurement_the_bench_receipt_cannot(self):
+        # cleanroom.json records a window and a project, never a candidate, so
+        # the digest comes from the row written beside it.
+        candidate = self.candidate()
+        bench = {"schema_version": 1, "kind": "cleanroom-bench", "label": "settled-01",
+                 "attributable": True, "ok": True,
+                 "performance_class": "clean_qualification"}
+        self.assertNotIn("content_digest", bench)
+        entry = self.capture(candidate, name="bench.txt", method="profiler_measurement")
+        attached = attach_evidence(candidate, "performance", entry, receipt=bench)
+        self.assertEqual(attached["identity"], "current")
+        self.assertEqual(attached["performance_class"], "clean_qualification")
+        verdict = candidate["verdicts"]["performance"]
+        self.assertEqual(verdict["evidence_current"], 1)
+        self.assertEqual(verdict["performance_class"], "clean_qualification")
+        validate_candidate(candidate, self.root)
+
+    def test_a_receipt_digest_still_wins_over_the_row(self):
+        candidate = self.candidate()
+        entry = self.capture(candidate, method="profiler_measurement")
+        attached = attach_evidence(
+            candidate, "performance", entry,
+            receipt={"kind": "capture", "content_digest": "an earlier build"},
+        )
+        self.assertEqual(attached["identity"], "historical")
+
+    def test_evidence_with_no_digest_anywhere_is_unknown(self):
         candidate = self.candidate()
         entry = self.capture(candidate, method="profiler_measurement")
         entry.pop("content_digest")
@@ -167,6 +193,50 @@ class ValidationTests(CaptureIdentityCase):
                 refresh_rollups(candidate)
                 with self.assertRaisesRegex(StudioError, "identity=current"):
                     validate_candidate(candidate, self.root)
+
+    def test_a_historical_row_may_name_the_build_it_came_from(self):
+        candidate = self.candidate()
+        self.passing(candidate, "visual")
+        older = self.capture(candidate, name="older.txt", method="native_visual")
+        older["content_digest"] = digest([{"path": "scene.gd", "sha256": "0" * 64}])
+        older["identity"] = "historical"
+        candidate["verdicts"]["visual"]["evidence"].append(older)
+        refresh_rollups(candidate)
+        self.assertEqual(candidate["verdicts"]["visual"]["evidence_total"], 2)
+        self.assertEqual(candidate["verdicts"]["visual"]["evidence_current"], 1)
+        # Keeping what was measured before does not invalidate the record, and
+        # does not help the pass either: the current row is still doing that.
+        validate_candidate(candidate, self.root)
+
+    def test_a_current_row_must_name_this_candidates_digest(self):
+        candidate = self.candidate()
+        entry = self.passing(candidate, "visual")
+        entry["content_digest"] = digest([{"path": "scene.gd", "sha256": "0" * 64}])
+        with self.assertRaisesRegex(StudioError, "different candidate"):
+            validate_candidate(candidate, self.root)
+
+    def test_an_unknown_or_unlabelled_row_must_also_name_it(self):
+        for identity in ("unknown", None):
+            with self.subTest(identity=identity):
+                candidate = self.candidate()
+                self.passing(candidate, "visual")
+                other = self.capture(candidate, name="other.txt", method="native_visual")
+                other["content_digest"] = digest([{"path": "scene.gd", "sha256": "0" * 64}])
+                if identity is not None:
+                    other["identity"] = identity
+                candidate["verdicts"]["visual"]["evidence"].append(other)
+                refresh_rollups(candidate)
+                with self.assertRaisesRegex(StudioError, "different candidate"):
+                    validate_candidate(candidate, self.root)
+
+    def test_a_historical_row_alone_still_cannot_carry_a_pass(self):
+        candidate = self.candidate()
+        entry = self.passing(candidate, "visual")
+        entry["content_digest"] = digest([{"path": "scene.gd", "sha256": "0" * 64}])
+        entry["identity"] = "historical"
+        refresh_rollups(candidate)
+        with self.assertRaisesRegex(StudioError, "identity=current"):
+            validate_candidate(candidate, self.root)
 
     def test_an_identity_this_kit_does_not_know_is_refused_by_name(self):
         for spelling in ("currnet", "CURRENT", "recent", "", True):

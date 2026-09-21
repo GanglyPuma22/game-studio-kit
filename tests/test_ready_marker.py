@@ -108,6 +108,20 @@ class RunnerTests(unittest.TestCase):
         self.assertIsNotNone(record["ready_seconds"])
         self.assertGreaterEqual(record["ready_seconds"], 0.3)
 
+    def test_an_uncapped_wait_still_watches_for_the_marker(self):
+        # A handoff session a person ends by quitting the game has no deadline
+        # at all; the marker is still watched for and the wait ends with the
+        # child.
+        job = self.dir / "uncapped"
+        result = processes.run([sys.executable, "-c", child()], timeout=None,
+                               job_dir=job, ready_marker=MARKER)
+        self.assertEqual(result["returncode"], 0)
+        self.assertIsNotNone(result["ready_seconds"])
+        self.assertGreaterEqual(result["ready_seconds"], 0.4)
+        record = read_json(job / "process.json")
+        self.assertEqual(record["status"], "completed")
+        self.assertEqual(record["ready_seconds"], result["ready_seconds"])
+
     def test_a_marker_spanning_a_line_break_is_refused(self):
         for bad in (MARKER + "\nREADY", MARKER + "\rREADY", "\n"):
             with self.subTest(marker=bad):
@@ -306,6 +320,18 @@ class LaunchReadyTests(ProjectCase):
 
 
 class PlaytestReadyTests(ProjectCase):
+    def test_an_uncapped_handoff_session_still_records_its_load_time(self):
+        self.declare(MARKER)
+        with patch("studio_tools.playtest.run", side_effect=self.fake_child(child())):
+            result = playtest.execute(self.config, self.root, sha256_expected=self.sha,
+                                      session="handoff", label="uncapped",
+                                      emit_launcher=False, max_minutes=0)
+        self.assertIsNone(self.last_kwargs["timeout"])
+        self.assertEqual(self.last_kwargs["ready_marker"], MARKER)
+        record = read_json(self.root / "artifacts/playtests/uncapped/exit.json")
+        self.assertIsNotNone(record["ready_seconds"])
+        self.assertEqual(record["acceptance"], "not_established")
+
     def test_a_driven_session_carries_the_same_marker_and_limit(self):
         self.declare(MARKER)
         harness = "res://tests/playtest.gd"

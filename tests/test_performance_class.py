@@ -183,6 +183,21 @@ class RollupTests(unittest.TestCase):
         self.assertEqual(self.verdict()["evidence_current"], 0)
         self.assertEqual(self.verdict()["performance_class"], "unverified")
 
+    def test_a_real_cleanroom_receipt_qualifies_the_row_beside_it(self):
+        # The shape cleanroom.py actually writes: a class, no content digest.
+        candidate = new_candidate(self.root, "candidate", "4.5.1", "test")
+        self.candidate = candidate
+        bench = {"schema_version": 1, "kind": "cleanroom-bench", "label": "settled-01",
+                 "scope": "rung-1", "attributable": True, "ok": True,
+                 "performance_class": "clean_qualification"}
+        self.assertNotIn("content_digest", bench)
+        entry = attach_evidence(candidate, "performance", self.row("bench.json"), receipt=bench)
+        self.assertEqual(entry["identity"], "current")
+        self.assertEqual(entry["performance_class"], "clean_qualification")
+        self.assertEqual(self.verdict()["performance_class"], "clean_qualification")
+        candidate["verdicts"]["performance"]["status"] = "pass"
+        validate_candidate(candidate, self.root)
+
     def test_only_a_clean_qualification_can_carry_a_performance_pass(self):
         for performance_class, expected in (
             ("clean_qualification", None),
