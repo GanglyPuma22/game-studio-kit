@@ -64,10 +64,11 @@ and are sized from `--max-minutes` instead; the per-command table is in
 `yield_time_ms` among the command's own arguments is not that directive
 and does not extend the call. A harness returning after its default outer yield,
 about 30 seconds, has neither capped nor ended the launch: the engine is still
-running, so a return before the verdict JSON means the directive was missing or
-undersized, never that the run hung and never a reason to start a second engine. The one
-continuation that is not polling is a single `wait` sized to the time the launch
-has left, never repeated short waits and never an empty `write_stdin`.
+running, so a return before the verdict JSON means the directive was missing,
+undersized or capped by a harness version, never that the run hung and never a
+reason to start a second engine. The one continuation that is not polling is a
+single `wait` sized to the time the launch has left, never repeated short waits
+and never an empty `write_stdin`.
 
 `--mode native` is for a run an agent reads a verdict from: bounded, timed and
 gated on declared results. To hand the controls to a person instead, or to drive

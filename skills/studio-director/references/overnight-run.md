@@ -182,17 +182,19 @@ from the bound that command actually enforces, because only `launch` has a
 
 A `yield_time_ms` inside the command's own arguments is not that directive and
 does not extend the call. With no directive the harness returns after its default
-outer yield, about 30 seconds, which is a harness default and not a host cap: an
-explicit 360-second directive has been measured holding a single call for 263
-uninterrupted seconds. So a return before the verdict JSON means the directive
-was missing or undersized, not that the run hung — the engine is still running,
-and starting a second one puts two engines on the same profile. The one
-legitimate continuation is a single `wait` sized to the time the command still
-has; repeated short waits and empty `write_stdin` calls are the polling this
-procedure forbids, and two audited runs spent 72 and 27 waits plus 20 empty
-writes on one launch that way. The uncapped `handoff` row is the one case where
-an early return is normal rather than a missing directive: expect exactly one
-sized `wait` continuation there.
+outer yield, about 30 seconds, which is a harness default and not a host cap: the
+directive is what has been measured to hold a call open, an explicit 360-second
+one holding a single call for 263 uninterrupted seconds. Harness versions may cap
+it, and this procedure claims neither that they do nor that they do not. So a
+return before the verdict JSON is never evidence that the run hung — the engine
+is still running, and starting a second one puts two engines on the same profile.
+When the call returns early despite the directive, the expected path is exactly
+one `wait` sized to the time the command still has, and that `wait` is not
+polling; the same single sized `wait` is expected after an uncapped `handoff`,
+which has no bound to size against. What stays forbidden is the rest: repeated
+short waits, empty `write_stdin` calls and a second engine. Two audited runs
+spent 72 and 27 waits plus 20 empty writes on one launch, which is the shape this
+rule exists to end.
 
 **Scope ladder.** Define the rungs from smallest to full scope before the run,
 each with a `safe_id`-valid ID (letters, digits, hyphens, underscores) and a
@@ -241,10 +243,14 @@ does not propagate to it, so pass `--config <host config>` to both. The
 command owns the wait: set the outer yield directive on the tool call that
 carries it (Launch deadlines, Section 2) from the capture `--timeout`, not from
 the nested launch's. Make no tool calls until it returns; read its one verdict.
-Inside a cleanroom window this is stricter than elsewhere, because every
-continuation lands in the agent activity log and a timestamp inside the window
-sets `attributable` to false — the sized outer directive is what keeps a capture
-citable. A capture whose `attributable` is false, or that lacks the snapshot
+Inside a cleanroom window this matters more than elsewhere. Whether a `wait`
+continuation reaches the agent activity log depends on what the agent's
+`--agent-log` records, which this procedure cannot decide for a host: a timestamp
+inside the window sets `attributable` to false, so a capture is safest under a
+directive that holds for the whole window. If the harness returns early anyway,
+record in `STATE.md` that the stage's captures were completed under a capped
+harness, so a later `attributable: false` has a known cause instead of an
+unexplained one. A capture whose `attributable` is false, or that lacks the snapshot
 pair, cannot be cited. Close only processes the run itself started; record
 everything else in the reasons and leave it running.
 
@@ -274,6 +280,19 @@ record of what was wired in and who saw it. A row's `human_verdict` is `pending`
 (the value it is created with, which is the absence of a verdict), `accepted` or
 `rejected`; only `accepted` with evidence on the canonical route at the final
 `content_digest` is acceptance ([studio-playtest](../../studio-playtest/SKILL.md)).
+A row may be set to `accepted` only when its `evidence` holds, beside the
+observation receipt, an identity receipt taken immediately after that session and
+before any edit: `python <KIT>/scripts/studio.py candidate new --project <run>
+--id <run-id>-<feature> --output artifacts/run/identity/<feature>.json`, which is
+the command that computes the content inventory digest
+(`studio_tools/evidence.py`'s `new_candidate`). Copy that receipt's
+`content_digest` into the row; never type one. A playtest receipt records the
+commit, whether the tree was dirty, and the scene hash, but not the candidate's
+content digest, so without this receipt an accepted row can be repointed at a
+later digest — a playtest receipt that records the digest itself would be a
+later kit change, not something this run can assume. A row whose `content_digest`
+differs from the final candidate's is historical: it cannot be accepted for that
+candidate, and the feature has to be observed again.
 `RETURN.md`'s Accepted features line points at the manifest, and every row that
 is not `accepted` is listed under Not demonstrated: a `rejected` row with the
 reason it was rejected, a `pending` row as unreviewed. A feature that ran green
@@ -293,8 +312,8 @@ hand:
 1. Decide what is eligible: the files this run produced or changed that are part of the game. Never `artifacts/`, never machine-only evidence, never a path the contract's exclusion list names. Count what was left out.
 2. If nothing is eligible — the run stopped early, or every changed file was excluded — create no branch and commit nothing. Record `snapshot: no eligible changes, ref <current commit>` and the excluded count in both records, and stop here; an empty commit records a baseline that does not exist.
 3. Otherwise create branch `run/<run-id>` from the pinned worktree's current commit.
-4. Stage the eligible files by name (`git add <path>`), never a whole-tree add.
-5. Commit once, message `run <run-id>: snapshot at Return`.
+4. Stage the eligible files by name: `git add -- <eligible paths>`, never a whole-tree add.
+5. Commit once, `git commit --only -- <eligible paths> -m "run <run-id>: snapshot at Return"`. `--only` commits those paths and nothing else, so a path some earlier action left in the index stays out of the snapshot; count it among the excluded.
 6. Record the branch ref and the count of excluded files in `STATE.md` and `RETURN.md`.
 
 No push, no merge, no rebase, and no other branch is touched. The commit is a
