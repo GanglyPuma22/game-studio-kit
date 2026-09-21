@@ -90,6 +90,18 @@ def receipt_identity(receipt, candidate):
     return "current" if recorded == candidate.get("content_digest") else "historical"
 
 
+def row_identity(entry):
+    """What one evidence row says it describes.
+
+    A row with no label at all is legacy: nothing recorded which content it was
+    taken from, which is exactly what `unknown` means. `validate_candidate`
+    refuses any other spelling, so a typo can never read as a weaker label by
+    accident, but the rollups here tolerate one by counting it as not current.
+    """
+    value = entry.get("identity")
+    return "unknown" if value is None else value
+
+
 def _row_class(entry):
     """The performance class one evidence row argues for."""
     declared = entry.get("performance_class")
@@ -107,7 +119,7 @@ def performance_rollup(entries):
     Only rows still describing the current content are counted: a number taken
     from a build whose files have since changed cannot qualify this one.
     """
-    current = [entry for entry in entries if entry.get("identity") == "current"]
+    current = [entry for entry in entries if row_identity(entry) == "current"]
     if not current:
         return "unverified"
     classes = {_row_class(entry) for entry in current}
@@ -136,7 +148,7 @@ def refresh_rollups(candidate, dimension=None):
             continue
         entries = verdict.get("evidence") or []
         verdict["evidence_total"] = len(entries)
-        verdict["evidence_current"] = sum(entry.get("identity") == "current" for entry in entries)
+        verdict["evidence_current"] = sum(row_identity(entry) == "current" for entry in entries)
         if name == "performance":
             verdict["performance_class"] = performance_rollup(entries)
     return candidate
@@ -424,12 +436,23 @@ def validate_candidate(record, root):
             raise StudioError("Verdict evidence must be a list")
         if status in {"pass", "fail"} and not evidence_items:
             raise StudioError("Verdict needs evidence: " + dimension)
+        # The label is checked before it is counted: `currnet` would otherwise
+        # be counted as not current, quietly weakening a verdict instead of
+        # saying the record is malformed.
+        for item in evidence_items:
+            if not isinstance(item, dict):
+                raise StudioError("Verdict evidence entries must be JSON objects: " + dimension)
+            if row_identity(item) not in IDENTITIES:
+                raise StudioError(
+                    "Evidence identity must be current, historical or unknown: "
+                    + str(item.get("path", dimension))
+                )
         # The rollups are a summary of the rows beside them and are recomputed
         # here rather than trusted. A record whose stored numbers disagree with
         # its own evidence is describing a list it no longer holds. A record
         # that stores none is legacy: there is nothing to disagree with, and
         # every rule below reads the rows themselves.
-        current_rows = sum(item.get("identity") == "current" for item in evidence_items)
+        current_rows = sum(row_identity(item) == "current" for item in evidence_items)
         rolled_class = performance_rollup(evidence_items) if dimension == "performance" else None
         for key, recomputed in (("evidence_total", len(evidence_items)),
                                 ("evidence_current", current_rows),

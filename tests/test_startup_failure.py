@@ -12,41 +12,57 @@ import unittest
 from unittest.mock import patch
 
 from studio_tools import launch, playtest, processes
-from studio_tools.adapters.godot import FIRST_ERROR_LIMIT, classify_log, error_signature
+from studio_tools.adapters.godot import (
+    FIRST_ERROR_LIMIT, UNRECOGNIZED, classify_log, error_signature,
+)
 from studio_tools.common import read_json, sha256, write_json
 from studio_tools.config import load
 
-PARSE_ERROR = (
-    "SCRIPT ERROR: Parse Error: Identifier \\\"missing\\\" not declared in the current scope.\\n"
-    "   at: GDScript::reload (res://main.gd:3)"
-)
-RUNTIME_ERROR = (
-    "SCRIPT ERROR: Invalid access to property or key 'x' on a base object of type 'Nil'.\\n"
-    "   at: _ready (res://main.gd:12)"
-)
+# Real two-line logs: the message, then the frame Godot prints under it. The
+# newline is written as a joined literal so a fixture can never quietly become
+# one line and stop exercising the continuation rule at all.
+PARSE_ERROR = "\n".join([
+    'SCRIPT ERROR: Parse Error: Identifier "missing" not declared in the current scope.',
+    "   at: GDScript::reload (modules/gdscript/gdscript.cpp:2831)",
+])
+RUNTIME_ERROR = "\n".join([
+    "SCRIPT ERROR: Invalid get index 'x' (on base: 'Nil').",
+    "   at: _ready (res://main.gd:12)",
+])
 
 
 class ClassifierTests(unittest.TestCase):
+    def test_the_fixtures_are_the_two_line_logs_they_claim_to_be(self):
+        for fixture in (PARSE_ERROR, RUNTIME_ERROR):
+            with self.subTest(fixture=fixture.splitlines()[0]):
+                self.assertEqual(len(fixture.splitlines()), 2)
+                self.assertTrue(fixture.splitlines()[1].strip().startswith("at:"))
+
     def test_load_signatures_are_reported_as_the_load_phase(self):
-        for line in (
-            "SCRIPT ERROR: Parse Error: something",
-            "ERROR: Failed to load script res://main.gd with error 'Parse error'",
-            "ERROR: Failed loading resource: res://main.tscn",
-            "ERROR: Cannot open file 'res://main.tscn'",
-            "ERROR: Could not load the project settings",
-            "ERROR: Failed to instantiate scene res://main.tscn",
-            "ERROR: Unable to load addon script",
-            "ERROR: res://main.gd:1: Error parsing this file",
+        for line, signature in (
+            ("SCRIPT ERROR: Parse Error: something", "SCRIPT ERROR: Parse Error"),
+            ("ERROR: Failed to load script res://main.gd with error 'Parse error'",
+             "ERROR: Failed to load script res://main.gd"),
+            ("ERROR: Failed loading resource: res://main.tscn",
+             "ERROR: Failed loading resource res://main.tscn"),
+            ("ERROR: Cannot open file 'res://main.tscn'",
+             "ERROR: Cannot open file res://main.tscn"),
+            ("ERROR: Could not load the project settings", "ERROR: Could not load"),
+            ("ERROR: Failed to instantiate scene res://main.tscn",
+             "ERROR: Failed to instantiate scene res://main.tscn"),
+            ("ERROR: Unable to load addon script", "ERROR: Unable to load"),
+            ("ERROR: res://main.gd:1: Error parsing this file",
+             "ERROR: " + UNRECOGNIZED + " res://main.gd:1"),
         ):
             with self.subTest(line=line):
                 result = classify_log(line + "\n")
                 self.assertEqual(result["phase"], "load")
-                self.assertEqual(result["first_error"], line)
+                self.assertEqual(result["first_error"], signature)
 
     def test_a_runtime_callback_is_reported_as_the_runtime_phase(self):
         result = classify_log(RUNTIME_ERROR + "\n")
         self.assertEqual(result["phase"], "runtime")
-        self.assertIn("Invalid access", result["first_error"])
+        self.assertEqual(result["first_error"], "SCRIPT ERROR: Invalid get index")
 
     def test_a_load_error_that_names_a_running_callback_is_runtime(self):
         # A resource the game failed to load from inside _process is a runtime
@@ -67,12 +83,10 @@ class ClassifierTests(unittest.TestCase):
                 self.assertIsNone(result["phase"])
                 self.assertIsNone(result["first_error"])
 
-    def test_the_first_error_is_stripped_of_escapes_and_truncated(self):
-        long = "ERROR: " + "detail " * 100
-        result = classify_log("\x1b[31m" + long + "\x1b[0m\n")
+    def test_terminal_escapes_never_reach_the_signature(self):
+        result = classify_log("\x1b[31mSCRIPT ERROR: Parse Error: broken\x1b[0m\n")
         self.assertNotIn("\x1b", result["first_error"])
-        self.assertEqual(len(result["first_error"]), FIRST_ERROR_LIMIT)
-        self.assertTrue(result["first_error"].startswith("ERROR: detail"))
+        self.assertEqual(result["first_error"], "SCRIPT ERROR: Parse Error")
 
     def test_any_project_frame_means_the_game_was_executing(self):
         # The frame's function name is not an allowlist: a handler a project
@@ -106,28 +120,66 @@ class ClassifierTests(unittest.TestCase):
 
 
 class SignatureTests(unittest.TestCase):
-    def test_host_paths_and_urls_are_replaced_but_resources_are_kept(self):
+    """The signature is rebuilt from an allowlist, so only three pieces survive."""
+
+    def test_only_the_prefix_category_and_resource_survive(self):
         line = (
             "ERROR: Failed to load script res://ui/menu.gd:41 from "
             "C:\\Users\\someone\\projects\\game\\ui\\menu.gd and "
             "https://cdn.example.com/build/patch.pck and /home/someone/.keys/id"
         )
+        self.assertEqual(error_signature(line),
+                         "ERROR: Failed to load script res://ui/menu.gd:41")
+
+    def test_a_token_and_an_address_in_the_message_do_not_survive(self):
+        line = (
+            "SCRIPT ERROR: Invalid call to fetch with token=sk-secret-9f2a "
+            "reported by someone@example.com at res://net/client.gd:88"
+        )
         signature = error_signature(line)
-        self.assertTrue(signature.startswith("ERROR: Failed to load script res://ui/menu.gd:41"))
-        for secret in ("C:\\Users", "someone", "cdn.example.com", "/home/", ".keys"):
+        self.assertEqual(signature, "SCRIPT ERROR: Invalid call res://net/client.gd:88")
+        for secret in ("sk-secret", "token=", "someone@example.com", "@"):
             with self.subTest(secret=secret):
                 self.assertNotIn(secret, signature)
-        self.assertEqual(signature.count("<path>"), 3)
 
-    def test_everything_after_a_user_path_is_dropped(self):
-        signature = error_signature(
-            "ERROR: Could not load user://saves/player-someone-2026.save for reading"
+    def test_a_player_save_path_leaves_nothing_behind(self):
+        self.assertEqual(
+            error_signature("ERROR: Could not load user://saves/player-someone-2026.save"),
+            "ERROR: Could not load",
         )
-        self.assertEqual(signature, "ERROR: Could not load user://")
+
+    def test_every_allowlisted_phrase_reports_its_own_words(self):
+        for phrase, category in (
+            ("Parse Error: x", "Parse Error"),
+            ("Failed to load script x", "Failed to load script"),
+            ("Failed loading resource: x", "Failed loading resource"),
+            ("Cannot open file x", "Cannot open file"),
+            ("Could not load x", "Could not load"),
+            ("Failed to instantiate scene x", "Failed to instantiate scene"),
+            ("Unable to load x", "Unable to load"),
+            ("Resource file not found: x", "Resource file not found"),
+            ("Script inherits from native type X", "Script inherits from native type"),
+            ("Invalid call to function f", "Invalid call"),
+            ("Invalid get index 'x'", "Invalid get index"),
+            ("Invalid set index 'x'", "Invalid set index"),
+            ("Nonexistent function 'f'", "Nonexistent function"),
+            ("Division by zero in operator", "Division by zero"),
+            ("Out of bounds get index", "Out of bounds"),
+            ("Assertion failed: nope", "Assertion failed"),
+            ('Condition "p->data == this" is true.', "Condition is true"),
+            ('Condition "p->ready" is false.', "Condition is false"),
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(error_signature("ERROR: " + phrase), "ERROR: " + category)
+
+    def test_a_phrase_nobody_listed_is_reported_as_unrecognized(self):
+        signature = error_signature("ERROR: the renderer said something new about someone")
+        self.assertEqual(signature, "ERROR: " + UNRECOGNIZED)
+        self.assertNotIn("someone", signature)
 
     def test_the_signature_is_capped(self):
         self.assertEqual(FIRST_ERROR_LIMIT, 200)
-        signature = error_signature("ERROR: " + "detail " * 200)
+        signature = error_signature("ERROR: Parse Error res://" + "a" * 400 + ".gd")
         self.assertEqual(len(signature), FIRST_ERROR_LIMIT)
 
 
@@ -180,16 +232,17 @@ class LaunchVerdictTests(LaunchCase):
     def test_a_host_path_in_the_log_never_reaches_a_receipt(self):
         message = (
             "ERROR: Cannot open file C:\\Users\\someone\\game\\main.tscn "
-            "listed at https://cdn.example.com/manifest.json"
+            "listed at https://cdn.example.com/manifest.json with token=sk-secret-9f2a "
+            "for someone@example.com"
         )
         result = self.execute(self.child(message), label="paths")
         self.assertEqual(result["verdict"], "startup_failure")
         self.assertEqual(result["diagnostics"]["phase"], "load")
-        self.assertIn("<path>", result["diagnostics"]["first_error"])
+        self.assertEqual(result["diagnostics"]["first_error"], "ERROR: Cannot open file")
         run_dir = self.root / "artifacts/launches/paths"
         for name in ("exit.json", "diagnostics.json"):
             text = (run_dir / name).read_text(encoding="utf-8")
-            for secret in ("C:", "someone", "cdn.example.com"):
+            for secret in ("C:", "someone", "cdn.example.com", "sk-secret", "@example.com"):
                 with self.subTest(receipt=name, secret=secret):
                     self.assertNotIn(secret, text)
         # The raw line stays where the raw output always was: the log.

@@ -292,8 +292,10 @@ the shipped `templates/candidate.json` carrying the new keys at zero. It also
 covers what `validate_candidate` now enforces: a pass backed by a current row
 accepted, a pass whose only row is unlabelled, historical or unknown refused, a
 stored `evidence_total`, `evidence_current` or `performance_class` that
-disagrees with its own rows refused, a legacy record storing no rollups still
-validating, acceptance refused when any mandatory dimension's row stops being
+disagrees with its own rows refused, an identity spelled anything other than
+`current`, `historical` or `unknown` refused by the row's own path, a row with
+no identity key reading as `unknown` and counting as not current without being
+invalid, a legacy record storing no rollups still validating, acceptance refused when any mandatory dimension's row stops being
 current, and a `not_applicable` dimension still needing only a reason.
 
 `test_startup_failure.py` covers the log classifier's `phase` and `first_error`
@@ -304,11 +306,15 @@ error raised from any project frame (`_process`, `_on_button_pressed`,
 whose only frames are engine sources (`gdscript.cpp`, `resource_loader.cpp`,
 `script_language.h`) or which has no frame at all reported as load, a frame in
 neither form not counted, only the first error deciding the phase in either
-order, no error meaning no phase, the signature keeping the engine prefix,
-category text and `res://` paths while replacing Windows paths, POSIX paths and
-URLs with `<path>`, everything after `user://` dropped, the cap at 200
-characters, a host path and a URL in a real launch reaching neither
-`diagnostics.json` nor `exit.json` while staying in `stdout.log`, the original
+order, no error meaning no phase, and the two shared log fixtures asserted to be
+the two-line logs they claim to be. The rebuilt signature has its own tests:
+each of the eighteen allowlisted phrases reporting its own words, a phrase
+nobody listed reported as `unrecognized`, the first `res://` resource and its
+line number kept, an API token and an email address in the message body
+surviving into neither, a `user://` save path leaving nothing behind, terminal
+escapes never reaching it, the cap at 200 characters, and a host path, a URL, a
+token and an address in a real launch reaching neither `diagnostics.json` nor
+`exit.json` while staying in `stdout.log`. Also the original
 `status`/`error_count`/`warning_count` unchanged, a non-zero exit with a load
 phase becoming `startup_failure` in both `launch` and `playtest`, a runtime
 fault staying `failed`, a load phase with exit zero staying `engine_errors`, and
@@ -320,11 +326,14 @@ written to `process.json`, a child that never prints it recording null, a marker
 printed just before exit still seen, a marker on an unterminated line counted,
 a run without a marker never reading the log while it waits, the read paced at
 no more than four times a second, a watched run still timing out with owned
-cleanup, the wait's deadline taken when the wait begins so a marker never
+cleanup, a run that came up and then hung keeping its load time in the
+timed-out receipt, a marker written between the final poll and the deadline
+still read, the wait's deadline taken when the wait begins so a marker never
 shortens the granted window, `ready_seconds` measured from the spawn instant
 rather than from the start of the command (both against a hand-advanced clock
-and a scripted child), a marker with no log file and a marker that is not a
-nonempty string both refused, the project's declared marker reaching the runner and `exit.json`
+and a scripted child), a marker with no log file, a marker that is not a
+nonempty string and a marker spanning a line break all refused by both the
+runner and the project declaration, the project's declared marker reaching the runner and `exit.json`
 for both `launch` and a driven `playtest`, a malformed declaration refused
 before a run label is reserved, the limit sentence present in both receipts, and
 no argv value or environment value in any receipt of a watched run.

@@ -729,41 +729,48 @@ def _scan_ready(reader, marker, tail, spawned):
     return None, tail[-READY_TAIL_LIMIT:]
 
 
-def _wait_for_marker(process, timeout, log, marker, spawned):
+def _wait_for_marker(process, timeout, log, marker, spawned, record):
     """Wait for the child while watching its growing log for a ready marker.
 
     The log is opened once and read forward at most every READY_POLL_SECONDS,
-    so the wait stays a wait rather than a poll of the process. What comes back
-    is the monotonic time from the child's creation to the first line containing
-    the substring, or None when the child finished without ever printing it.
-    This measures when the child said it was up; it establishes nothing about
-    what it then did.
+    so the wait stays a wait rather than a poll of the process. The load time is
+    written straight into `record` the moment the marker is seen, rather than
+    returned, because a child that came up and then hung still came up: the
+    timeout raised below must not take that observation away with it.
 
     The deadline is taken here, at the instant the wait begins, exactly as
     `process.wait(timeout=...)` would have taken it: watching for a marker must
     never shorten the window the child was granted.
     """
     deadline = time.monotonic() + timeout
-    found = None
     tail = ""
+
+    def scan(reader):
+        if record["ready_seconds"] is None:
+            record["ready_seconds"], carried = _scan_ready(reader, marker, tail, spawned)
+            return carried
+        return tail
+
     with open(log, "rb") as reader:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
+                # One last read of everything written since the previous poll:
+                # a marker printed inside that final fraction of a second is
+                # still a load time, and this is the last chance to see it.
+                scan(reader)
                 # The caller tells a timeout apart by this exception type; the
                 # command is withheld so no argv value reaches a traceback.
                 raise subprocess.TimeoutExpired(cmd=[], timeout=timeout)
             try:
                 process.wait(timeout=min(READY_POLL_SECONDS, remaining))
             except subprocess.TimeoutExpired:
-                if found is None:
-                    found, tail = _scan_ready(reader, marker, tail, spawned)
+                tail = scan(reader)
                 continue
-            if found is None:
-                # A child can print the marker and exit inside the same quarter
-                # second, so the last read happens after it has been reaped.
-                found, tail = _scan_ready(reader, marker, tail, spawned)
-            return found
+            # A child can print the marker and exit inside the same quarter
+            # second, so the last read happens after it has been reaped.
+            scan(reader)
+            return
 
 
 def run(
@@ -790,6 +797,10 @@ def run(
     if ready_marker is not None:
         if not isinstance(ready_marker, str) or not ready_marker:
             raise StudioError("A ready marker must be a nonempty literal substring")
+        if "\n" in ready_marker or "\r" in ready_marker:
+            # The log is examined a line at a time, so a marker spanning a line
+            # break can never match; refusing beats reporting it as never seen.
+            raise StudioError("A ready marker must fit on one line; it cannot contain a line break")
         if job_dir is None and log is None:
             raise StudioError("A ready marker needs a log file; pass job_dir or log")
     folder = Path(job_dir).resolve() if job_dir is not None else None
@@ -881,9 +892,7 @@ def run(
                 if ready_marker is None:
                     process.wait(timeout=timeout)
                 else:
-                    record["ready_seconds"] = _wait_for_marker(
-                        process, timeout, log, ready_marker, spawned
-                    )
+                    _wait_for_marker(process, timeout, log, ready_marker, spawned, record)
             except subprocess.TimeoutExpired as exc:
                 record["status"] = "timed_out"
                 try:

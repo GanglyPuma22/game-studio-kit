@@ -50,11 +50,39 @@ LOAD_RESOURCE_ERROR = re.compile(r"res://.*: Error")
 FRAME = re.compile(r"\bat:\s*(?P<function>[^(]*?)\s*\((?P<source>[^)]*)\)")
 # A path this kit may keep: a project resource, whose name the project chose.
 KEPT_PATH = re.compile(r"res://")
-# Everything from here on can name a player's own machine or save data.
-DROPPED_PATH = "user://"
-# A token that names a location on somebody's disk or on the network.
-PATH_TOKEN = re.compile(r"://|[/\\]|^[A-Za-z]:")
-PATH_PLACEHOLDER = "<path>"
+# The first project resource named on a line, with its line number when Godot
+# printed one. The character class stops at a quote, a bracket or a space, so a
+# resource name is taken whole and nothing beside it comes along.
+RESOURCE = re.compile(r"res://[A-Za-z0-9_\-./]*(?::\d+)?")
+# Every error phrase this kit is willing to repeat, in the order they are
+# tried, each paired with the exact words that go into the receipt. A message
+# Godot words differently is reported as `unrecognized` rather than quoted:
+# the whole point is that no text from the log reaches a receipt unexamined.
+# `Condition ... is true/false` collapses to its verdict because the condition
+# Godot prints is an arbitrary expression from somebody's code.
+ERROR_CATEGORIES = (
+    (re.compile(r"Parse Error"), "Parse Error"),
+    (re.compile(r"Failed to load script"), "Failed to load script"),
+    (re.compile(r"Failed loading resource"), "Failed loading resource"),
+    (re.compile(r"Cannot open file"), "Cannot open file"),
+    (re.compile(r"Could not load"), "Could not load"),
+    (re.compile(r"Failed to instantiate scene"), "Failed to instantiate scene"),
+    (re.compile(r"Unable to load"), "Unable to load"),
+    (re.compile(r"Resource file not found"), "Resource file not found"),
+    (re.compile(r"Script inherits from native type"), "Script inherits from native type"),
+    (re.compile(r"Invalid call"), "Invalid call"),
+    (re.compile(r"Invalid get index"), "Invalid get index"),
+    (re.compile(r"Invalid set index"), "Invalid set index"),
+    (re.compile(r"Nonexistent function"), "Nonexistent function"),
+    (re.compile(r"Division by zero"), "Division by zero"),
+    (re.compile(r"Out of bounds"), "Out of bounds"),
+    (re.compile(r"Assertion failed"), "Assertion failed"),
+    (re.compile(r"Condition\b.*?\bis true"), "Condition is true"),
+    (re.compile(r"Condition\b.*?\bis false"), "Condition is false"),
+)
+UNRECOGNIZED = "unrecognized"
+SCRIPT_PREFIX = "SCRIPT ERROR:"
+ENGINE_PREFIX = "ERROR:"
 
 
 def _is_load_error(line):
@@ -79,30 +107,27 @@ def _game_frame(line):
 
 
 def error_signature(line):
-    """One error line reduced to what is safe to keep in a receipt.
+    """One error line rebuilt from an allowlist, never edited down from the log.
 
-    The engine's own prefix and category text (`SCRIPT ERROR: Parse Error:`),
-    the `res://` resources the project named and their line numbers survive.
-    Every other token that names a location — an absolute host path, a UNC or
-    Windows path, a URL — becomes `<path>`, because the log is the one place a
-    game may print somebody's home directory, their account name or a signed
-    URL, and a receipt is read by people the log was never shown to. Everything
-    from `user://` onwards is dropped outright: that is the player's own save
-    location. The result is capped, so a message that embeds a whole document
-    cannot smuggle it out a token at a time.
+    The result is `<prefix> <category>` and, when the line named one, the first
+    `res://` resource with its line number: three pieces this kit chose, in
+    words this kit chose. Nothing else survives, because a redaction pass can
+    only remove the shapes it was taught — an API token, an email address, a
+    player's name in a message body all look like ordinary words — while an
+    allowlist is wrong in the safe direction. A message Godot phrases in a way
+    this list does not know becomes `unrecognized`: the log still has the whole
+    line, and a receipt that says less is the price of a receipt that cannot
+    leak. The cap is kept for the one remaining variable-length piece, the
+    resource name.
     """
-    kept = []
-    for token in line.split():
-        if DROPPED_PATH in token:
-            # Keep the scheme so the reader knows what was removed, then stop:
-            # nothing after it describes the failure better than it exposes.
-            kept.append(token[:token.index(DROPPED_PATH) + len(DROPPED_PATH)])
-            break
-        if KEPT_PATH.search(token) or not PATH_TOKEN.search(token):
-            kept.append(token)
-        else:
-            kept.append(PATH_PLACEHOLDER)
-    return " ".join(kept)[:FIRST_ERROR_LIMIT]
+    prefix = SCRIPT_PREFIX if SCRIPT_PREFIX in line else ENGINE_PREFIX
+    category = next(
+        (label for pattern, label in ERROR_CATEGORIES if pattern.search(line)),
+        UNRECOGNIZED,
+    )
+    resource = RESOURCE.search(line)
+    parts = [prefix, category] + ([resource.group(0)] if resource else [])
+    return " ".join(parts)[:FIRST_ERROR_LIMIT]
 
 
 def classify_log(output):

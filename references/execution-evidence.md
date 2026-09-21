@@ -442,7 +442,13 @@ evidence for a build that no longer exists — and because acceptance already
 requires every dimension to be `pass` or `not_applicable`, an accepted candidate
 must carry current evidence for every dimension it did not excuse with a reason.
 The label is not a substitute for the hashes: a row that claims `current` while
-naming another candidate's content digest is still refused.
+naming another candidate's content digest is still refused. The label itself is
+checked before it is counted — a row carrying anything other than `current`,
+`historical` or `unknown` is refused by its own path, so a misspelling such as
+`currnet` is reported as a malformed record rather than quietly counted as
+not-current and weakening a verdict. A row with no `identity` key at all is
+legacy and reads as `unknown`, which keeps it out of `evidence_current` and out
+of any pass.
 
 **Startup failure (`phase`, `first_error`, `verdict: startup_failure`).** The log
 classifier now reports `phase` — `load`, `runtime` or null — and `first_error`.
@@ -456,14 +462,24 @@ whatever the handler is called, while an engine frame such as
 `GDScript::reload (modules/gdscript/gdscript.cpp:2831)` is one Godot also prints
 while it is still loading. A load signature with no frame, or with only engine
 frames, is `load`; a frame in neither form proves nothing and is not counted.
-`first_error` is a *signature* of that line, not the line: terminal colour
-escapes removed, the engine prefix and category text kept, `res://` resources
-and their line numbers kept, every other token naming a location — an absolute
-host path, a Windows or UNC path, a URL — replaced with `<path>`, everything
-from `user://` onwards dropped, and the result capped at 200 characters. The log
+`first_error` is a *signature* rebuilt from an allowlist, not the line edited
+down. It is `<prefix> <category>` — `ERROR:` or `SCRIPT ERROR:`, then the
+matching phrase from a fixed list this kit maintains (`Parse Error`, `Failed to
+load script`, `Failed loading resource`, `Cannot open file`, `Could not load`,
+`Failed to instantiate scene`, `Unable to load`, `Resource file not found`,
+`Script inherits from native type`, `Invalid call`, `Invalid get index`,
+`Invalid set index`, `Nonexistent function`, `Division by zero`, `Out of
+bounds`, `Assertion failed`, `Condition is true`, `Condition is false`) — plus
+the first `res://` resource the line named, with its line number when Godot
+printed one. A phrase the list does not know becomes `unrecognized`. Nothing
+else survives, in either direction: a redaction pass can only remove the shapes
+it was taught, and an API token, an email address or a player's name in a
+message body all look like ordinary words, while an allowlist is wrong in the
+safe direction. A `Condition` message collapses to its verdict because the
+condition Godot prints is an arbitrary expression from somebody's code. The log
 is the one place a game may print somebody's home directory, account name or a
-signed URL, and a receipt is read by people the log was never shown to; the raw
-line stays in `stdout.log`. When a
+signed URL, and a receipt is read by people the log was never shown to; the
+whole line stays in `stdout.log`, where the raw output always was. When a
 launch or playtest exits non-zero and the phase is `load`, the verdict is
 `startup_failure`, reported ahead of `engine_errors` because the game never
 reached the point where its own diagnostics would mean anything. Elapsed time is
@@ -481,7 +497,14 @@ it into `exit.json`. The clock starts at the child, not at the command: the
 runner's own preparation is in `elapsed_seconds`, not in this number. The wait's
 deadline is still taken at the moment the wait begins, exactly as an unwatched
 `process.wait(timeout=...)` would take it, so configuring a marker never
-shortens the window the child was granted. It is null when nothing was declared and when the child never
+shortens the window the child was granted. A marker that reaches the deadline
+still gets one last read of everything written since the previous poll, and a
+marker seen at any point is kept in the receipt even when the run then times
+out: a child that came up and afterwards hung did come up, and the timeout is a
+statement about what happened next, not a reason to forget the load. A declared
+marker must fit on one line — the log is matched a line at a time, so a marker
+containing a line break could never be found, and both the project declaration
+and the runner refuse one rather than reporting it as never seen. It is null when nothing was declared and when the child never
 printed it, and a run with no marker never reads the log while it waits at all.
 This is a load-time measurement and nothing more: it does not show the game is
 playable, that the scene finished loading, or that anything printed after the
