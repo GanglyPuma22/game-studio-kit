@@ -283,7 +283,9 @@ record of what was wired in and who saw it. A row's `human_verdict` is `pending`
 A row may be set to `accepted` only when its `evidence` holds, beside the
 observation receipt, an identity receipt taken immediately after that session and
 before any edit: `python <KIT>/scripts/studio.py candidate new --project <run>
---id <run-id>-<feature> --output artifacts/run/identity/<feature>.json`, which is
+--id <run-id>-<feature> --engine-version <version> --output
+artifacts/run/identity/<feature>.json` (the same verified `<version>` stage 2
+passed, so the two identity receipts never disagree about the engine), which is
 the command that computes the content inventory digest
 (`studio_tools/evidence.py`'s `new_candidate`). Copy that receipt's
 `content_digest` into the row; never type one. A playtest receipt records the
@@ -313,7 +315,7 @@ hand:
 2. If nothing is eligible — the run stopped early, or every changed file was excluded — create no branch and commit nothing. Record `snapshot: no eligible changes, ref <current commit>` and the excluded count in both records, and stop here; an empty commit records a baseline that does not exist.
 3. Otherwise create branch `run/<run-id>` from the pinned worktree's current commit.
 4. Stage the eligible files by name: `git add -- <eligible paths>`, never a whole-tree add.
-5. Commit once, `git commit --only -- <eligible paths> -m "run <run-id>: snapshot at Return"`. `--only` commits those paths and nothing else, so a path some earlier action left in the index stays out of the snapshot; count it among the excluded.
+5. Commit once, `git commit -m "run <run-id>: snapshot at Return" --only -- <eligible paths>`. `--only` commits those paths and nothing else, so a path some earlier action left in the index stays out of the snapshot; count it among the excluded.
 6. Record the branch ref and the count of excluded files in `STATE.md` and `RETURN.md`.
 
 No push, no merge, no rebase, and no other branch is touched. The commit is a

@@ -241,7 +241,7 @@ class SnapshotCommitTests(unittest.TestCase):
         self.assertIn("uncommitted overlay: <staged> staged, <modified> modified or\ndeleted unstaged, <untracked> untracked", ret)
         self.assertIn("git status --porcelain", ret)
         self.assertIn("git add -- <eligible paths>", ret)
-        self.assertIn('git commit --only -- <eligible paths> -m "run <run-id>: snapshot at Return"', ret)
+        self.assertIn('git commit -m "run <run-id>: snapshot at Return" --only -- <eligible paths>', ret)
         self.assertIn("stays out of the snapshot; count it among the excluded", ret)
 
     def test_an_authorized_run_with_nothing_eligible_commits_nothing(self):

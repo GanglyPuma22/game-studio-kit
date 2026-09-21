@@ -32,7 +32,8 @@ records `human_verdict: accepted` with the receipt linked. The verdict is
 `pending` until a person has looked — that is the value the row is created with,
 and it is the absence of a verdict — then `accepted` or `rejected`. An accepted
 row also carries an identity receipt taken immediately after the session and
-before any edit (`candidate new --id <run-id>-<feature> --output
+before any edit (`python <KIT>/scripts/studio.py candidate new --project <run> --id
+<run-id>-<feature> --engine-version <version> --output
 artifacts/run/identity/<feature>.json`), and its `content_digest` is copied from
 that receipt: this session's own receipt records the commit, whether the tree was
 dirty and the scene hash, not the candidate's content digest, so it cannot say
