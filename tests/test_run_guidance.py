@@ -36,7 +36,11 @@ class WaitingGuidanceTests(unittest.TestCase):
             self.assertIn("plus 30) times", body, path.name)
             self.assertIn("30 seconds", body, path.name)
             self.assertIn("verdict JSON", body, path.name)
-            self.assertIn("undersized", body, path.name)
+            self.assertNotIn("effective outer yield is capped", body, path.name)
+        # An early return has three possible causes and none of them is a hang.
+        self.assertIn("never evidence that the run hung", text(PROCEDURE))
+        for path in (BLOCK, EXECUTION):
+            self.assertIn("undersized", text(path), path.name)
 
     def test_sizing_is_stated_per_command_because_only_launch_has_a_timeout(self):
         # `batch` and `playtest` have no `--timeout`, so one formula could not
@@ -59,16 +63,41 @@ class WaitingGuidanceTests(unittest.TestCase):
         self.assertIn("That formula is `launch`'s own", execution)
         self.assertIn("sized from `--max-minutes` instead", execution)
 
-    def test_an_uncapped_handoff_is_the_one_expected_continuation(self):
-        self.assertIn("expect exactly one\nsized `wait` continuation there", text(PROCEDURE))
+    def test_an_early_return_takes_exactly_one_sized_wait(self):
+        procedure = text(PROCEDURE)
+        self.assertIn(
+            "When the call returns early despite the directive, the expected path is exactly\n"
+            "one `wait` sized to the time the command still has, and that `wait` is not\n"
+            "polling",
+            procedure,
+        )
+        self.assertIn("the same single sized `wait` is expected after an uncapped `handoff`", procedure)
         self.assertIn("a single sized `wait` after an early return is expected", text(BLOCK))
+
+    def test_no_claim_is_made_about_a_harness_cap(self):
+        # The measurement (360 s directive, 263 s held) contradicts a claimed
+        # 30,000 ms ceiling, so the text states what was measured and leaves the
+        # harness's behaviour open rather than asserting either.
+        procedure = text(PROCEDURE)
+        self.assertIn("the\ndirective is what has been measured to hold a call open", procedure)
+        self.assertIn("Harness versions may cap\nit, and this procedure claims neither that they do nor that they do not", procedure)
+        self.assertNotIn("30,000", procedure)
+        self.assertIn("capped by a harness version", text(BLOCK))
+        self.assertIn("capped by a harness version", text(EXECUTION))
+
+    def test_a_capped_harness_is_recorded_against_the_cleanroom_captures(self):
+        procedure = text(PROCEDURE)
+        section = procedure[procedure.index("## 4. Benchmarks"):procedure.index("## 5. Return")]
+        self.assertIn("depends on what the agent's\n`--agent-log` records", section)
+        self.assertIn("captures were completed under a capped\nharness", section)
+        self.assertIn("captures completed under a capped harness", text(STATE))
 
     def test_the_only_continuation_is_one_sized_wait(self):
         for path in (PROCEDURE, BLOCK, EXECUTION):
             body = text(path)
             self.assertIn("`wait`", body, path.name)
             self.assertIn("`write_stdin`", body, path.name)
-            self.assertIn("repeated short waits", body, path.name)
+            self.assertIn("short waits", body, path.name)
 
     def test_an_early_return_is_not_a_reason_to_start_a_second_engine(self):
         self.assertIn("not a host cap", text(PROCEDURE))
@@ -134,6 +163,22 @@ class FeatureManifestTests(unittest.TestCase):
         self.assertIn("Accepted features", text(RETURN))
         self.assertIn("`rejected` with the reason, `pending` as unreviewed", text(RETURN))
 
+    def test_an_accepted_row_carries_its_own_identity_receipt(self):
+        for path in (PROCEDURE, REVIEW, PLAYTEST):
+            body = text(path)
+            self.assertIn("candidate new", body, path.name)
+            self.assertIn("artifacts/run/identity/<feature>.json", body, path.name)
+            self.assertIn("content_digest", body, path.name)
+        procedure = text(PROCEDURE)
+        self.assertIn("immediately after that session and\nbefore any edit", procedure)
+        self.assertIn("`studio_tools/evidence.py`'s `new_candidate`", procedure)
+        self.assertIn("never type one", procedure)
+        self.assertIn("is historical", procedure)
+        self.assertIn("a playtest receipt that records the digest itself would be a\nlater kit change", procedure)
+        review = text(REVIEW)
+        self.assertIn("copied, never typed", review)
+        self.assertIn("cannot be accepted for that candidate", review)
+
     def test_pending_is_not_acceptance(self):
         review = text(REVIEW)
         self.assertIn("`human_verdict: accepted`", review)
@@ -190,11 +235,14 @@ class SnapshotCommitTests(unittest.TestCase):
     def test_the_commit_is_one_commit_at_return_with_a_fixed_message(self):
         procedure = text(PROCEDURE)
         ret = procedure[procedure.index("## 5. Return"):procedure.index("## 6. Stop rules")]
-        self.assertIn("`run <run-id>: snapshot at Return`", ret)
+        self.assertIn("run <run-id>: snapshot at Return", ret)
         self.assertIn("A run commits nothing by default", ret)
         self.assertIn("No push, no merge, no rebase", ret)
         self.assertIn("uncommitted overlay: <staged> staged, <modified> modified or\ndeleted unstaged, <untracked> untracked", ret)
         self.assertIn("git status --porcelain", ret)
+        self.assertIn("git add -- <eligible paths>", ret)
+        self.assertIn('git commit --only -- <eligible paths> -m "run <run-id>: snapshot at Return"', ret)
+        self.assertIn("stays out of the snapshot; count it among the excluded", ret)
 
     def test_an_authorized_run_with_nothing_eligible_commits_nothing(self):
         procedure = text(PROCEDURE)

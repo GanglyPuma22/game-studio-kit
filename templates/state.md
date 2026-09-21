@@ -33,5 +33,6 @@ Updated: <UTC>  Compactions so far: <n>
 - Doctor (engine version check):
 - Launch inventory:
 - Cleanroom captures:
+- Harness wait behaviour (record `captures completed under a capped harness` when the outer yield directive did not hold, so a later `attributable: false` has a known cause):
 - Feature manifest (`artifacts/run/feature-manifest.json`; `route_source`, and the rows not yet `human_verdict: accepted`):
 - Snapshot commit (`run/<run-id>` ref and excluded-file count under `snapshot_commit: authorized`, or `snapshot: no eligible changes, ref <current commit>`; otherwise `uncommitted overlay: <staged> staged, <modified> modified or deleted unstaged, <untracked> untracked`):
