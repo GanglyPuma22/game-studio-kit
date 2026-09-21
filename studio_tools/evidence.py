@@ -202,6 +202,13 @@ def verify_receipt(receipt, project=None):
     bytes are copied anywhere. `ok` is true only when every recorded file is
     still exactly what the receipt said, which is a statement about bytes and
     about nothing else.
+
+    Nothing in `result_files` is silently dropped. An element that is not an
+    object with a string path, or whose digest is neither absent nor a 64
+    character hex string, is reported under `malformed` with its index and
+    makes the whole verification not ok: a receipt this reader cannot fully
+    account for has not been checked, and saying so beats reporting the rows
+    that happened to parse.
     """
     path = Path(receipt).expanduser().resolve()
     record = read_json(path)
@@ -213,15 +220,24 @@ def verify_receipt(receipt, project=None):
         raise StudioError("Receipt has no result_files list to verify")
     files = []
     unrecorded = []
-    for item in declared:
+    malformed = []
+    for index, item in enumerate(declared):
         if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+            # The path is not echoed: it is not known to be a string, and a
+            # receipt this reader cannot parse is not one to quote from.
+            malformed.append({"index": index,
+                              "reason": "entry is not an object with a string path"})
             continue
         recorded = item.get("sha256")
-        if not isinstance(recorded, str) or not re.fullmatch(r"[0-9a-f]{64}", recorded):
+        if recorded is None:
             # The run itself recorded no digest for this path, so there is
             # nothing here to compare against and saying "changed" would be a
             # claim about a file this receipt never vouched for.
             unrecorded.append(item["path"])
+            continue
+        if not isinstance(recorded, str) or not re.fullmatch(r"[0-9a-f]{64}", recorded):
+            malformed.append({"index": index, "path": item["path"],
+                              "reason": "sha256 is not a 64 character hex digest"})
             continue
         entry = {"path": item["path"], "recorded_sha256": recorded,
                  "current_sha256": None, "state": "missing"}
@@ -251,13 +267,17 @@ def verify_receipt(receipt, project=None):
         "checked_utc": datetime.now(timezone.utc).isoformat(),
         "files": files,
         "unrecorded": unrecorded,
+        "malformed": malformed,
         "totals": {
             "current": sum(entry["state"] == "current" for entry in files),
             "changed": sum(entry["state"] == "changed" for entry in files),
             "missing": sum(entry["state"] == "missing" for entry in files),
+            "malformed": len(malformed),
         },
-        # A receipt that recorded no digests proves nothing by being re-read.
-        "ok": bool(files) and all(entry["state"] == "current" for entry in files),
+        # A receipt that recorded no digests proves nothing by being re-read,
+        # and one this reader could not fully parse has not been checked.
+        "ok": bool(files) and not malformed
+        and all(entry["state"] == "current" for entry in files),
         "limits": VERIFY_LIMITS,
     }
 
@@ -404,6 +424,37 @@ def validate_candidate(record, root):
             raise StudioError("Verdict evidence must be a list")
         if status in {"pass", "fail"} and not evidence_items:
             raise StudioError("Verdict needs evidence: " + dimension)
+        # The rollups are a summary of the rows beside them and are recomputed
+        # here rather than trusted. A record whose stored numbers disagree with
+        # its own evidence is describing a list it no longer holds. A record
+        # that stores none is legacy: there is nothing to disagree with, and
+        # every rule below reads the rows themselves.
+        current_rows = sum(item.get("identity") == "current" for item in evidence_items)
+        rolled_class = performance_rollup(evidence_items) if dimension == "performance" else None
+        for key, recomputed in (("evidence_total", len(evidence_items)),
+                                ("evidence_current", current_rows),
+                                ("performance_class", rolled_class)):
+            stored = verdict.get(key)
+            if stored is not None and recomputed is not None and stored != recomputed:
+                raise StudioError(
+                    f"Verdict {key} disagrees with its own evidence: " + dimension
+                )
+        if status == "pass" and not current_rows:
+            # Every row here already had to name this candidate's content
+            # digest; this adds that the row must say so. A pass argued only
+            # from evidence labelled historical or unknown is a pass for a
+            # build that no longer exists.
+            raise StudioError(
+                "Pass needs at least one evidence row marked identity=current: " + dimension
+            )
+        if status == "pass" and dimension == "performance" and rolled_class != "clean_qualification":
+            # A frame time measured while something else had the machine, or a
+            # number nobody classified, cannot carry a performance pass. Only a
+            # cleanroom window qualifies one.
+            raise StudioError(
+                "Performance pass needs clean_qualification evidence; this verdict rolls up as "
+                + str(rolled_class)
+            )
         for evidence in evidence_items:
             required(evidence, ["content_digest", "method", "observer"])
             verify_file(root, evidence)

@@ -432,13 +432,38 @@ the inventory this candidate names, not that the files on disk still match it
 A verdict whose two numbers differ is resting partly on content that has since
 changed; neither number is a judgement about what the evidence showed.
 
+`validate-record` enforces the label rather than merely storing it. It
+recomputes both counts, and the performance class, from the rows themselves and
+refuses a record whose stored rollups disagree with its own evidence list; a
+record that stores no rollups at all is legacy, has nothing to disagree with,
+and is read from its rows. Any dimension whose status is `pass` must hold at
+least one row marked `identity: "current"`, so a pass cannot be argued from
+evidence for a build that no longer exists — and because acceptance already
+requires every dimension to be `pass` or `not_applicable`, an accepted candidate
+must carry current evidence for every dimension it did not excuse with a reason.
+The label is not a substitute for the hashes: a row that claims `current` while
+naming another candidate's content digest is still refused.
+
 **Startup failure (`phase`, `first_error`, `verdict: startup_failure`).** The log
-classifier now reports `phase` — `load`, `runtime` or null — and `first_error`,
-the first `ERROR:`/`SCRIPT ERROR:` line stripped of terminal colour escapes and
-truncated to 240 characters. `load` means the first error in the log was a
-load-time signature (a parse error, a script or resource that would not load, a
-scene that would not instantiate) and that error's own `at:` continuation did
-not name a running callback; anything else with an error is `runtime`. When a
+classifier now reports `phase` — `load`, `runtime` or null — and `first_error`.
+`load` means the first error in the log was a load-time signature (a parse
+error, a script or resource that would not load, a scene that would not
+instantiate) and that error's own `at:` continuation frames did not show the
+game executing; anything else with an error is `runtime`. A frame is read by the
+source it names, never by the function's name: `at: <anything> (res://...)`
+names a script the project owns and therefore means the game was running,
+whatever the handler is called, while an engine frame such as
+`GDScript::reload (modules/gdscript/gdscript.cpp:2831)` is one Godot also prints
+while it is still loading. A load signature with no frame, or with only engine
+frames, is `load`; a frame in neither form proves nothing and is not counted.
+`first_error` is a *signature* of that line, not the line: terminal colour
+escapes removed, the engine prefix and category text kept, `res://` resources
+and their line numbers kept, every other token naming a location — an absolute
+host path, a Windows or UNC path, a URL — replaced with `<path>`, everything
+from `user://` onwards dropped, and the result capped at 200 characters. The log
+is the one place a game may print somebody's home directory, account name or a
+signed URL, and a receipt is read by people the log was never shown to; the raw
+line stays in `stdout.log`. When a
 launch or playtest exits non-zero and the phase is `load`, the verdict is
 `startup_failure`, reported ahead of `engine_errors` because the game never
 reached the point where its own diagnostics would mean anything. Elapsed time is
@@ -450,9 +475,13 @@ evidence the game came up. A `load` phase alongside exit zero remains
 `settings.ready_marker` in its `project.json`: a literal line substring its
 engine prints once it is up. The runner then checks the growing log no more than
 four times a second while it waits for the child, and records `ready_seconds` —
-monotonic seconds from process creation to the first line containing that
-substring — in `process.json`, and `launch` and `playtest` copy it into
-`exit.json`. It is null when nothing was declared and when the child never
+monotonic seconds from the instant the child was created to the first line
+containing that substring — in `process.json`, and `launch` and `playtest` copy
+it into `exit.json`. The clock starts at the child, not at the command: the
+runner's own preparation is in `elapsed_seconds`, not in this number. The wait's
+deadline is still taken at the moment the wait begins, exactly as an unwatched
+`process.wait(timeout=...)` would take it, so configuring a marker never
+shortens the window the child was granted. It is null when nothing was declared and when the child never
 printed it, and a run with no marker never reads the log while it waits at all.
 This is a load-time measurement and nothing more: it does not show the game is
 playable, that the scene finished loading, or that anything printed after the
@@ -488,7 +517,12 @@ about which skills, references or templates were present, and nothing about
 whether the kit came from a release. `studio evidence verify --receipt <path>`
 re-hashes the files a receipt recorded a digest for and reports each as
 `current`, `changed` or `missing`, with `ok` true only when every one is
-current and at least one was recorded. No result bytes are copied anywhere, and
+current and at least one was recorded. Nothing in `result_files` is silently
+dropped: an element that is not an object with a string path, or whose digest is
+neither absent nor a 64-character hex string, is listed under `malformed` with
+its index and makes the whole verification not ok, because a receipt this reader
+could not fully account for has not been checked. An element with a null digest
+is `unrecorded` instead — the run never claimed to produce it. No result bytes are copied anywhere, and
 a file still matching its digest is a statement about bytes alone — not that it
 is correct, complete or acceptable.
 
@@ -500,9 +534,12 @@ when a declared `credential_files` entry holds a nonempty value for it, and
 name a source the next call would not use. `status` is `unverified` whenever a
 key is present from either source and `needs_setup` otherwise; a host that keeps
 its keys in a declared file is no longer told to set up a provider it has
-already configured. The report also lists each declared file with `present`,
-`readable` and the key names it declares. Names only: no value from any file or
-environment variable is reported, and a name appearing in that list means the
+already configured. The report also lists each declared file by its own basename and its zero-based
+position in `credential_files`, with `present`, `readable` and the key names it
+declares. The directory is never reported: a doctor report is pasted into issues
+and handed to other agents, and the path to a key file is host layout — an
+account name, a mounted share, a deployment root. Names only: no value from any
+file or environment variable is reported, and a name appearing in that list means the
 file mentions it, not that it carries a usable value and not that any account is
 entitled to use it. Nothing is loaded into `os.environ`, so nothing this kit
 starts inherits a key it was not given deliberately, and `unverified` remains

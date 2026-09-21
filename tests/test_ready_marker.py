@@ -8,6 +8,7 @@ marker has its log left alone while it runs.
 
 import json
 import os
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -100,6 +101,67 @@ class RunnerTests(unittest.TestCase):
             with self.subTest(marker=bad), self.assertRaisesRegex(StudioError, "nonempty"):
                 processes.run([sys.executable, "-c", "pass"], timeout=5,
                               job_dir=self.dir / f"bad{bad!r}", ready_marker=bad)
+
+
+class Tick:
+    """A monotonic clock this test advances by hand."""
+
+    def __init__(self, now=1000.0):
+        self.now = now
+
+    def __call__(self):
+        return self.now
+
+
+class ScriptedChild:
+    """A child that times out for a while and records every timeout it was asked for."""
+
+    def __init__(self, tick, waits=None):
+        self.tick = tick
+        self.waits = waits
+        self.asked = []
+
+    def wait(self, timeout=None):
+        self.asked.append(timeout)
+        self.tick.now += timeout
+        if self.waits is None or len(self.asked) < self.waits:
+            raise subprocess.TimeoutExpired(cmd=[], timeout=timeout)
+        return 0
+
+
+class ReadyClockTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="studio ready clock ")
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+
+    def log(self, text=""):
+        path = self.dir / f"log{len(list(self.dir.iterdir()))}.log"
+        path.write_bytes(text.encode("utf-8"))
+        return path
+
+    def test_watching_for_a_marker_never_shortens_the_granted_window(self):
+        # The deadline is taken when the wait begins, exactly as an unwatched
+        # `process.wait(timeout=...)` would take it, so a child that spent a
+        # second being prepared is not charged for that second.
+        tick = Tick(1000.0)
+        child = ScriptedChild(tick)
+        with patch("studio_tools.processes.time.monotonic", tick):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                processes._wait_for_marker(child, 1.0, self.log(), MARKER, 900.0)
+        self.assertAlmostEqual(sum(child.asked), 1.0, places=6)
+        self.assertEqual(tick.now, 1001.0)
+
+    def test_the_marker_is_measured_from_the_spawn_instant(self):
+        for spawned, expected in ((999.0, 1.25), (1000.0, 0.25)):
+            with self.subTest(spawned=spawned):
+                tick = Tick(1000.0)
+                child = ScriptedChild(tick, waits=2)
+                with patch("studio_tools.processes.time.monotonic", tick):
+                    found = processes._wait_for_marker(
+                        child, 5.0, self.log(MARKER + "\n"), MARKER, spawned
+                    )
+                self.assertEqual(found, expected)
 
 
 class ProjectCase(unittest.TestCase):

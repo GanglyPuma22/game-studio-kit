@@ -708,13 +708,15 @@ READY_POLL_SECONDS = 0.25
 READY_TAIL_LIMIT = 8192
 
 
-def _scan_ready(reader, marker, tail, start):
+def _scan_ready(reader, marker, tail, spawned):
     """Read whatever the child appended since the last read and look for `marker`.
 
     Returns (ready_seconds or None, carried-over incomplete line). The reader is
     never rewound, so each byte the child writes is examined once. Only the
     unterminated remainder is carried over, bounded so a child that never emits
-    a newline cannot grow this buffer without limit.
+    a newline cannot grow this buffer without limit. `spawned` is the instant
+    the child existed, so the number is the child's load time and not this
+    runner's bookkeeping.
     """
     data = reader.read()
     if not data:
@@ -723,21 +725,25 @@ def _scan_ready(reader, marker, tail, start):
     lines = text.split("\n")
     tail = lines.pop()
     if any(marker in line for line in lines) or marker in tail:
-        return round(time.monotonic() - start, 3), tail
+        return round(time.monotonic() - spawned, 3), tail
     return None, tail[-READY_TAIL_LIMIT:]
 
 
-def _wait_for_marker(process, timeout, log, marker, start):
+def _wait_for_marker(process, timeout, log, marker, spawned):
     """Wait for the child while watching its growing log for a ready marker.
 
     The log is opened once and read forward at most every READY_POLL_SECONDS,
     so the wait stays a wait rather than a poll of the process. What comes back
-    is the monotonic time from Popen to the first line containing the
-    substring, or None when the child finished without ever printing it. This
-    measures when the child said it was up; it establishes nothing about what
-    it then did.
+    is the monotonic time from the child's creation to the first line containing
+    the substring, or None when the child finished without ever printing it.
+    This measures when the child said it was up; it establishes nothing about
+    what it then did.
+
+    The deadline is taken here, at the instant the wait begins, exactly as
+    `process.wait(timeout=...)` would have taken it: watching for a marker must
+    never shorten the window the child was granted.
     """
-    deadline = start + timeout
+    deadline = time.monotonic() + timeout
     found = None
     tail = ""
     with open(log, "rb") as reader:
@@ -751,12 +757,12 @@ def _wait_for_marker(process, timeout, log, marker, start):
                 process.wait(timeout=min(READY_POLL_SECONDS, remaining))
             except subprocess.TimeoutExpired:
                 if found is None:
-                    found, tail = _scan_ready(reader, marker, tail, start)
+                    found, tail = _scan_ready(reader, marker, tail, spawned)
                 continue
             if found is None:
                 # A child can print the marker and exit inside the same quarter
                 # second, so the last read happens after it has been reaped.
-                found, tail = _scan_ready(reader, marker, tail, start)
+                found, tail = _scan_ready(reader, marker, tail, spawned)
             return found
 
 
@@ -854,6 +860,10 @@ def run(
                 raise StudioError(
                     f"Could not start {Path(str(args[0])).name}; check executable configuration"
                 ) from exc
+            # The instant the child existed, which is what its load time is
+            # measured from; `start` above also covers this runner's own
+            # preparation and stays the basis for elapsed_seconds.
+            spawned = time.monotonic()
             record.update(status="running", pid=process.pid)
             if owns_identity:
                 # Read now, while the handle is fresh and the PID is certainly
@@ -872,7 +882,7 @@ def run(
                     process.wait(timeout=timeout)
                 else:
                     record["ready_seconds"] = _wait_for_marker(
-                        process, timeout, log, ready_marker, start
+                        process, timeout, log, ready_marker, spawned
                     )
             except subprocess.TimeoutExpired as exc:
                 record["status"] = "timed_out"

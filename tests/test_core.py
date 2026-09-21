@@ -260,6 +260,11 @@ class RecordTests(TempCase):
             "observer": "tester",
         }
         c["verdicts"]["visual"]["evidence"] = [entry]
+        # Without the label the row cannot carry a pass at all.
+        with self.assertRaisesRegex(StudioError, "identity=current"):
+            validate(c, self.root)
+        # And the label alone does not make a foreign digest this candidate's.
+        entry["identity"] = "current"
         with self.assertRaisesRegex(StudioError, "different candidate"):
             validate(c, self.root)
 
@@ -284,6 +289,7 @@ class RecordTests(TempCase):
                 {
                     **file_record(self.root, p),
                     "content_digest": c["content_digest"],
+                    "identity": "current",
                     "method": "technical_runtime_smoke",
                     "observer": "test",
                 }
@@ -303,6 +309,7 @@ class RecordTests(TempCase):
                 {
                     **file_record(self.root, p),
                     "content_digest": c["content_digest"],
+                    "identity": "current",
                     "method": "native_visual",
                     "observer": "test",
                 }
@@ -329,6 +336,7 @@ class RecordTests(TempCase):
                     {
                         **file_record(self.root, p),
                         "content_digest": c["content_digest"],
+                        "identity": "current",
                         "method": {
                             "audio": "listening",
                             "interaction": "ordinary_input",
@@ -338,6 +346,9 @@ class RecordTests(TempCase):
                     }
                 ],
             }
+        # A measured number only carries a performance pass when a cleanroom
+        # window qualified it.
+        c["verdicts"]["performance"]["evidence"][0]["performance_class"] = "clean_qualification"
         c["verdicts"]["audio"]["evidence"][0]["listening"] = {
             "performed": True, "playback_route": "fixture playback", "interval_seconds": [0, 4]}
         c["settings"] = {"renderer": "test", "viewport": [1280, 720]}

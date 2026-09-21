@@ -288,14 +288,27 @@ historical, an archived capture labelling itself and its own `capture.json`, the
 attached row keeping every hash it arrived with and the caller's dictionary left
 unmutated, `evidence_total`/`evidence_current` recomputed on each attach and by
 `refresh_rollups` over rows attached by hand, an unknown dimension refused, and
-the shipped `templates/candidate.json` carrying the new keys at zero.
+the shipped `templates/candidate.json` carrying the new keys at zero. It also
+covers what `validate_candidate` now enforces: a pass backed by a current row
+accepted, a pass whose only row is unlabelled, historical or unknown refused, a
+stored `evidence_total`, `evidence_current` or `performance_class` that
+disagrees with its own rows refused, a legacy record storing no rollups still
+validating, acceptance refused when any mandatory dimension's row stops being
+current, and a `not_applicable` dimension still needing only a reason.
 
 `test_startup_failure.py` covers the log classifier's `phase` and `first_error`
 and the verdict built on them: each load-time signature reported as `load`, a
 script error naming a running callback reported as `runtime`, a load-worded
-error raised from `_process` reported as runtime, only the first error deciding
-the phase in either order, no error meaning no phase, the first error stripped
-of colour escapes and truncated to 240 characters, the original
+error raised from any project frame (`_process`, `_on_button_pressed`,
+`_unhandled_input`, an ordinary method name) reported as runtime, a parse error
+whose only frames are engine sources (`gdscript.cpp`, `resource_loader.cpp`,
+`script_language.h`) or which has no frame at all reported as load, a frame in
+neither form not counted, only the first error deciding the phase in either
+order, no error meaning no phase, the signature keeping the engine prefix,
+category text and `res://` paths while replacing Windows paths, POSIX paths and
+URLs with `<path>`, everything after `user://` dropped, the cap at 200
+characters, a host path and a URL in a real launch reaching neither
+`diagnostics.json` nor `exit.json` while staying in `stdout.log`, the original
 `status`/`error_count`/`warning_count` unchanged, a non-zero exit with a load
 phase becoming `startup_failure` in both `launch` and `playtest`, a runtime
 fault staying `failed`, a load phase with exit zero staying `engine_errors`, and
@@ -307,8 +320,11 @@ written to `process.json`, a child that never prints it recording null, a marker
 printed just before exit still seen, a marker on an unterminated line counted,
 a run without a marker never reading the log while it waits, the read paced at
 no more than four times a second, a watched run still timing out with owned
-cleanup, a marker with no log file and a marker that is not a nonempty string
-both refused, the project's declared marker reaching the runner and `exit.json`
+cleanup, the wait's deadline taken when the wait begins so a marker never
+shortens the granted window, `ready_seconds` measured from the spawn instant
+rather than from the start of the command (both against a hand-advanced clock
+and a scripted child), a marker with no log file and a marker that is not a
+nonempty string both refused, the project's declared marker reaching the runner and `exit.json`
 for both `launch` and a driven `playtest`, a malformed declaration refused
 before a run label is reserved, the limit sentence present in both receipts, and
 no argv value or environment value in any receipt of a watched run.
@@ -321,7 +337,9 @@ rollup: unverified on a fresh candidate, a bench class copied onto the row,
 a human review alone rolling up to `subjective_acceptance`, differing classes
 and a lone diagnostic rolling up to `mixed`, and a qualification taken from
 other content counted in `evidence_total` but not in `evidence_current` and not
-qualifying anything.
+qualifying anything. It also covers the validation rule built on the rollup:
+only `clean_qualification` carrying a performance pass, with a diagnostic, a
+human review alone and a mixture each refused.
 
 `test_kit_identity.py` covers `kit_identity()` naming this version and digesting
 this source tree, being computed once and handed out as a copy, changing when a
@@ -330,14 +348,20 @@ block appearing in both launch receipts, a new candidate and the doctor report,
 and carrying no host path. It also covers `evidence verify`: unchanged results
 reported `current` with `ok` true, changed bytes `changed`, a deleted result
 `missing`, a receipt that recorded nothing not ok, a declared result the run
-never produced listed as `unrecorded`, the project derived from the run
-directory or given explicitly, a receipt with no `result_files` refused, and the
-same verdict and exit code through `cli.main`.
+never produced listed as `unrecorded`, malformed `result_files` elements listed
+by index and forcing `ok` false while the well-formed row beside them is still
+checked and a non-string path is never echoed back, a null digest counted as
+unrecorded rather than malformed, the project derived from the run directory or
+given explicitly, a receipt with no `result_files` refused, and the same verdict
+and exit code through `cli.main`.
 
 `test_doctor_credentials.py` covers `credential_source` returning `environment`,
 `file` or `none` in the same order `credential` resolves in, an empty value not
 counting as a source, the declared-file report's `present`/`readable`/key names
-including an unreadable file, and the doctor report itself: a file-backed host
+including an unreadable file, each declared file identified only by its basename
+and zero-based position with no directory anywhere in the report, a
+Windows-spelled or UNC entry still reduced to a bare name, and the doctor report
+itself: a file-backed host
 reported `unverified` rather than `needs_setup` for both the providers and the
 video-analysis credential, an unconfigured host still `needs_setup`, the setup
 plan reading the same statuses, and no key value anywhere in the report.

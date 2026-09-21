@@ -32,7 +32,7 @@ def self_contained(executable):
 
 ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 ERROR_LINE = re.compile(r"(?:SCRIPT )?ERROR:")
-FIRST_ERROR_LIMIT = 240
+FIRST_ERROR_LIMIT = 200
 # Signatures Godot prints while it is still loading the project: a script that
 # would not compile, a resource or scene that would not open. They describe a
 # game that never reached its first frame, not one that failed while playing.
@@ -46,9 +46,15 @@ LOAD_SIGNATURES = (
     "Unable to load",
 )
 LOAD_RESOURCE_ERROR = re.compile(r"res://.*: Error")
-# A script error that names one of the engine's per-frame or lifecycle
-# callbacks was raised by code the game was already running.
-RUNTIME_CALLBACK = re.compile(r"\b_(?:process|physics_process|ready|input)\b")
+# Godot prints the stack under the message as `at: <function> (<source>:<line>)`.
+FRAME = re.compile(r"\bat:\s*(?P<function>[^(]*?)\s*\((?P<source>[^)]*)\)")
+# A path this kit may keep: a project resource, whose name the project chose.
+KEPT_PATH = re.compile(r"res://")
+# Everything from here on can name a player's own machine or save data.
+DROPPED_PATH = "user://"
+# A token that names a location on somebody's disk or on the network.
+PATH_TOKEN = re.compile(r"://|[/\\]|^[A-Za-z]:")
+PATH_PLACEHOLDER = "<path>"
 
 
 def _is_load_error(line):
@@ -56,6 +62,47 @@ def _is_load_error(line):
     return any(signature in line for signature in LOAD_SIGNATURES) or bool(
         LOAD_RESOURCE_ERROR.search(line)
     )
+
+
+def _game_frame(line):
+    """True when this stack frame was executing the project's own GDScript.
+
+    The function's name is not consulted: `_process`, `_on_button_pressed` and
+    anything else a project calls its handlers are all the game running. What
+    distinguishes them is the source the frame names — a `res://` script the
+    project owns, rather than an engine translation unit such as
+    `modules/gdscript/gdscript.cpp`, which Godot also prints while it is still
+    loading. A frame in neither form proves nothing and is not counted.
+    """
+    match = FRAME.search(line)
+    return bool(match) and bool(KEPT_PATH.search(match.group("source")))
+
+
+def error_signature(line):
+    """One error line reduced to what is safe to keep in a receipt.
+
+    The engine's own prefix and category text (`SCRIPT ERROR: Parse Error:`),
+    the `res://` resources the project named and their line numbers survive.
+    Every other token that names a location — an absolute host path, a UNC or
+    Windows path, a URL — becomes `<path>`, because the log is the one place a
+    game may print somebody's home directory, their account name or a signed
+    URL, and a receipt is read by people the log was never shown to. Everything
+    from `user://` onwards is dropped outright: that is the player's own save
+    location. The result is capped, so a message that embeds a whole document
+    cannot smuggle it out a token at a time.
+    """
+    kept = []
+    for token in line.split():
+        if DROPPED_PATH in token:
+            # Keep the scheme so the reader knows what was removed, then stop:
+            # nothing after it describes the failure better than it exposes.
+            kept.append(token[:token.index(DROPPED_PATH) + len(DROPPED_PATH)])
+            break
+        if KEPT_PATH.search(token) or not PATH_TOKEN.search(token):
+            kept.append(token)
+        else:
+            kept.append(PATH_PLACEHOLDER)
+    return " ".join(kept)[:FIRST_ERROR_LIMIT]
 
 
 def classify_log(output):
@@ -67,9 +114,10 @@ def classify_log(output):
     game, and anything else with an error is reported as runtime. Elapsed time
     is deliberately not consulted — a slow host is not a startup failure.
 
-    `first_error` is that same first error line, stripped of terminal colour
-    escapes and truncated, so an operator sees which failure to chase without
-    the receipt carrying the whole log.
+    `first_error` is a signature of that same first error line: terminal colour
+    escapes removed, host paths and URLs replaced, anything from `user://`
+    onwards dropped, and the result capped. An operator sees which failure to
+    chase; the receipt never carries the log's raw text.
     """
     # Preserve the adapter's conservative substring detection, including
     # diagnostics prefixed by terminal color escapes or a host wrapper.
@@ -83,18 +131,17 @@ def classify_log(output):
         lines = ANSI.sub("", output).splitlines()
         index = next(i for i, line in enumerate(lines) if ERROR_LINE.search(line))
         first = lines[index].strip()
-        first_error = first[:FIRST_ERROR_LIMIT]
-        # A runtime callback is usually named on the `at:` continuation line
-        # Godot prints under the message, so the first error is read together
-        # with its own continuation lines — and with nothing else, or a later
-        # unrelated error would decide this one's phase.
-        block = [first]
+        first_error = error_signature(first)
+        # The first error's own continuation frames decide, and no others: a
+        # later, unrelated error must not classify this one. A frame in the
+        # project's own script means the game was executing, so a load-worded
+        # message raised from one is a runtime fault.
+        executing = False
         for line in lines[index + 1:]:
             if ERROR_LINE.search(line) or not line.strip().startswith("at:"):
                 break
-            block.append(line)
-        runtime = bool(RUNTIME_CALLBACK.search("\n".join(block)))
-        phase = "load" if _is_load_error(first) and not runtime else "runtime"
+            executing = executing or _game_frame(line)
+        phase = "load" if _is_load_error(first) and not executing else "runtime"
     return {
         "status": "errors" if errors else "warnings" if warnings else "clean" if output.strip() else "unverified",
         "error_count": errors,
