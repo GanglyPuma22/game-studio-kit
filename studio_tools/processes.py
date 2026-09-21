@@ -740,9 +740,12 @@ def _wait_for_marker(process, timeout, log, marker, spawned, record):
 
     The deadline is taken here, at the instant the wait begins, exactly as
     `process.wait(timeout=...)` would have taken it: watching for a marker must
-    never shorten the window the child was granted.
+    never shorten the window the child was granted. A `timeout` of None is an
+    uncapped wait — a handoff session a person ends by quitting the game — and
+    means there is no deadline at all, only the poll interval; the marker is
+    still watched for, and the wait still ends when the child does.
     """
-    deadline = time.monotonic() + timeout
+    deadline = None if timeout is None else time.monotonic() + timeout
     tail = ""
 
     def scan(reader):
@@ -753,7 +756,7 @@ def _wait_for_marker(process, timeout, log, marker, spawned, record):
 
     with open(log, "rb") as reader:
         while True:
-            remaining = deadline - time.monotonic()
+            remaining = READY_POLL_SECONDS if deadline is None else deadline - time.monotonic()
             if remaining <= 0:
                 # One last read of everything written since the previous poll:
                 # a marker printed inside that final fraction of a second is

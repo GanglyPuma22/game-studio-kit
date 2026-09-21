@@ -283,8 +283,11 @@ engine, provider, desktop or network is involved.
 `test_capture_identity.py` covers the `current`/`historical`/`unknown` label a
 capture, bench or cleanroom row gets when it is attached to a candidate verdict:
 a receipt from this content labelled current, one from another content labelled
-historical, a receipt carrying no digest labelled unknown rather than
-historical, an archived capture labelling itself and its own `capture.json`, the
+historical, a real cleanroom-shaped receipt (a class and no content digest)
+taking its digest from the row beside it and coming out current with its class
+copied, a receipt digest still winning over the row's when it has one, evidence
+with no digest anywhere labelled unknown rather than historical, an archived
+capture labelling itself and its own `capture.json`, the
 attached row keeping every hash it arrived with and the caller's dictionary left
 unmutated, `evidence_total`/`evidence_current` recomputed on each attach and by
 `refresh_rollups` over rows attached by hand, an unknown dimension refused, and
@@ -295,7 +298,10 @@ stored `evidence_total`, `evidence_current` or `performance_class` that
 disagrees with its own rows refused, an identity spelled anything other than
 `current`, `historical` or `unknown` refused by the row's own path, a row with
 no identity key reading as `unknown` and counting as not current without being
-invalid, a legacy record storing no rollups still validating, acceptance refused when any mandatory dimension's row stops being
+invalid, a `historical` row allowed to name the build it came from while a
+`current`, `unknown` or unlabelled row is still refused for naming another
+candidate's digest, a historical row alone still unable to carry a pass, a
+legacy record storing no rollups still validating, acceptance refused when any mandatory dimension's row stops being
 current, and a `not_applicable` dimension still needing only a reason.
 
 `test_startup_failure.py` covers the log classifier's `phase` and `first_error`
@@ -333,12 +339,17 @@ shortens the granted window, `ready_seconds` measured from the spawn instant
 rather than from the start of the command (both against a hand-advanced clock
 and a scripted child), a marker with no log file, a marker that is not a
 nonempty string and a marker spanning a line break all refused by both the
-runner and the project declaration, the project's declared marker reaching the runner and `exit.json`
+runner and the project declaration, an uncapped wait (`timeout=None`, the
+handoff session nobody caps) still watching for the marker and ending with the
+child, both directly and through a `--max-minutes 0` playtest, the project's declared marker reaching the runner and `exit.json`
 for both `launch` and a driven `playtest`, a malformed declaration refused
 before a run label is reserved, the limit sentence present in both receipts, and
 no argv value or environment value in any receipt of a watched run.
 
-`test_performance_class.py` covers `clean_qualification` for an attributable
+`test_performance_class.py` covers the receipt this kit actually writes — a
+cleanroom record with a class and no content digest — qualifying the row
+attached beside it and carrying a performance pass through validation, plus
+`clean_qualification` for an attributable
 window around a completed capture, `diagnostic` for a contended window and for a
 capture that timed out, `diagnostic` on a native launch that declared a result,
 no class at all on a launch that declared none or ran headless, and the verdict

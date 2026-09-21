@@ -420,14 +420,18 @@ reports `host_kind: unsupported` and apply refuses.
 
 **Evidence identity (`identity`, `evidence_current`, `evidence_total`).** Every
 capture, bench or cleanroom row attached to a candidate verdict carries
-`identity`: `current` when the receipt's recorded content digest is the
-candidate's own, `historical` when it recorded a different one, and `unknown`
-when it recorded none at all — a launch exit or a cleanroom bench knows a
-project, never a candidate, so `unknown` means nothing was written down rather
-than that something has moved on. The comparison is between two digests already
-on record; no file is re-hashed, so `current` says the receipt was taken from
-the inventory this candidate names, not that the files on disk still match it
-(`validate-record` is what checks that). Each verdict also carries
+`identity`: `current` when the recorded content digest is the candidate's own,
+`historical` when the recorded digest is a different one, and `unknown` when
+none was recorded at all. The digest is read from the receipt first and from the
+evidence row when the receipt has none: a capture receipt records the candidate
+it was taken from, while `cleanroom.json` records a window and a project and
+never a candidate, so for a bench it is the row an operator writes beside it
+that binds the measurement to one. Only evidence where neither recorded a digest
+is `unknown`, which means nothing was written down rather than that something
+has moved on. The comparison is between two digests already on record; no file
+is re-hashed, so `current` says the evidence was taken from the inventory this
+candidate names, not that the files on disk still match it (`validate-record` is
+what checks that). Each verdict also carries
 `evidence_total` and `evidence_current`, recomputed whenever a row is attached.
 A verdict whose two numbers differ is resting partly on content that has since
 changed; neither number is a judgement about what the evidence showed.
@@ -442,7 +446,12 @@ evidence for a build that no longer exists — and because acceptance already
 requires every dimension to be `pass` or `not_applicable`, an accepted candidate
 must carry current evidence for every dimension it did not excuse with a reason.
 The label is not a substitute for the hashes: a row that claims `current` while
-naming another candidate's content digest is still refused. The label itself is
+naming another candidate's content digest is still refused, and so is an
+`unknown` or unlabelled row whose digest is not this candidate's. A row labelled
+`historical` is the one exception — naming an earlier build's digest is what
+makes it historical — so a candidate may keep the record of what was measured
+before without that record having to be deleted to stay valid. It counts towards
+nothing: not `evidence_current`, and not a pass. The label itself is
 checked before it is counted — a row carrying anything other than `current`,
 `historical` or `unknown` is refused by its own path, so a misspelling such as
 `currnet` is reported as a malformed record rather than quietly counted as

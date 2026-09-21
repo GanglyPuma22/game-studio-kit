@@ -70,22 +70,35 @@ VERIFY_LIMITS = [
 ]
 
 
-def receipt_identity(receipt, candidate):
-    """Whether a receipt still describes this candidate's content, by digest alone.
+def _recorded_digest(*records):
+    """The first content digest any of these records actually wrote down."""
+    for record in records:
+        if isinstance(record, dict):
+            value = record.get("content_digest")
+            if isinstance(value, str) and value:
+                return value
+    return None
 
-    The comparison is between two recorded digests: the one the capture, bench
-    or cleanroom receipt wrote down when it was taken and the one the candidate
-    carries now. Nothing is re-hashed here, so `current` means the receipt was
-    taken from the same inventory the candidate names — not that the files on
-    disk match it today, which is `validate_candidate`'s job.
 
-    A receipt that never recorded a content digest — a launch exit or a
-    cleanroom bench, which know a project but not a candidate — is `unknown`.
-    That is weaker than `historical`: it says nothing was recorded, not that
-    something was and has moved on.
+def receipt_identity(receipt, candidate, evidence=None):
+    """Whether this evidence still describes the candidate's content, by digest alone.
+
+    The comparison is between two recorded digests: the one written down when
+    the evidence was taken and the one the candidate carries now. Nothing is
+    re-hashed here, so `current` means the evidence was taken from the same
+    inventory the candidate names — not that the files on disk match it today,
+    which is `validate_candidate`'s job.
+
+    The receipt is asked first, because a capture receipt records the candidate
+    it was taken from. A bench receipt does not: `cleanroom.json` knows a
+    project and a window, never a candidate, and it is the row an operator
+    writes beside it that binds the measurement to one. So a receipt without a
+    digest falls through to the row's own, and only evidence where neither
+    recorded one is `unknown`. That is weaker than `historical`: it says
+    nothing was recorded, not that something was and has moved on.
     """
-    recorded = receipt.get("content_digest") if isinstance(receipt, dict) else None
-    if not isinstance(recorded, str) or not recorded:
+    recorded = _recorded_digest(receipt, evidence)
+    if recorded is None:
         return "unknown"
     return "current" if recorded == candidate.get("content_digest") else "historical"
 
@@ -172,11 +185,12 @@ def attach_evidence(candidate, dimension, evidence, receipt=None):
     entries = verdict.setdefault("evidence", [])
     if not isinstance(entries, list):
         raise StudioError("Verdict evidence must be a list")
-    # The receipt is the record the digest and class were written into; an
-    # archived capture carries both on the entry itself.
+    # The receipt is the record the class was written into; the digest comes
+    # from whichever of the two recorded one, since a bench receipt records a
+    # class but no candidate and an archived capture records both itself.
     source = receipt if isinstance(receipt, dict) else evidence
     entry = dict(evidence)
-    entry["identity"] = receipt_identity(source, candidate)
+    entry["identity"] = receipt_identity(receipt, candidate, evidence)
     performance_class = source.get("performance_class")
     if isinstance(performance_class, str) and performance_class:
         entry["performance_class"] = performance_class
@@ -481,7 +495,16 @@ def validate_candidate(record, root):
         for evidence in evidence_items:
             required(evidence, ["content_digest", "method", "observer"])
             verify_file(root, evidence)
-            if evidence["content_digest"] != record["content_digest"]:
+            if row_identity(evidence) == "historical":
+                # A row kept on purpose from an earlier build names that
+                # build's digest; refusing it would mean a candidate could only
+                # hold evidence for itself, and the record of what was measured
+                # before would have to be deleted to stay valid. It counts
+                # towards nothing: not `evidence_current`, not a pass.
+                pass
+            elif evidence["content_digest"] != record["content_digest"]:
+                # Anything not marked historical is claiming to describe this
+                # candidate, so its digest has to be this candidate's.
                 raise StudioError("Evidence belongs to a different candidate: " + dimension)
             methods = {
                 "visual": {"native_visual", "native_capture_review"},
