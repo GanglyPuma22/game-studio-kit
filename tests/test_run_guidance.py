@@ -350,6 +350,7 @@ class LaneMaturityTests(unittest.TestCase):
         self.assertIn("`human_verdict: accepted` with its identity receipt", review)
         self.assertIn("**Lanes by maturity.**", procedure)
         self.assertIn("A worker report is not integration.", procedure)
+        self.assertIn("counting every row at each step, wired or not", procedure)
         self.assertIn("`native-reviewed` needs a native launch receipt", procedure)
         self.assertIn("Lanes by maturity", text(RETURN))
 
@@ -358,6 +359,17 @@ class LaneMaturityTests(unittest.TestCase):
             body = text(path)
             self.assertIn("leaves the active-worker list", body, path.name)
         self.assertIn("never drop a row because its\nworker finished", text(PROCEDURE))
+
+    def test_a_row_exists_before_the_lane_is_wired(self):
+        # A manifest of wired features only cannot show the finished lane
+        # nobody integrated, which is the failure it exists to make visible.
+        procedure = text(PROCEDURE)
+        self.assertIn("A row is created by the work existing, not by the work being wired", procedure)
+        for field in ("route_step", "entry", "installed_by", "launch_flags"):
+            self.assertIn(f"`{field}`", procedure, field)
+        self.assertIn('`"maturity": "source-ready"`', procedure)
+        self.assertIn('`"human_verdict": "pending"`', procedure)
+        self.assertIn("`null` until integration fills them", text(REVIEW))
 
 
 class EditJournalTests(unittest.TestCase):
@@ -381,10 +393,16 @@ class EditJournalTests(unittest.TestCase):
         resources = set(read_json(ROOT / "studio-kit.json")["resources"])
         self.assertIn("templates/edit-journal.json", resources)
 
+    def test_the_journal_has_one_place_in_the_project_and_is_handed_back(self):
+        # A journal nobody can find is the transcript again.
+        self.assertIn("artifacts/blender/journal/<source-stem>.json", text(PROCEDURE))
+        self.assertIn("artifacts/blender/journal/<source-stem>.json", text(RETURN))
+
     def test_the_skill_binds_a_checkpoint_to_a_saved_scene_and_a_hash(self):
         blender = text(BLENDER)
         self.assertIn("../../templates/edit-journal.json", blender)
         self.assertIn("saves a versioned scene", blender)
+        self.assertIn("<GAME>/artifacts/blender/journal/<source-stem>.json", blender)
         self.assertIn("reproducible only when it names a project script with that script's hash", blender)
         self.assertIn("transcript-only limitation", blender)
         self.assertIn("no report may call it reproducible", blender)
@@ -402,6 +420,11 @@ class LiveSessionStopTests(unittest.TestCase):
             self.assertIn("tell the human the visible window will close", body, path.name)
             self.assertIn("report `CLOSED` before starting or reusing a session", body, path.name)
             self.assertIn("receipt-bound", body, path.name)
+            # The bare verb was not runnable: this command requires --project,
+            # --config and the receipt `ensure` returned (studio_tools/cli.py).
+            self.assertIn("scripts/studio.py blender-mcp stop --project ", body, path.name)
+            self.assertIn("--config ", body, path.name)
+            self.assertIn("--receipt ", body, path.name)
         self.assertIn("never reported as a crash without the receipt", text(BLENDER))
         self.assertIn("unconfirmed stop named with its receipt, never a crash", text(BLOCK))
 
@@ -417,9 +440,13 @@ class LiveSessionStopTests(unittest.TestCase):
 class DiagnosticBatchTests(unittest.TestCase):
     def test_a_batch_that_varied_nothing_is_not_evidence(self):
         procedure = text(PROCEDURE)
-        self.assertIn("`must_vary`", procedure)
-        self.assertIn("`invariants`", procedure)
+        self.assertIn("`must_vary` is a list of JSON pointers", procedure)
+        self.assertIn("`invariants` is a list of `{field, equals}` entries", procedure)
+        self.assertIn("first declared result file", procedure)
+        self.assertIn("checked after all the runs have\nfinished", procedure)
         self.assertIn("is `invalid_experiment`, not evidence", procedure)
+        self.assertIn("`experiment` block names the pointer that failed", procedure)
+        self.assertIn("leaves the check\n`unverified`, which is not a pass", procedure)
         self.assertIn("twilight", procedure)
         self.assertIn("before paying", procedure)
 
