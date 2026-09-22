@@ -175,21 +175,36 @@ class FeatureManifestTests(unittest.TestCase):
         self.assertIn("Accepted features", text(RETURN))
         self.assertIn("`rejected` with the reason, `pending` as unreviewed", text(RETURN))
 
-    def test_an_accepted_row_carries_its_own_identity_receipt(self):
+    def test_an_accepted_row_copies_the_digest_the_session_recorded(self):
+        # The session receipt now carries the digest of the build the engine
+        # started on, so no separate identity receipt is taken afterwards.
         for path in (PROCEDURE, REVIEW, PLAYTEST):
             body = text(path)
-            self.assertIn("candidate new", body, path.name)
-            self.assertIn("artifacts/run/identity/<feature>.json", body, path.name)
+            self.assertIn("`playtest.json`", body, path.name)
             self.assertIn("content_digest", body, path.name)
+            self.assertNotIn("artifacts/run/identity/<feature>.json", body, path.name)
         procedure = text(PROCEDURE)
-        self.assertIn("immediately after that session and\nbefore any edit", procedure)
-        self.assertIn("`studio_tools/evidence.py`'s `new_candidate`", procedure)
+        self.assertIn("the digest computed before the engine started", procedure)
         self.assertIn("never type one", procedure)
-        self.assertIn("is historical", procedure)
-        self.assertIn("a playtest receipt that records the digest itself would be a\nlater kit change", procedure)
+        self.assertIn("historical: it cannot be accepted for that candidate", procedure)
         review = text(REVIEW)
         self.assertIn("copied, never typed", review)
         self.assertIn("cannot be accepted for that candidate", review)
+
+    def test_a_build_that_changed_under_the_player_supports_no_acceptance(self):
+        # Two builds, one observation, and no receipt that says which.
+        for path in (PROCEDURE, REVIEW, PLAYTEST):
+            body = text(path)
+            self.assertIn("`content_digest_after_exit`", body, path.name)
+            self.assertIn("`diagnostics.content_changed_during_session`", body, path.name)
+            self.assertIn("observed again on a build that\nstayed still" if path is PROCEDURE
+                          else "observed again on a build that stayed still", body, path.name)
+
+    def test_candidate_new_stays_where_stage_two_uses_it(self):
+        procedure = text(PROCEDURE)
+        self.assertIn("candidate new --project <run> --id\n   <run-id>", procedure)
+        for path in (REVIEW, PLAYTEST):
+            self.assertNotIn("candidate new", text(path), path.name)
 
     def test_pending_is_not_acceptance(self):
         review = text(REVIEW)
@@ -353,7 +368,7 @@ class LaneMaturityTests(unittest.TestCase):
             self.assertIn(f"`{step}`", procedure, step)
         self.assertIn("set at most `source-ready`", review)
         self.assertIn("`installed_by` names a scene the route enters", review)
-        self.assertIn("`human_verdict: accepted` with its identity receipt", review)
+        self.assertIn("`human_verdict: accepted` with the session's receipts", review)
         self.assertIn("**Lanes by maturity.**", procedure)
         self.assertIn("A worker report is not integration.", procedure)
         self.assertIn("counting every row at each step, wired or not", procedure)
