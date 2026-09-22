@@ -69,7 +69,11 @@ def _pointer(document, pointer):
     if pointer == "":
         return True, document
     current = document
-    for raw in pointer.lstrip("/").split("/"):
+    # `pointer[1:]`, not `lstrip("/")`: in RFC 6901 the pointer `//value` has
+    # two tokens, the first of them the empty string, which names a key that
+    # is literally "". Stripping the leading slashes would silently read it as
+    # `/value` and report a value from a key the plan never named.
+    for raw in pointer[1:].split("/"):
         token = raw.replace("~1", "/").replace("~0", "~")
         if isinstance(current, dict):
             if token not in current:
@@ -86,6 +90,22 @@ def _pointer(document, pointer):
 
 def _valid_pointer(value):
     return isinstance(value, str) and (value == "" or value.startswith("/"))
+
+
+def _finite(value):
+    """Is this decoded JSON value free of NaN and +/-Infinity, anywhere inside it?
+
+    `json.loads` accepts all three by default, and every one of them would
+    reach the rollup that `write_json` refuses to serialize -- after the runs
+    had already been spent. Walked here instead, before the first launch.
+    """
+    if isinstance(value, float):
+        return math.isfinite(value)
+    if isinstance(value, dict):
+        return all(_finite(item) for item in value.values())
+    if isinstance(value, list):
+        return all(_finite(item) for item in value)
+    return True
 
 
 def _experiment_plan(document):
@@ -108,9 +128,38 @@ def _experiment_plan(document):
                 f"Batch plan invariant {index + 1} must be an object with a field "
                 f'({POINTER}) and an equals value'
             )
+        if not _finite(item["equals"]):
+            raise StudioError(
+                f"Batch plan invariant {index + 1} has a non-finite number in equals; "
+                "NaN and Infinity are not values a receipt can carry"
+            )
     if not isinstance(must_vary, list) or not all(_valid_pointer(item) for item in must_vary):
         raise StudioError(f'Batch plan "must_vary" must be a list of pointers; {POINTER}')
     return [dict(item) for item in invariants], list(must_vary)
+
+
+def _distinct_results(root, entries):
+    """Every run in an experiment writes its own result file.
+
+    Two runs sharing one declared path do not produce two results: the second
+    run overwrites the first, the launcher reports the first run's unchanged
+    bytes as stale, and the comparison afterwards reads one document twice and
+    calls it two identical values. Refused with the rest of the plan, before
+    any engine starts, rather than discovered in the rollup.
+    """
+    seen = {}
+    for index, entry in enumerate(entries):
+        for item in entry.get("results", []):
+            # Case-folded, because two spellings of one path name one file on
+            # Windows and the collision would only appear on that host.
+            key = str(relative(root, item)).casefold()
+            if key in seen:
+                raise StudioError(
+                    f"{_where(index, entry)} declares a result file run "
+                    f"{seen[key] + 1} already declares; experiment runs must "
+                    "declare distinct result files"
+                )
+            seen[key] = index
 
 
 def _experiment(root, entries, runs, invariants, must_vary):
@@ -313,6 +362,8 @@ def _plan(root, path, reserved):
     entries = [_run_entry(root, index, entry, seen, reserved)
                for index, entry in enumerate(document["runs"])]
     invariants, must_vary = _experiment_plan(document)
+    if invariants or must_vary:
+        _distinct_results(root, entries)
     return (entries, {"path": str(plan_path.resolve()), "sha256": hashlib.sha256(raw).hexdigest()},
             invariants, must_vary)
 
