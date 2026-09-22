@@ -31,13 +31,14 @@ A feature is accepted only when a person observed it on that route and its row
 records `human_verdict: accepted` with the receipt linked. The verdict is
 `pending` until a person has looked — that is the value the row is created with,
 and it is the absence of a verdict — then `accepted` or `rejected`. An accepted
-row also carries an identity receipt taken immediately after the session and
-before any edit (`python <KIT>/scripts/studio.py candidate new --project <run> --id
-<run-id>-<feature> --engine-version <version> --output
-artifacts/run/identity/<feature>.json`), and its `content_digest` is copied from
-that receipt: this session's own receipt records the commit, whether the tree was
-dirty and the scene hash, not the candidate's content digest, so it cannot say
-which content a person actually walked through. Observed in the scene where it was built is not that: an
+row's `content_digest` is copied from this session's own `playtest.json`, which
+records the digest computed before the engine started: that is the build the
+person walked through, and copying it is what binds the verdict to content
+rather than to a moment. Never type one. The session's `exit.json` records
+`content_digest_after_exit` as well, and a session whose receipts differ carries
+`diagnostics.content_changed_during_session`; it cannot support `accepted` at
+all, because the observation belongs to one of two builds and the receipt cannot
+say which, so the feature is observed again on a build that stayed still. Observed in the scene where it was built is not that: an
 isolated scene shows the feature runs, not that the game reaches it. Two features
 that passed in their own scenes went into a handback unwired, because nothing in
 the run had to name the step a player would meet them on. When a row's

@@ -312,21 +312,17 @@ record of what was wired in and who saw it. A row's `human_verdict` is `pending`
 (the value it is created with, which is the absence of a verdict), `accepted` or
 `rejected`; only `accepted` with evidence on the canonical route at the final
 `content_digest` is acceptance ([studio-playtest](../../studio-playtest/SKILL.md)).
-A row may be set to `accepted` only when its `evidence` holds, beside the
-observation receipt, an identity receipt taken immediately after that session and
-before any edit: `python <KIT>/scripts/studio.py candidate new --project <run>
---id <run-id>-<feature> --engine-version <version> --output
-artifacts/run/identity/<feature>.json` (the same verified `<version>` stage 2
-passed, so the two identity receipts never disagree about the engine), which is
-the command that computes the content inventory digest
-(`studio_tools/evidence.py`'s `new_candidate`). Copy that receipt's
-`content_digest` into the row; never type one. A playtest receipt records the
-commit, whether the tree was dirty, and the scene hash, but not the candidate's
-content digest, so without this receipt an accepted row can be repointed at a
-later digest — a playtest receipt that records the digest itself would be a
-later kit change, not something this run can assume. A row whose `content_digest`
-differs from the final candidate's is historical: it cannot be accepted for that
-candidate, and the feature has to be observed again.
+A row may be set to `accepted` only when its `evidence` holds the session's own
+receipts, and its `content_digest` is copied from that session's
+`playtest.json`, which records the digest computed before the engine started —
+the build the person actually saw. Copy it; never type one. The session's
+`exit.json` records `content_digest_after_exit`, and when the two differ it
+carries `diagnostics.content_changed_during_session`: that session cannot
+support `accepted`, because nobody can say which of the two builds the
+observation belongs to, and the feature has to be observed again on a build that
+stayed still. A row whose `content_digest` differs from the final candidate's is
+historical: it cannot be accepted for that candidate, and the feature has to be
+observed again.
 `RETURN.md`'s Accepted features line points at the manifest, and every row that
 is not `accepted` is listed under Not demonstrated: a `rejected` row with the
 reason it was rejected, a `pending` row as unreviewed. A feature that ran green
@@ -346,8 +342,8 @@ launches set at most `source-ready`;
 `root-reviewed` means the root read the deliverable and its receipts;
 `integrated` needs the feature wired on the canonical route, with `installed_by`
 naming a scene the route enters; `native-reviewed` needs a native launch receipt
-on that route; `user-accepted` needs `human_verdict: accepted` with its identity
-receipt. `RETURN.md` carries a Lanes by maturity line under the scorecard
+on that route; `user-accepted` needs `human_verdict: accepted` with the
+session's receipts and the `content_digest` copied from its `playtest.json`. `RETURN.md` carries a Lanes by maturity line under the scorecard
 counting every row at each step, wired or not, so a deliverable that was
 finished and never reached the player is visible at handback instead of after
 it. Never report a
