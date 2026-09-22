@@ -1057,6 +1057,95 @@ class EnsureReturnsTests(unittest.TestCase):
         self.assertNotIn(str(self.root), json.dumps(result))
         self.assertEqual(result["run"], directory.name)
 
+    def test_a_timeout_after_blender_started_hands_back_a_stop_handle(self):
+        from studio_tools import blender_mcp_lifecycle as lifecycle
+
+        # `blender-mcp stop` is receipt-bound by design, so a timeout that
+        # names no receipt would leave an operator with a Blender on the
+        # desktop and nothing but killing by name -- which this lifecycle
+        # exists to refuse.
+        runs = self.root / "runs"
+        child = (
+            "import json,pathlib,time;"
+            f"d=pathlib.Path({str(runs)!r})/'20260922-000000-000-abcdef12';"
+            "d.mkdir(parents=True);"
+            "(d/'ownership.json').write_text(json.dumps({'status':'STARTING','pid':4242}));"
+            "time.sleep(120)"
+        )
+        with patch.object(lifecycle, "_command", return_value=[sys.executable, "-c", child]), \
+                patch.object(lifecycle, "RUN_TIMEOUT_SECONDS", 3):
+            result = lifecycle._run(
+                "Ensure-SupervisedBlenderMCP.ps1", [],
+                working_root=self.root, operation="ensure",
+            )
+        self.assertEqual(result["status"], "ensure_did_not_return")
+        self.assertFalse(result["ok"])
+        # Nothing it started was stopped except the PowerShell parent.
+        self.assertEqual(result["owned_process_action"], "none")
+        self.assertEqual(result["run_directory"], "20260922-000000-000-abcdef12")
+        self.assertEqual(
+            result["ownership_receipt"],
+            str((runs / "20260922-000000-000-abcdef12" / "ownership.json").resolve()),
+        )
+        self.assertTrue(Path(result["ownership_receipt"]).is_file())
+        self.assertIn("blender-mcp stop --receipt <ownership_receipt>", result["failure"])
+        self.assertIn("using the path in this record", result["failure"])
+        # The same handle is in the durable record, not only in the return.
+        directory = sorted((self.root / "lifecycle").iterdir())[0]
+        written = json.loads((directory / "lifecycle-timeout.json").read_text())
+        self.assertEqual(written["ownership_receipt"], result["ownership_receipt"])
+
+    def test_a_timeout_before_any_owned_process_names_no_receipt(self):
+        from studio_tools import blender_mcp_lifecycle as lifecycle
+
+        child = "import time;time.sleep(120)"
+        with patch.object(lifecycle, "_command", return_value=[sys.executable, "-c", child]), \
+                patch.object(lifecycle, "RUN_TIMEOUT_SECONDS", 1):
+            result = lifecycle._run(
+                "Ensure-SupervisedBlenderMCP.ps1", [],
+                working_root=self.root, operation="ensure",
+            )
+        self.assertIsNone(result["ownership_receipt"])
+        self.assertIsNone(result["run_directory"])
+        self.assertEqual(result["owned_process_action"], "none")
+        self.assertIn("Any Blender an ownership receipt already names", result["failure"])
+
+    def test_a_run_directory_from_an_earlier_call_is_never_offered_as_a_handle(self):
+        from studio_tools import blender_mcp_lifecycle as lifecycle
+
+        # Old enough to predate this call by more than the clock slack: a
+        # handle for a process this timeout knows nothing about.
+        stale = self.root / "runs" / "20260101-000000-000-deadbeef"
+        stale.mkdir(parents=True)
+        (stale / "ownership.json").write_text("{}", encoding="utf-8")
+        old = time.time() - 3600
+        os.utime(stale, (old, old))
+        child = "import time;time.sleep(120)"
+        with patch.object(lifecycle, "_command", return_value=[sys.executable, "-c", child]), \
+                patch.object(lifecycle, "RUN_TIMEOUT_SECONDS", 1):
+            result = lifecycle._run(
+                "Ensure-SupervisedBlenderMCP.ps1", [],
+                working_root=self.root, operation="ensure",
+            )
+        self.assertIsNone(result["ownership_receipt"])
+
+    def test_a_run_directory_without_an_ownership_receipt_is_not_a_handle(self):
+        from studio_tools import blender_mcp_lifecycle as lifecycle
+
+        child = (
+            "import pathlib,time;"
+            f"d=pathlib.Path({str(self.root / 'runs')!r})/'20260922-111111-000-cafe0001';"
+            "d.mkdir(parents=True);(d/'working.blend').write_bytes(b'x');time.sleep(120)"
+        )
+        with patch.object(lifecycle, "_command", return_value=[sys.executable, "-c", child]), \
+                patch.object(lifecycle, "RUN_TIMEOUT_SECONDS", 3):
+            result = lifecycle._run(
+                "Ensure-SupervisedBlenderMCP.ps1", [],
+                working_root=self.root, operation="ensure",
+            )
+        self.assertIsNone(result["ownership_receipt"])
+        self.assertIsNone(result["run_directory"])
+
     def test_the_bound_covers_both_bounded_phases_of_a_successful_ensure(self):
         from studio_tools import blender_mcp_lifecycle as lifecycle
 

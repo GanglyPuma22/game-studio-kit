@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import time
 import uuid
 
 from .blender_mcp import connection_report
@@ -33,6 +34,13 @@ STARTUP_TIMEOUT_SECONDS = 60
 PROBE_READ_TIMEOUT_SECONDS = 75
 RUN_TIMEOUT_SECONDS = 180
 DID_NOT_RETURN = "ensure_did_not_return"
+# How far before the call a run directory's timestamp may sit and still be
+# read as this call's. Filesystems round timestamps -- whole seconds on some
+# of them -- so a directory created immediately after the Popen can carry an
+# mtime a moment earlier. The endpoint-wide lifecycle mutex is what keeps this
+# from reaching a different session's run: no second Ensure can be inside its
+# own startup while this one holds the lock.
+RUN_DIRECTORY_CLOCK_SLACK_SECONDS = 2
 
 
 def _powershell():
@@ -89,18 +97,23 @@ def _run(script, arguments, *, working_root, operation, json_output=True):
     stdout_path = run_directory / "powershell.stdout.json"
     stderr_path = run_directory / "powershell.stderr.log"
     command = _command(script, arguments)
+    started = time.time()
     try:
         with stdout_path.open("wb") as out, stderr_path.open("wb") as err:
             process = subprocess.Popen(command, stdout=out, stderr=err, stdin=subprocess.DEVNULL)
             try:
                 returncode = process.wait(timeout=RUN_TIMEOUT_SECONDS)
             except subprocess.TimeoutExpired:
+                # Looked for before the parent is stopped, so the receipt is
+                # read while the script that wrote it is still the thing that
+                # last touched the directory.
+                owned = _owned_receipt(working_root, started)
                 # Only the PowerShell parent is stopped. A Blender the receipt
                 # already owns is left exactly as it is: it is closed through
                 # its own receipt, never by killing whatever is still running.
                 process.kill()
                 process.wait()
-                return _did_not_return(run_directory, operation)
+                return _did_not_return(run_directory, operation, owned)
     except OSError as exc:
         raise StudioError("Could not start PowerShell for Blender MCP lifecycle") from exc
     text = stdout_path.read_text(encoding="utf-8", errors="replace").strip()
@@ -116,13 +129,53 @@ def _run(script, arguments, *, working_root, operation, json_output=True):
         raise StudioError("Blender MCP lifecycle returned invalid JSON") from exc
 
 
-def _did_not_return(run_directory, operation):
+def _owned_receipt(working_root, started):
+    """The ownership receipt this timed-out call had already written, if any.
+
+    A timeout that names no receipt leaves an operator with a Blender on the
+    desktop and no supported way to close it: `blender-mcp stop` is
+    receipt-bound by design, and the alternative is killing by process name,
+    which this lifecycle exists to refuse. `Ensure` writes `ownership.json`
+    into a new directory under `<working_root>/runs/` as soon as the process
+    exists, so the newest such directory belonging to this call is the handle.
+    Returns (receipt path, directory leaf) or (None, None).
+    """
+    runs = Path(working_root) / "runs"
+    newest = None
+    try:
+        candidates = list(runs.iterdir())
+    except OSError:
+        return None, None
+    for directory in candidates:
+        receipt = directory / "ownership.json"
+        try:
+            if not directory.is_dir() or not receipt.is_file():
+                continue
+            stamp = directory.stat().st_mtime
+        except OSError:
+            continue
+        if stamp < started - RUN_DIRECTORY_CLOCK_SLACK_SECONDS:
+            # Older than this call: somebody else's session, or a run this
+            # call never made. Naming it would hand out a stop handle for a
+            # process this timeout knows nothing about.
+            continue
+        if newest is None or stamp > newest[0]:
+            newest = (stamp, receipt, directory.name)
+    if newest is None:
+        return None, None
+    return str(newest[1].resolve()), newest[2]
+
+
+def _did_not_return(run_directory, operation, owned=(None, None)):
     """The terminal receipt for a PowerShell parent that outlived its bound.
 
     Written beside the streams it describes and returned to the caller. It
-    carries the run directory's own name rather than a host path, like every
-    other receipt this kit writes.
+    carries the lifecycle run's own directory name rather than a host path,
+    with one exception: the ownership receipt of a Blender this call started
+    is an absolute path, because it is the argument `blender-mcp stop
+    --receipt` has to be given and a name alone could not be passed to it.
     """
+    ownership_receipt, owned_directory = owned
     receipt = {
         "schema_version": 1,
         "kind": "blender-mcp-lifecycle-timeout",
@@ -131,12 +184,22 @@ def _did_not_return(run_directory, operation):
         "ok": False,
         "run": run_directory.name,
         "timeout_seconds": RUN_TIMEOUT_SECONDS,
+        # Nothing this call started was stopped except the PowerShell parent.
         "owned_process_action": "none",
+        # The handle for closing what it did start, or null when it had not
+        # got as far as owning a process.
+        "ownership_receipt": ownership_receipt,
+        "run_directory": owned_directory,
         "failure": (
             "The lifecycle PowerShell process did not return within "
             f"{RUN_TIMEOUT_SECONDS} seconds and was stopped. Any Blender an "
             "ownership receipt already names was left running; close it through "
-            "that receipt with `blender-mcp stop`."
+            "that receipt with `blender-mcp stop --receipt`."
+            if ownership_receipt is None else
+            "The lifecycle PowerShell process did not return within "
+            f"{RUN_TIMEOUT_SECONDS} seconds and was stopped. The Blender it had "
+            "already started was left running; close it with `blender-mcp stop "
+            "--receipt <ownership_receipt>` using the path in this record."
         ),
     }
     (run_directory / "lifecycle-timeout.json").write_text(
