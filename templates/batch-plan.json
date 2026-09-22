@@ -1,7 +1,6 @@
 {
   "schema_version": 1,
   "kind": "launch-batch-plan",
-  "$comment": "invariants and must_vary are optional. Declare them when the runs below are one experiment rather than a queue: after every run has finished, the batch reads each run's FIRST declared result file and checks them. Every invariant must hold in every result, and every must_vary pointer must take at least two distinct values across the runs. A batch of green runs that fails either ends with verdict invalid_experiment and ok false; a result file that is absent or not JSON makes the check unverified, which is also not ok. Every run in an experiment must declare its own result file; two runs sharing one path are refused before anything launches, because the second would overwrite the first. Both field values are JSON pointers (RFC 6901) into one run's result document: \"\" is the whole document and /summary/renderer walks two keys.",
   "invariants": [
     {
       "field": "/summary/scene",
