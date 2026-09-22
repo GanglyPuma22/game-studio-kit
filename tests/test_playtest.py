@@ -829,5 +829,81 @@ class PlaytestDocumentationTests(unittest.TestCase):
             self.assertIsNone(found, f"{path.name} names a host-specific path: {found}")
 
 
+class PlaytestContentDigestTests(PlaytestCase):
+    """Which build was played, named the way a candidate record names it."""
+
+    def setUp(self):
+        super().setUp()
+        (self.root / "scenes").mkdir()
+        (self.root / "scenes" / "entry.tscn").write_text("[gd_scene]\n", encoding="utf-8")
+
+    def test_the_session_receipt_carries_the_content_digest_a_candidate_would(self):
+        from studio_tools.common import digest
+        from studio_tools.evidence import inventory
+
+        expected = digest(inventory(self.root))
+        result = self.execute("print('played')", label="named", max_minutes=1)
+        record = read_json(self.root / "artifacts/playtests/named/playtest.json")
+        self.assertEqual(record["content_digest"], expected)
+        self.assertEqual(result["content_digest"], expected)
+        self.assertEqual(result["content_digest_after_exit"], expected)
+        self.assertFalse(result["diagnostics"]["content_changed_during_session"])
+        # The receipts this session writes live under artifacts/, which the
+        # inventory excludes, so they never move the number they report.
+        self.assertEqual(read_json(self.root / "artifacts/playtests/named/exit.json")
+                         ["content_digest_after_exit"], expected)
+
+    def test_content_changed_under_the_session_is_reported_in_diagnostics(self):
+        code = "import pathlib;pathlib.Path('scenes/entry.tscn').write_text('[gd_scene]\\nedited\\n')"
+        result = self.execute(code, label="edited", max_minutes=1)
+        record = read_json(self.root / "artifacts/playtests/edited/playtest.json")
+        self.assertNotEqual(result["content_digest_after_exit"], record["content_digest"])
+        self.assertTrue(result["diagnostics"]["content_changed_during_session"])
+        self.assertTrue(read_json(self.root / "artifacts/playtests/edited/diagnostics.json")
+                        ["content_changed_during_session"])
+        # It is a diagnostic about the evidence, not a run-health verdict: the
+        # engine still ran cleanly and the session is still not acceptance.
+        self.assertEqual(result["verdict"], "completed")
+        self.assertEqual(result["acceptance"], "not_established")
+
+    def test_the_digest_is_taken_before_the_engine_starts(self):
+        seen = {}
+        original = playtest.content_digest
+
+        def watching(root):
+            value = original(root)
+            seen.setdefault("first", value)
+            return value
+
+        with patch("studio_tools.playtest.content_digest", side_effect=watching):
+            with patch("studio_tools.playtest.run", side_effect=self.fake_child("print('x')")) as run:
+                def record_order(*args, **kwargs):
+                    seen["engine_started_after"] = "first" in seen
+                    return self.fake_child("print('x')")(*args, **kwargs)
+                run.side_effect = record_order
+                playtest.execute(self.config, self.root, sha256_expected=self.sha,
+                                 label="ordered", max_minutes=1)
+        self.assertTrue(seen["engine_started_after"])
+
+    def test_an_attended_session_records_both_digests_across_its_collection(self):
+        started = self.attend("import time;time.sleep(0.2)", label="watched")
+        record = read_json(self.root / "artifacts/playtests/watched/playtest.json")
+        self.assertEqual(started["content_digest"], record["content_digest"])
+        self.settled(started["pid"])
+        (self.root / "scenes" / "entry.tscn").write_text("[gd_scene]\nlater\n", encoding="utf-8")
+        collected = playtest.collect(self.config, self.root, "watched")
+        self.assertEqual(collected["content_digest"], record["content_digest"])
+        self.assertNotEqual(collected["content_digest_after_exit"], record["content_digest"])
+        self.assertTrue(collected["diagnostics"]["content_changed_during_session"])
+
+    def test_a_project_that_cannot_be_inventoried_still_plays(self):
+        with patch("studio_tools.playtest.inventory", side_effect=StudioError("not portable")):
+            result = self.execute("print('played')", label="unportable", max_minutes=1)
+        self.assertIsNone(result["content_digest"])
+        self.assertIsNone(result["content_digest_after_exit"])
+        self.assertFalse(result["diagnostics"]["content_changed_during_session"])
+        self.assertEqual(result["verdict"], "completed")
+
+
 if __name__ == "__main__":
     unittest.main()
