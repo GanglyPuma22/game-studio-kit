@@ -25,6 +25,8 @@
 Overall acceptance (`artifacts/candidate.json`'s `acceptance.decision`) stays
 pending the user until every mandatory dimension above is `pass`.
 
+- Lanes by maturity (`artifacts/run/feature-manifest.json`, row counts at each step; a lane advances only on the evidence for that step): source-ready / root-reviewed / integrated / native-reviewed / user-accepted:
+
 ## Not demonstrated
 - (every contract goal without a passing artifact, with the reason)
 - (every feature-manifest row that is not `accepted`: `rejected` with the reason, `pending` as unreviewed; a feature observed only in the scene where it was built belongs here)
