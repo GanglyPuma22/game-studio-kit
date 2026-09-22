@@ -576,3 +576,88 @@ file mentions it, not that it carries a usable value and not that any account is
 entitled to use it. Nothing is loaded into `os.environ`, so nothing this kit
 starts inherits a key it was not given deliberately, and `unverified` remains
 what it always was — a key exists, no provider was contacted.
+
+**Launch profiles (`launch_profile`, `verdict: identity_mismatch`).** A profile is
+a project-owned JSON file declaring how this project is launched or played:
+`command` (`launch` or `playtest`), the fields the matching parser already
+takes, an `identity_manifest` and a `feature_flags` list appended to the
+passthrough. `launch --profile <path>` and `playtest start --profile <path>`
+resolve it; any flag typed on the command line overrides the single field it
+names, and `--check` verifies without launching. Before anything starts, the
+declared identity manifest is verified with the same `manifest.verify` that
+writes an identity receipt; unless every item is `match` the command returns
+verdict `identity_mismatch`, `ok: false`, `launched: false` and no engine is
+started. Three placeholders are substituted in the passthrough and the feature
+flags — `{label}` (this run's label, resolved before the run directory is made,
+so it names the directory the receipts are in), `{project}` (the absolute
+project root) and `{content_digest}` (from `artifacts/candidate.json`, refused
+when the placeholder is used and no candidate record exists). Both receipts
+record `launch_profile`: the profile's project-relative path, its SHA-256, the
+command it declared, the identity verdict and the project-relative identity
+receipt. They never record a passthrough value, and neither does `--check`,
+which prints counts and the names of the fields it resolved. The field is
+spelled `launch_profile` because `profile` already names the environment
+profile a launch writes and the user profile a playtest plays on. A profile is a
+declaration about how to start a build, never evidence that starting it proved
+anything: the verdict a launch or session returns is unchanged by having been
+resolved from one.
+
+**Batch experiments (`experiment`, `verdict: invalid_experiment`).** A batch plan
+may declare `invariants` (`[{"field": <JSON pointer>, "equals": <value>}]`) and
+`must_vary` (a list of JSON pointers). After every run has finished, the batch
+reads each run's *first* declared result file and checks that every invariant
+holds in every result and that every must-vary pointer took at least two
+distinct values across the runs. A batch whose rows are all green but which
+fails either check ends with `verdict: invalid_experiment`, `ok: false` and an
+`experiment` block naming the pointers that failed and the value each run
+produced for them. A pointer that names nothing in a result is not a value: it
+is counted as a violation, never as a match. A result file that is absent or is
+not JSON makes the whole check `unverified` rather than passing, and an
+unverified experiment is not ok either — an experiment nobody could read did not
+happen. The block says which comparison the plan asked for and what came back;
+it does not say the comparison was the right one to ask for, and a varying
+number is not a result a person has accepted.
+
+**Playtest content digest (`content_digest`, `content_digest_after_exit`,
+`content_changed_during_session`).** `playtest.json` records the project's
+content digest — `evidence.inventory` hashed exactly the way a candidate record
+hashes it — taken after the engine identity checks and before the engine starts,
+so a human verdict can be bound to a build rather than to a date. `exit.json`
+records the same measurement again after the session, as
+`content_digest_after_exit`, and a difference between the two is reported in
+`diagnostics` as `content_changed_during_session: true`. The inventory excludes
+`artifacts/`, so the session's own receipts, launcher and profile directory
+never move the number. It is a statement about the evidence, not a run-health
+verdict: a session whose content changed under it still reports whatever the
+engine did, and `acceptance` stays `not_established` either way. A project this
+host cannot inventory portably records `null` for both rather than failing the
+session.
+
+**Supervised Blender MCP port and return (`port`, `helper`, `app_client`,
+`overall`, `status: ensure_did_not_return`).** The supervised listener's TCP port
+is a host fact, declared once as `blender_mcp.server.env.BLENDER_PORT` (any
+integer 1024–65535, default 9876) beside the loopback host the validator still
+requires to be exactly `127.0.0.1`. The Python entrypoint resolves it and passes
+it to every packaged script as an explicit `-Port` argument; the scripts use it
+for every listener check, for the lifecycle mutex name
+(`Global\GameStudioKit-BlenderMCP-127_0_0_1-<port>`), for the bootstrap that
+binds the add-on socket, and for the ownership receipt's `listener` and `port`.
+A port inside a Windows excluded TCP range, or one already occupied, is refused
+before any Blender is launched, with `port_excluded` or `port_occupied` as the
+named cause and no owned process left behind; a stop or a reuse whose receipt
+names a different port is refused rather than applied to whatever is listening.
+`ensure` returns: the entrypoint redirects PowerShell's own stdout and stderr to
+files in a per-call directory under the configured working root and waits a
+bounded 90 seconds (the scripts' own 60-second startup window plus 30), because
+a captured *pipe* is inherited by the Blender the script starts and never
+reaches end-of-file while the GUI is open. A parent that outlives that bound is
+stopped and the call returns a terminal receipt with `status:
+ensure_did_not_return`, `ok: false` and `owned_process_action: "none"` — a
+Blender an ownership receipt already names is never killed by a timeout, only by
+`blender-mcp stop` with that receipt. `blender-mcp status` reports the two layers
+separately: `helper` (`PASS`/`FAIL`, the listener this kit supervises) and
+`app_client` (`CONNECTED`, `RECONNECT_REQUIRED` or `UNKNOWN`, the connector the
+app holds), and an `overall` that is never `CONNECTED` unless both are. The kit
+cannot see the app's connector, so the packaged status reports `UNKNOWN` for it
+rather than promoting the helper's word; `RECONNECT_REQUIRED` carries the exact
+instruction to reconnect from the app side, because no command here can do it.
