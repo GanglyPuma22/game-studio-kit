@@ -17,7 +17,15 @@ CONTRACTS = ROOT / "references/production-contracts.md"
 MANIFEST = ROOT / "templates/feature-manifest.json"
 RETURN = ROOT / "templates/return.md"
 STATE = ROOT / "templates/state.md"
-CHANGED_MARKDOWN = (PROCEDURE, BLOCK, PLAYTEST, REVIEW, GAME_DESIGN, CONTRACTS, RETURN, STATE)
+BLENDER = ROOT / "skills/studio-blender/SKILL.md"
+DIRECTOR = ROOT / "skills/studio-director/SKILL.md"
+WORK_CARD = ROOT / "templates/work-card.md"
+JOURNAL = ROOT / "templates/edit-journal.json"
+CHANGED_MARKDOWN = (
+    PROCEDURE, BLOCK, PLAYTEST, REVIEW, GAME_DESIGN, CONTRACTS, RETURN, STATE,
+    BLENDER, DIRECTOR, WORK_CARD,
+)
+MATURITY = ("source-ready", "root-reviewed", "integrated", "native-reviewed", "user-accepted")
 
 
 def text(path):
@@ -278,6 +286,142 @@ class PortabilityTests(unittest.TestCase):
         for forbidden in ("C:\\", "/home/", "/mnt/"):
             self.assertNotIn(forbidden, section, f"execution.md launch section contains {forbidden}")
 
+
+class DecisionTypeTests(unittest.TestCase):
+    def test_the_work_card_asks_for_the_decision_type_and_the_chosen_route(self):
+        # The route was chosen inside the Blender skill, after a generator had
+        # already answered a look question, so the card asks for it up front.
+        card = text(WORK_CARD)
+        self.assertIn(
+            "- Decision type (perceptual-exploratory | deterministic-repeatable)"
+            " and chosen route (live scene | owned background job):",
+            card,
+        )
+        self.assertIn("Decision type picks the route before the first command", card)
+        self.assertIn("time-boxed blockout that enters a visual loop immediately", card)
+        for word in ("silhouette", "camera readability", "qualification", "replay of a settled edit"):
+            self.assertIn(word, card)
+
+    def test_the_director_row_carries_the_deciding_question_and_both_routes(self):
+        row = next(
+            line for line in text(DIRECTOR).splitlines()
+            if line.startswith("| Is this Blender question perceptual")
+        )
+        self.assertIn("camera readability", row)
+        self.assertIn("deterministic", row)
+        self.assertIn("persistent [live scene]", row)
+        self.assertIn("../studio-blender/SKILL.md#live-sessions-journal-then-save-announce-stop", row)
+        self.assertIn("`blender run`", row)
+
+    def test_the_blender_skill_leads_its_route_section_with_the_rule(self):
+        blender = text(BLENDER)
+        heading = "## `run` or the interactive MCP"
+        section = blender[blender.index(heading):]
+        first = section.split("\n\n")[1]
+        self.assertTrue(first.startswith("The kind of question decides the route before any command runs."), first[:80])
+        self.assertLess(section.index("persistent live scene"), section.index("Use `run` when the work is a script"))
+        self.assertIn("time-boxed blockout", section)
+
+    def test_a_settled_live_edit_is_extracted_before_it_is_replayed(self):
+        blender = text(BLENDER)
+        self.assertIn("**The hybrid.**", blender)
+        self.assertIn("save the live source", blender)
+        self.assertIn("extract the transformation into a guarded project script", blender)
+        self.assertIn("export and qualification in the background", blender)
+
+
+class LaneMaturityTests(unittest.TestCase):
+    def test_the_manifest_row_carries_a_maturity_and_the_template_names_every_step(self):
+        record = read_json(MANIFEST)
+        self.assertEqual(record["maturity_values"], list(MATURITY))
+        self.assertEqual(record["features"][0]["maturity"], "source-ready")
+        self.assertEqual(record["route_source"], "contract")
+
+    def test_each_step_names_the_evidence_that_reaches_it(self):
+        # 76 assertions, a green launch and a clean export are all produced by
+        # the lane that built the thing; none of them reaches the route.
+        review = text(REVIEW)
+        procedure = text(PROCEDURE)
+        for step in MATURITY:
+            self.assertIn(f"`{step}`", review, step)
+            self.assertIn(f"`{step}`", procedure, step)
+        self.assertIn("set at most `source-ready`", review)
+        self.assertIn("`installed_by` names a scene the route enters", review)
+        self.assertIn("`human_verdict: accepted` with its identity receipt", review)
+        self.assertIn("**Lanes by maturity.**", procedure)
+        self.assertIn("A worker report is not integration.", procedure)
+        self.assertIn("`native-reviewed` needs a native launch receipt", procedure)
+        self.assertIn("Lanes by maturity", text(RETURN))
+
+    def test_a_finished_worker_does_not_remove_its_unintegrated_lane(self):
+        for path in (REVIEW, PROCEDURE):
+            body = text(path)
+            self.assertIn("leaves the active-worker list", body, path.name)
+        self.assertIn("never drop a row because its\nworker finished", text(PROCEDURE))
+
+
+class EditJournalTests(unittest.TestCase):
+    def test_template_parses_and_carries_the_checkpoint_fields(self):
+        record = read_json(JOURNAL)
+        self.assertEqual(record["schema_version"], 1)
+        self.assertEqual(record["kind"], "edit-journal")
+        self.assertEqual(sorted(record["source"]), ["path", "sha256_before"])
+        self.assertEqual(len(record["checkpoints"]), 1)
+        checkpoint = record["checkpoints"][0]
+        for field in ("id", "working_receipt", "applied", "saved_scene", "evidence", "authority", "limitation"):
+            self.assertIn(field, checkpoint)
+        self.assertEqual(checkpoint["applied"]["kind"], "script | live-code")
+        self.assertFalse(checkpoint["applied"]["reproducible"])
+        self.assertIn("sha256", checkpoint["applied"])
+        self.assertIn("sha256_after", checkpoint["saved_scene"])
+        self.assertEqual(checkpoint["authority"], "agent | human")
+        self.assertIn("transcript-only edits; not reproducible from a project script", checkpoint["limitation"])
+
+    def test_template_is_a_listed_resource(self):
+        resources = set(read_json(ROOT / "studio-kit.json")["resources"])
+        self.assertIn("templates/edit-journal.json", resources)
+
+    def test_the_skill_binds_a_checkpoint_to_a_saved_scene_and_a_hash(self):
+        blender = text(BLENDER)
+        self.assertIn("../../templates/edit-journal.json", blender)
+        self.assertIn("saves a versioned scene", blender)
+        self.assertIn("reproducible only when it names a project script with that script's hash", blender)
+        self.assertIn("transcript-only limitation", blender)
+        self.assertIn("no report may call it reproducible", blender)
+        self.assertIn("refuses a source whose hash differs from that checkpoint's `sha256_after`", blender)
+        self.assertIn("Keep secrets and user prompts out of the journal", blender)
+
+
+class LiveSessionStopTests(unittest.TestCase):
+    def test_save_announce_stop_is_stated_in_the_skill_and_the_global_block(self):
+        # A listener restart read as a crash because nothing announced that the
+        # visible window would close.
+        for path in (BLENDER, BLOCK):
+            body = text(path)
+            self.assertIn("save a checkpoint", body, path.name)
+            self.assertIn("tell the human the visible window will close", body, path.name)
+            self.assertIn("report `CLOSED` before starting or reusing a session", body, path.name)
+            self.assertIn("receipt-bound", body, path.name)
+        self.assertIn("never reported as a crash without the receipt", text(BLENDER))
+        self.assertIn("unconfirmed stop named with its receipt, never a crash", text(BLOCK))
+
+    def test_both_connection_layers_are_named_with_the_reconnect(self):
+        for path in (BLENDER, BLOCK):
+            body = text(path)
+            self.assertIn("add-on", body, path.name)
+            self.assertIn("listener", body, path.name)
+            self.assertIn("Codex connector", body, path.name)
+            self.assertIn("reconnect", body, path.name)
+
+
+class DiagnosticBatchTests(unittest.TestCase):
+    def test_a_batch_that_varied_nothing_is_not_evidence(self):
+        procedure = text(PROCEDURE)
+        self.assertIn("`must_vary`", procedure)
+        self.assertIn("`invariants`", procedure)
+        self.assertIn("is `invalid_experiment`, not evidence", procedure)
+        self.assertIn("twilight", procedure)
+        self.assertIn("before paying", procedure)
 
 if __name__ == "__main__":
     unittest.main()
