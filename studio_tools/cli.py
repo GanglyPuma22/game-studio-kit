@@ -210,11 +210,15 @@ def parser():
     c.add_argument("--width", type=float, default=12)
     c.add_argument("--depth", type=float, default=12)
     c.add_argument("--elevation", type=float, default=0.7)
-    c = command("audio", True)
+    # `balance` is read-only like `meshy balance`: it writes nothing, so it
+    # needs neither a project nor a task record, and dispatch checks both for
+    # every other operation.
+    c = command("audio")
+    c.add_argument("--project", help="Explicit game/output root outside the toolkit; every operation but balance")
     c.add_argument("--provider", choices=["elevenlabs", "fish"], default="elevenlabs")
     c.add_argument(
         "operation",
-        choices=["local", "prepare", "measure", "effects", "speech", "music"],
+        choices=["local", "prepare", "measure", "effects", "speech", "music", "balance"],
     )
     c.add_argument("--output", default="assets/cue.wav")
     c.add_argument("--source")
@@ -442,6 +446,13 @@ def dispatch(a):
             target_triangles=a.target_triangles, output=a.output,
             object_name=a.object, label=a.label,
         )
+    if a.command == "audio" and a.operation == "balance":
+        from .adapters import audio
+
+        # Read-only and receiptless: answered before any project root is made.
+        return audio.balance(config, a.provider)
+    if a.command == "audio" and not a.project:
+        raise StudioError("audio " + a.operation + " needs --project")
     if a.command == "meshy" and a.operation == "balance":
         from .adapters import meshy
 

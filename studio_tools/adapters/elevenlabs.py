@@ -5,7 +5,11 @@ import re
 import math
 from ..common import StudioError, digest
 from ..config import credential
+from .http import ProviderError, Transport
 from .requests import budget_check, archive_audio
+
+BASE = "https://api.elevenlabs.io"
+SUBSCRIPTION = "/v1/user/subscription"
 
 
 def profile(operation, body):
@@ -120,3 +124,75 @@ def generate(
                          "https://api.elevenlabs.io" + endpoint + "?output_format=" + fmt,
                          {"xi-api-key": key, "Content-Type": "application/json"},
                          wire, key, transport)
+
+
+def _subscription_facts(response):
+    """Tier, status and character counts, and nothing else the account carries.
+
+    A subscription response also names the account's next invoice, its voice
+    slots and, depending on the plan, the people on it. None of that is what
+    "can I afford this request" asks, so only the four fields that answer it
+    are read, and a response that carries none of them is an unexpected shape
+    rather than an account with nothing left.
+    """
+    if not isinstance(response, dict):
+        return None
+    facts = {}
+    for key, name in (
+        ("tier", "tier"),
+        ("status", "status"),
+        ("character_count", "character_count"),
+        ("character_limit", "character_limit"),
+    ):
+        value = response.get(key)
+        if name in ("tier", "status"):
+            if isinstance(value, str) and value.strip():
+                facts[name] = value
+        elif isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            facts[name] = value
+    if not facts:
+        return None
+    if "character_count" in facts and "character_limit" in facts:
+        facts["characters_remaining"] = max(
+            0, facts["character_limit"] - facts["character_count"]
+        )
+    return facts
+
+
+def balance(config, transport=None):
+    """Read the account standing. No generation, no task record, no receipt file.
+
+    The same read-only shape `meshy balance` has, for the same reason: an agent
+    that cannot ask what is left before asking a human to approve spend writes
+    its own script that loads the credential file by hand. Every failure is an
+    error *type*, never a provider message, because a provider diagnostic can
+    quote the request this command was run with a credential in hand to make.
+    """
+    def refused(error_type, probed):
+        return {
+            "provider": "elevenlabs", "error_type": error_type,
+            "read_only": True, "network_probed": probed, "ok": False,
+        }
+
+    try:
+        key = credential(config, "elevenlabs")
+    except StudioError:
+        return refused("credential_missing", False)
+    try:
+        response = (transport or Transport()).request(
+            "GET", BASE + SUBSCRIPTION, {"xi-api-key": key}
+        )
+    except ProviderError as exc:
+        return refused(
+            f"provider_http_{exc.status}" if isinstance(exc.status, int) else "provider_unavailable",
+            True,
+        )
+    except Exception:
+        return refused("provider_unavailable", True)
+    facts = _subscription_facts(response)
+    if facts is None:
+        return refused("unexpected_response", True)
+    return {
+        "provider": "elevenlabs", **facts,
+        "read_only": True, "network_probed": True,
+    }
