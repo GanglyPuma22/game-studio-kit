@@ -723,6 +723,93 @@ class BatchExperimentTests(BatchCase):
                 self.assertIn(message, json.loads(err)["error"])
                 self.assertFalse((self.root / "artifacts/launches/only").exists())
 
+    def test_two_runs_sharing_a_result_file_are_refused_before_anything_launches(self):
+        # One shared path is not two results: the second run overwrites the
+        # first, the launcher reports the first run's unchanged bytes as
+        # stale, and the comparison afterwards reads one document twice and
+        # calls it two identical values.
+        plan = self.plan(document={
+            "schema_version": 1, "kind": "launch-batch-plan",
+            "must_vary": ["/population"],
+            "runs": [
+                {"label": "first", "results": ["artifacts/summary.json"]},
+                {"label": "second", "results": ["artifacts/summary.json"]},
+            ],
+        })
+        code, _, err = self.cli_batch(plan)
+        self.assertEqual(code, 1)
+        message = json.loads(err)["error"]
+        self.assertIn("experiment runs must declare distinct result files", message)
+        self.assertIn("second", message)
+        self.assertFalse((self.root / "artifacts/launches").exists())
+
+    def test_a_shared_result_file_is_still_allowed_without_an_experiment(self):
+        # The rule belongs to the experiment, not to batching: a plan that
+        # declares neither invariants nor must_vary still runs, and whether
+        # each run produced its result stays the launcher's ordinary
+        # stale/missing reporting.
+        plan = self.plan(
+            {"label": "first", "results": ["artifacts/summary.json"]},
+            {"label": "second", "results": ["artifacts/summary.json"]},
+        )
+        code, rollup = self.rollup(plan, codes=(self.writes(0, {"a": 1}),))
+        self.assertEqual([run["label"] for run in rollup["runs"]], ["first", "second"])
+        self.assertIsNone(rollup["experiment"])
+
+    def test_a_result_path_spelled_two_ways_is_still_one_file(self):
+        plan = self.plan(document={
+            "schema_version": 1, "kind": "launch-batch-plan",
+            "invariants": [{"field": "/renderer", "equals": "forward_plus"}],
+            "runs": [
+                {"label": "first", "results": ["artifacts/summary.json"]},
+                {"label": "second", "results": ["artifacts/./summary.json"]},
+            ],
+        })
+        code, _, err = self.cli_batch(plan)
+        self.assertEqual(code, 1)
+        self.assertIn("distinct result files", json.loads(err)["error"])
+
+    def test_a_pointer_token_is_never_stripped_of_its_own_empty_key(self):
+        # RFC 6901: `//value` has two tokens, the first of them the empty
+        # string, which names a key that is literally "".
+        code, rollup = self.run_experiment(
+            {"": {"value": 1}, "value": 9},
+            {"": {"value": 2}, "value": 9},
+            must_vary=["//value"],
+        )
+        row = rollup["experiment"]["must_vary"][0]
+        self.assertEqual([entry["value"] for entry in row["values"]], [1, 2])
+        self.assertEqual(row["distinct"], 2)
+        self.assertEqual(code, 0)
+
+    def test_a_non_finite_invariant_value_is_refused_before_any_run(self):
+        for literal in ("NaN", "Infinity", "-Infinity"):
+            for equals in (literal, f"[1, {literal}]", '{"a": %s}' % literal):
+                path = Path(self.tmp.name) / f"plan-nonfinite-{literal}-{len(equals)}.json"
+                path.write_text(
+                    '{"schema_version": 1, "kind": "launch-batch-plan", '
+                    '"invariants": [{"field": "/x", "equals": ' + equals + '}], '
+                    '"runs": [{"label": "only"}]}',
+                    encoding="utf-8",
+                )
+                with self.subTest(equals=equals):
+                    code, _, err = self.cli_batch(path)
+                    self.assertEqual(code, 1)
+                    message = json.loads(err)["error"]
+                    self.assertIn("non-finite number in equals", message)
+                    # Refused with the rest of the plan; no window was spent,
+                    # and the rollup that cannot serialize it is never written.
+                    self.assertFalse((self.root / "artifacts").exists())
+
+    def test_an_ordinary_finite_number_is_still_a_legal_invariant(self):
+        code, rollup = self.run_experiment(
+            {"budget": 16.0, "population": 1}, {"budget": 16.0, "population": 2},
+            invariants=[{"field": "/budget", "equals": 16.0}],
+            must_vary=["/population"],
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(rollup["experiment"]["invariants"][0]["status"], "held")
+
     def test_the_shipped_template_declares_both_fields_by_example(self):
         template = read_json(ROOT / "templates/batch-plan.json")
         self.assertEqual(template["kind"], "launch-batch-plan")
@@ -734,6 +821,11 @@ class BatchExperimentTests(BatchCase):
         for field in template["must_vary"]:
             self.assertTrue(field.startswith("/"))
         self.assertIn("invalid_experiment", template["$comment"])
+        # The template declares an experiment, so it has to be a valid one:
+        # every run writes its own result file.
+        declared = [item for run in template["runs"] for item in run.get("results", [])]
+        self.assertEqual(len(declared), len(template["runs"]))
+        self.assertEqual(len(set(declared)), len(declared))
 
 
 if __name__ == "__main__":
