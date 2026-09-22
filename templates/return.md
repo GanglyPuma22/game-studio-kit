@@ -35,6 +35,7 @@ pending the user until every mandatory dimension above is `pass`.
 - Launch inventory (`studio evidence launches`):
 - Identity receipt (`studio candidate verify`):
 - Cleanroom captures:
+- Live edit journal (`artifacts/blender/journal/<source-stem>.json`, one checkpoint per save; a checkpoint without a project script and its hash is transcript-only and not reproducible):
 - Snapshot commit (`run/<run-id>` ref and excluded-file count, written only when the contract carries `snapshot_commit: authorized`, or `snapshot: no eligible changes, ref <current commit>` when nothing was eligible; otherwise `uncommitted overlay: <staged> staged, <modified> modified or deleted unstaged, <untracked> untracked`):
 
 ## Budget used
