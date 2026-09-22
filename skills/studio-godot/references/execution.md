@@ -31,7 +31,7 @@ Configure a real `export_presets.cfg`, then run `godot export --project <GAME> -
 ## Owned blocking launch
 
 A project that is launched the same way more than once declares how in a
-`launch-profile.json` (copy `templates/launch-profile.json` from the kit)
+`launch-profile.json` (copy [the template](../../../templates/launch-profile.json))
 and runs `launch --profile <file>` or `playtest start --profile <file>`: the
 profile names the mode or session, scene, script, renderer, resolution, timeouts,
 results, passthrough and feature flags, and an identity manifest the command
