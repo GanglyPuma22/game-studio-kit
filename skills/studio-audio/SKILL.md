@@ -1,11 +1,17 @@
 ---
 name: studio-audio
-description: Produce and prepare game effects, ambience, foley, dialogue and music, preserving originals and mapping cues to runtime events, buses and listening evidence.
+description: Produce and prepare game effects, ambience, foley, dialogue and music, preserving originals and mapping cues to runtime events, buses and listening evidence, checking what the account has left with the read-only `studio audio balance` before asking for spend approval.
 ---
 
 # Studio audio
 
 Inputs: encounter event map, location/distance, mix intent, voice identity/rights when applicable, duration/loop/variation needs and work-card budget. Output original files, prepared runtime audio and [cue manifest](../../templates/audio-cues.json).
+
+Before asking the human to approve provider spend, check what the account has left. `studio audio balance` is read-only: one GET, no record written, tier and character counts printed and never the key. It reads the credential from `credential_files` in the host config, so no script needs to load a key file by hand:
+
+```text
+python <KIT>/scripts/studio.py audio balance --config <HOST>
+```
 
 For local functional audio use the deterministic PCM helper:
 
