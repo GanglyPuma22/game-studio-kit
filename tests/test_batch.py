@@ -563,5 +563,178 @@ class BatchDirectTests(BatchCase):
                                             "ok": 0, "not_ok": 2, "not_run": 0})
 
 
+class BatchExperimentTests(BatchCase):
+    """A batch that declares an experiment must have produced one."""
+
+    @staticmethod
+    def writes(index, payload):
+        """An engine that writes this run's own declared result and exits cleanly."""
+        return (
+            "import pathlib;print('run ok');"
+            "pathlib.Path('artifacts').mkdir(exist_ok=True);"
+            f"pathlib.Path('artifacts/summary-{index}.json')"
+            f".write_text({json.dumps(json.dumps(payload))})"
+        )
+
+    def experiment_plan(self, *payloads, invariants=None, must_vary=None):
+        # Each run declares its own result file, which is what makes the set
+        # comparable at all: one shared path would only ever hold the last
+        # run's bytes by the time the batch reads it.
+        runs = [{"label": f"run-{index}", "results": [f"artifacts/summary-{index}.json"]}
+                for index in range(len(payloads))]
+        document = {"schema_version": 1, "kind": "launch-batch-plan", "runs": runs}
+        if invariants is not None:
+            document["invariants"] = invariants
+        if must_vary is not None:
+            document["must_vary"] = must_vary
+        return self.plan(document=document)
+
+    def run_experiment(self, *payloads, invariants=None, must_vary=None):
+        plan = self.experiment_plan(*payloads, invariants=invariants, must_vary=must_vary)
+        return self.rollup(
+            plan, codes=tuple(self.writes(index, p) for index, p in enumerate(payloads))
+        )
+
+    def test_a_plan_without_the_fields_behaves_exactly_as_before(self):
+        plan = self.plan({"label": "first"}, {"label": "second"})
+        code, rollup = self.rollup(plan)
+        self.assertEqual(code, 0)
+        self.assertTrue(rollup["ok"])
+        self.assertIsNone(rollup["experiment"])
+        self.assertIsNone(rollup["verdict"])
+
+    def test_identical_values_fail_must_vary_however_green_every_run_is(self):
+        code, rollup = self.run_experiment(
+            {"population": 12}, {"population": 12},
+            must_vary=["/population"],
+        )
+        self.assertEqual(code, 1)
+        self.assertFalse(rollup["ok"])
+        self.assertEqual(rollup["verdict"], "invalid_experiment")
+        # Every row still ran and every row is still ok; only the comparison
+        # the plan asked for did not happen.
+        self.assertEqual(rollup["totals"]["ok"], 2)
+        self.assertEqual([run["verdict"] for run in rollup["runs"]], ["completed", "completed"])
+        experiment = rollup["experiment"]
+        self.assertEqual(experiment["status"], "failed")
+        self.assertEqual(experiment["failed_fields"], ["/population"])
+        row = experiment["must_vary"][0]
+        self.assertEqual(row["status"], "identical")
+        self.assertEqual(row["distinct"], 1)
+        self.assertEqual([entry["value"] for entry in row["values"]], [12, 12])
+
+    def test_two_distinct_values_satisfy_must_vary(self):
+        code, rollup = self.run_experiment(
+            {"population": 12}, {"population": 30},
+            must_vary=["/population"],
+        )
+        self.assertEqual(code, 0)
+        self.assertTrue(rollup["ok"])
+        self.assertIsNone(rollup["verdict"])
+        self.assertEqual(rollup["experiment"]["status"], "ok")
+        self.assertEqual(rollup["experiment"]["must_vary"][0]["distinct"], 2)
+
+    def test_a_violated_invariant_names_the_pointer_and_the_values_seen(self):
+        code, rollup = self.run_experiment(
+            {"renderer": "forward_plus", "population": 12},
+            {"renderer": "mobile", "population": 30},
+            invariants=[{"field": "/renderer", "equals": "forward_plus"}],
+            must_vary=["/population"],
+        )
+        self.assertEqual(code, 1)
+        self.assertFalse(rollup["ok"])
+        self.assertEqual(rollup["verdict"], "invalid_experiment")
+        experiment = rollup["experiment"]
+        self.assertEqual(experiment["status"], "failed")
+        self.assertEqual(experiment["failed_fields"], ["/renderer"])
+        row = experiment["invariants"][0]
+        self.assertEqual(row["status"], "violated")
+        self.assertEqual(row["violated_by"], ["run-1"])
+        self.assertEqual([entry["value"] for entry in row["values"]],
+                         ["forward_plus", "mobile"])
+        # The must-vary check still reports beside it rather than being skipped.
+        self.assertEqual(experiment["must_vary"][0]["status"], "varied")
+
+    def test_a_held_invariant_over_varying_runs_is_ok(self):
+        code, rollup = self.run_experiment(
+            {"renderer": "forward_plus", "population": 12},
+            {"renderer": "forward_plus", "population": 30},
+            invariants=[{"field": "/renderer", "equals": "forward_plus"}],
+            must_vary=["/population"],
+        )
+        self.assertEqual(code, 0)
+        self.assertTrue(rollup["ok"])
+        self.assertEqual(rollup["experiment"]["invariants"][0]["status"], "held")
+
+    def test_an_absent_result_file_is_unverified_rather_than_passing(self):
+        plan = self.experiment_plan(
+            {"population": 12}, {"population": 30}, must_vary=["/population"]
+        )
+        # The second run never writes the result it declared.
+        code, rollup = self.rollup(plan, codes=(self.writes(0, {"population": 12}), OK))
+        self.assertEqual(code, 1)
+        self.assertFalse(rollup["ok"])
+        self.assertEqual(rollup["verdict"], "invalid_experiment")
+        experiment = rollup["experiment"]
+        self.assertEqual(experiment["status"], "unverified")
+        self.assertEqual(experiment["must_vary"][0]["status"], "unverified")
+        self.assertEqual([entry["label"] for entry in experiment["unread_results"]], ["run-1"])
+
+    def test_a_pointer_that_names_nothing_is_not_a_value(self):
+        code, rollup = self.run_experiment(
+            {"population": 12}, {"other": 30},
+            invariants=[{"field": "/population", "equals": 12}],
+        )
+        self.assertEqual(code, 1)
+        row = rollup["experiment"]["invariants"][0]
+        self.assertEqual(row["status"], "violated")
+        self.assertEqual(row["violated_by"], ["run-1"])
+        self.assertFalse(row["values"][1]["found"])
+
+    def test_pointers_walk_nested_objects_and_array_indexes(self):
+        code, rollup = self.run_experiment(
+            {"summary": {"frames": [{"ms": 16}]}},
+            {"summary": {"frames": [{"ms": 33}]}},
+            invariants=[{"field": "", "equals": None}],
+            must_vary=["/summary/frames/0/ms"],
+        )
+        self.assertEqual(rollup["experiment"]["must_vary"][0]["distinct"], 2)
+        # The whole-document pointer resolves and simply does not equal null.
+        self.assertEqual(rollup["experiment"]["invariants"][0]["status"], "violated")
+        self.assertEqual(code, 1)
+
+    def test_a_malformed_experiment_declaration_is_refused_before_any_run(self):
+        for document, message in (
+            ({"invariants": {"field": "/x", "equals": 1}}, "invariants"),
+            ({"invariants": [{"field": "/x"}]}, "invariant 1"),
+            ({"invariants": [{"field": "x", "equals": 1}]}, "invariant 1"),
+            ({"invariants": [{"field": "/x", "equals": 1, "extra": 2}]}, "invariant 1"),
+            ({"must_vary": "/x"}, "must_vary"),
+            ({"must_vary": ["x"]}, "must_vary"),
+            ({"must_vary": [7]}, "must_vary"),
+        ):
+            plan = self.plan(document={
+                "schema_version": 1, "kind": "launch-batch-plan",
+                "runs": [{"label": "only"}], **document,
+            })
+            with self.subTest(document=document):
+                code, out, err = self.cli_batch(plan)
+                self.assertEqual(code, 1)
+                self.assertIn(message, json.loads(err)["error"])
+                self.assertFalse((self.root / "artifacts/launches/only").exists())
+
+    def test_the_shipped_template_declares_both_fields_by_example(self):
+        template = read_json(ROOT / "templates/batch-plan.json")
+        self.assertEqual(template["kind"], "launch-batch-plan")
+        self.assertTrue(template["invariants"])
+        self.assertTrue(template["must_vary"])
+        for item in template["invariants"]:
+            self.assertEqual(set(item), {"field", "equals"})
+            self.assertTrue(item["field"].startswith("/"))
+        for field in template["must_vary"]:
+            self.assertTrue(field.startswith("/"))
+        self.assertIn("invalid_experiment", template["$comment"])
+
+
 if __name__ == "__main__":
     unittest.main()

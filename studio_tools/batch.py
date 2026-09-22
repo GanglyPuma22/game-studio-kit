@@ -20,6 +20,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import re
 import uuid
 from . import launch
 from .common import StudioError, kit_identity, outside_package, relative, safe_id, write_json
@@ -46,6 +47,9 @@ NOT_STARTED = ("refused", "start_failed")
 # either a receipt, another run's directory, or bytes this batch will itself
 # overwrite when it rewrites the rollup between runs.
 RECEIPT_ROOTS = ("artifacts/launches", "artifacts/batches")
+# A pointer into one run's declared result file, in RFC 6901 form: "" is the
+# whole document, "/frames/0/ms" walks two objects and an array index.
+POINTER = "JSON pointer (RFC 6901), for example /summary/renderer"
 LIMITS = [
     "exit zero is not acceptance; a green batch is a batch of runs that ran",
     "runs execute sequentially in plan order, so their elapsed times are comparable "
@@ -53,6 +57,129 @@ LIMITS = [
     "the total cap bounds the batch, not any single run: one run may spend the whole window",
     "stdout and stderr are combined in each run's own log; the children may print private data",
 ]
+
+
+def _pointer(document, pointer):
+    """Resolve one RFC 6901 pointer. Returns (found, value); never raises.
+
+    A pointer that names nothing is `found=False`, which is not the same as a
+    pointer that names `null`: an experiment whose field is absent from half
+    the runs has not varied, it has not been measured.
+    """
+    if pointer == "":
+        return True, document
+    current = document
+    for raw in pointer.lstrip("/").split("/"):
+        token = raw.replace("~1", "/").replace("~0", "~")
+        if isinstance(current, dict):
+            if token not in current:
+                return False, None
+            current = current[token]
+        elif isinstance(current, list):
+            if not re.fullmatch(r"0|[1-9][0-9]*", token) or int(token) >= len(current):
+                return False, None
+            current = current[int(token)]
+        else:
+            return False, None
+    return True, current
+
+
+def _valid_pointer(value):
+    return isinstance(value, str) and (value == "" or value.startswith("/"))
+
+
+def _experiment_plan(document):
+    """The optional invariants and must-vary pointers, fully validated.
+
+    A batch that varies one input and reads one number is an experiment, and an
+    experiment whose runs all returned the same value, or whose held-constant
+    field moved, produced no comparison however green every row is. Declaring
+    that here is the only way a batch can say so without a human re-reading
+    every result file by hand.
+    """
+    invariants = document.get("invariants", [])
+    must_vary = document.get("must_vary", [])
+    if not isinstance(invariants, list):
+        raise StudioError('Batch plan "invariants" must be a list of {field, equals} objects')
+    for index, item in enumerate(invariants):
+        if (not isinstance(item, dict) or set(item) - {"field", "equals"}
+                or "equals" not in item or not _valid_pointer(item.get("field"))):
+            raise StudioError(
+                f"Batch plan invariant {index + 1} must be an object with a field "
+                f'({POINTER}) and an equals value'
+            )
+    if not isinstance(must_vary, list) or not all(_valid_pointer(item) for item in must_vary):
+        raise StudioError(f'Batch plan "must_vary" must be a list of pointers; {POINTER}')
+    return [dict(item) for item in invariants], list(must_vary)
+
+
+def _experiment(root, entries, runs, invariants, must_vary):
+    """Read every run's first declared result and judge the declared experiment.
+
+    Read after the last run, from the file each run declared, because that is
+    the only thing here that describes what the engine produced rather than
+    what the launcher did with it. A result that is absent or unreadable makes
+    the check `unverified`: an experiment nobody could read did not pass.
+    """
+    documents = {}
+    unreadable = []
+    for entry, row in zip(entries, runs):
+        declared = entry.get("results", [])
+        if not declared:
+            unreadable.append({"label": entry["label"], "reason": "no declared result file"})
+            continue
+        try:
+            target = relative(root, declared[0])
+            documents[entry["label"]] = json.loads(target.read_text(encoding="utf-8"))
+        except (StudioError, OSError, ValueError):
+            unreadable.append({"label": entry["label"], "reason": "result file absent or not JSON"})
+    invariant_rows = []
+    for item in invariants:
+        seen = []
+        violated = []
+        for label, document in documents.items():
+            found, value = _pointer(document, item["field"])
+            seen.append({"label": label, "found": found, "value": value if found else None})
+            if not found or value != item["equals"]:
+                violated.append(label)
+        invariant_rows.append({
+            "field": item["field"], "equals": item["equals"],
+            "status": "unverified" if unreadable else ("violated" if violated else "held"),
+            "violated_by": violated, "values": seen,
+        })
+    vary_rows = []
+    for field in must_vary:
+        seen = []
+        distinct = []
+        for label, document in documents.items():
+            found, value = _pointer(document, field)
+            seen.append({"label": label, "found": found, "value": value if found else None})
+            # Compared by their canonical JSON form, so two equal objects in a
+            # different key order are one value rather than two.
+            key = json.dumps(value, sort_keys=True, default=str) if found else None
+            if found and key not in distinct:
+                distinct.append(key)
+        vary_rows.append({
+            "field": field, "distinct": len(distinct),
+            "status": "unverified" if unreadable else ("identical" if len(distinct) < 2 else "varied"),
+            "values": seen,
+        })
+    failed = [row["field"] for row in invariant_rows if row["status"] == "violated"]
+    failed += [row["field"] for row in vary_rows if row["status"] == "identical"]
+    if unreadable:
+        status = "unverified"
+    elif failed:
+        status = "failed"
+    else:
+        status = "ok"
+    return {
+        "declared": True,
+        "status": status,
+        "failed_fields": failed,
+        "unread_results": unreadable,
+        "invariants": invariant_rows,
+        "must_vary": vary_rows,
+    }
 
 
 def _where(index, entry):
@@ -185,7 +312,9 @@ def _plan(root, path, reserved):
     seen = {}
     entries = [_run_entry(root, index, entry, seen, reserved)
                for index, entry in enumerate(document["runs"])]
-    return entries, {"path": str(plan_path.resolve()), "sha256": hashlib.sha256(raw).hexdigest()}
+    invariants, must_vary = _experiment_plan(document)
+    return (entries, {"path": str(plan_path.resolve()), "sha256": hashlib.sha256(raw).hexdigest()},
+            invariants, must_vary)
 
 
 def _paths(root, result):
@@ -273,7 +402,7 @@ def _summary(index, entry, status, **fields):
 
 
 def _rollup(root, label, plan_record, started, deadline, max_minutes,
-            stop_on_first_failure, runs, planned, stopped, finished=None):
+            stop_on_first_failure, runs, planned, stopped, finished=None, experiment=None):
     totals = {
         "planned": planned,
         # Only a row whose engine actually started counts as having run, so a
@@ -303,13 +432,27 @@ def _rollup(root, label, plan_record, started, deadline, max_minutes,
         "stopped_early": stopped,
         "totals": totals,
         "runs": runs,
+        # Absent until every run has finished: an experiment is judged over the
+        # whole set, and a rollup written between runs has not seen it yet.
+        "experiment": experiment,
+        # The one word for the batch as a whole. A batch of green runs that
+        # declared an experiment and did not produce one is `invalid_experiment`
+        # however many rows are ok.
+        "verdict": (
+            "invalid_experiment"
+            if experiment and experiment["status"] != "ok"
+            else None
+        ),
         # A batch of green launches is a batch of launches that ran. No count of
         # completed runs decides that a person would accept what they produced.
         "acceptance": "not_established",
         "limits": LIMITS,
         # Every planned run finished and every one of them was ok. A batch that
-        # stopped early, or never reached a run, is not ok however green its rows.
-        "ok": totals["planned"] == totals["ok"],
+        # stopped early, or never reached a run, is not ok however green its
+        # rows -- and neither is one whose declared experiment did not happen.
+        "ok": totals["planned"] == totals["ok"] and (
+            experiment is None or experiment["status"] == "ok"
+        ),
     }
 
 
@@ -326,7 +469,9 @@ def execute(
     # Its own namespace beside artifacts/launches, so a batch rollup and the
     # runs it indexes can never collide on the label that refuses a reused dir.
     run_dir = outside_package(relative(root, f"artifacts/batches/{label}"))
-    entries, plan_record = _plan(root, plan, tuple(relative(root, name) for name in RECEIPT_ROOTS))
+    entries, plan_record, invariants, must_vary = _plan(
+        root, plan, tuple(relative(root, name) for name in RECEIPT_ROOTS)
+    )
     if max_minutes is None:
         max_minutes = DEFAULT_MAX_MINUTES
     if (type(max_minutes) not in (int, float) or not math.isfinite(max_minutes)
@@ -345,7 +490,7 @@ def execute(
             for index, entry in enumerate(entries)]
     stopped = None
 
-    def save(finished=None):
+    def save(finished=None, experiment=None):
         """Rewrite the rollup as a crash record, not a progress feed.
 
         Nothing may read this file to find out whether the batch is done: the
@@ -354,7 +499,7 @@ def execute(
         """
         write_json(rollup_path, _rollup(
             root, label, plan_record, started, deadline, max_minutes,
-            stop_on_first_failure, runs, len(entries), stopped, finished,
+            stop_on_first_failure, runs, len(entries), stopped, finished, experiment,
         ))
 
     save()
@@ -406,6 +551,8 @@ def execute(
             stopped = "interrupted"
             for later in runs[index + 1:]:
                 later["failure"] = "batch stopped earlier: interrupted"
+            # No experiment is judged here: the set the plan described was
+            # never run, so there is nothing to compare across it.
             save(datetime.now(timezone.utc))
             raise
         else:
@@ -425,10 +572,14 @@ def execute(
             stopped = "first_failure"
         save()
     finished = datetime.now(timezone.utc)
-    save(finished)
+    experiment = (
+        _experiment(root, entries, runs, invariants, must_vary)
+        if invariants or must_vary else None
+    )
+    save(finished, experiment)
     return {
         **_rollup(root, label, plan_record, started, deadline, max_minutes,
-                  stop_on_first_failure, runs, len(entries), stopped, finished),
+                  stop_on_first_failure, runs, len(entries), stopped, finished, experiment),
         "run_dir": str(run_dir),
         "batch_record": str(rollup_path),
     }
