@@ -25,6 +25,7 @@ import re
 import uuid
 
 from .common import StudioError, digest, read_json, relative, safe_id
+from .config import app_path
 from .evidence import inventory
 
 PROFILE_KIND = "launch-profile"
@@ -149,13 +150,20 @@ def candidate_digests(root):
     return stored, digest(inventory(root))
 
 
-def substitute(values, *, root, label, content_digest=None):
+def substitute(values, *, root, label, project=None, content_digest=None):
     """Replace the three declared placeholders in a passthrough list.
 
     Literal replacement, not `str.format`: a passthrough argument may legally
     contain braces of its own, so only the three declared tokens are touched.
+
+    `project` is the host-mapped spelling of the project root -- the same one
+    the launcher hands the engine through `--path`. A Windows engine driven
+    from WSL cannot open `/home/...`, so substituting the raw root would have
+    produced a passthrough path the game could not read while the engine's own
+    `--path` beside it was translated.
     """
-    replacements = ((LABEL, label), (PROJECT, str(Path(root).resolve())),
+    replacements = ((LABEL, label),
+                    (PROJECT, project if project is not None else str(Path(root).resolve())),
                     (CONTENT_DIGEST, content_digest))
     resolved = []
     for item in values:
@@ -216,7 +224,13 @@ def resolve(config, root, command, overrides, *, path, label=None, check=False):
     stored = actual = None
     if any(CONTENT_DIGEST in item for item in passthrough):
         stored, actual = candidate_digests(root)
-    passthrough = substitute(passthrough, root=root, label=label, content_digest=stored)
+    passthrough = substitute(
+        passthrough, root=root, label=label,
+        # The same translation `launch` applies to `--path`, so a profile's
+        # own paths and the engine's project root agree on one host spelling.
+        project=app_path(config, root, "godot"),
+        content_digest=stored,
+    )
     if passthrough and passthrough[0] != "--":
         # Godot exposes only arguments after `--` through
         # OS.get_cmdline_user_args(), so the separator itself must reach it.
