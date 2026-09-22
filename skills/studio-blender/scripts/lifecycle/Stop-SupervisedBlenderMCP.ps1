@@ -2,10 +2,12 @@ param(
     [Parameter(Mandatory=$true)][string]$OwnershipReceipt,
     [Parameter(Mandatory=$true)][string]$WorkingRoot,
     [Parameter(Mandatory=$true)][string]$OwnerIdentity,
+    [int]$Port = 9876,
     [int]$CloseTimeoutSeconds = 20
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Port -lt 1024 -or $Port -gt 65535) { throw "Port must be between 1024 and 65535; got $Port" }
 $ownerName = $OwnerIdentity
 
 function Set-ReceiptContentAtomic {
@@ -23,7 +25,7 @@ function Set-ReceiptContentAtomic {
     Move-Item -LiteralPath $tempPath -Destination $Path -Force
 }
 
-$lifecycleMutex = [System.Threading.Mutex]::new($false, 'Global\GameStudioKit-BlenderMCP-127_0_0_1-9876')
+$lifecycleMutex = [System.Threading.Mutex]::new($false, "Global\GameStudioKit-BlenderMCP-127_0_0_1-$Port")
 $mutexAcquired = $false
 try {
     try {
@@ -40,6 +42,10 @@ $receiptPath = [IO.Path]::GetFullPath($OwnershipReceipt)
 if (!(Test-Path -LiteralPath $receiptPath -PathType Leaf)) { throw "Missing ownership receipt: $receiptPath" }
 $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
 if ($receipt.owner -ne $ownerName) { throw 'Refusing to stop a Blender process owned by another lifecycle' }
+# A receipt naming another port describes a listener this Stop is not holding
+# the lifecycle lock for; closing that process would be closing somebody
+# else's session under the wrong mutex.
+if ($null -ne $receipt.port -and [int]$receipt.port -ne $Port) { throw "Refusing to stop a Blender session whose receipt names port $($receipt.port), not $Port" }
 
 $process = Get-Process -Id $receipt.pid -ErrorAction SilentlyContinue
 if ($process) {
@@ -47,7 +53,7 @@ if ($process) {
     $expectedStartUtc = ([DateTimeOffset]$receipt.process_start_utc).UtcDateTime
     $startDelta = ($process.StartTime.ToUniversalTime() - $expectedStartUtc).Duration()
     if ($startDelta -gt [TimeSpan]::FromMilliseconds(10)) { throw "Refusing cleanup: process start-time mismatch ($($startDelta.TotalMilliseconds) ms)" }
-    $listeners = @(Get-NetTCPConnection -State Listen -LocalPort 9876 -ErrorAction SilentlyContinue)
+    $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue)
     if ($listeners.Count) {
         # A conflicting listener owned by someone else blocks cleanup; an
         # absent listener does not. The add-on's socket server can die
@@ -57,7 +63,7 @@ if ($process) {
         if ($listeners.Count -ne 1 -or $listeners[0].OwningProcess -ne $receipt.pid -or $listeners[0].LocalAddress -ne '127.0.0.1') {
             throw 'Refusing cleanup: loopback listener ownership is ambiguous'
         }
-        $receipt.listener = '127.0.0.1:9876'
+        $receipt.listener = "127.0.0.1:$Port"
     } else {
         $receipt.listener = 'absent'
     }
@@ -70,7 +76,7 @@ if ($process) {
     }
 }
 
-$remainingListener = @(Get-NetTCPConnection -State Listen -LocalPort 9876 -ErrorAction SilentlyContinue | Where-Object OwningProcess -eq $receipt.pid)
+$remainingListener = @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue | Where-Object OwningProcess -eq $receipt.pid)
 if ($remainingListener.Count) { throw 'Owned Blender exited but its listener remains unexpectedly' }
 $receipt.status = 'CLOSED'
 $receipt | Add-Member -NotePropertyName closed_utc -NotePropertyValue ([DateTimeOffset]::UtcNow.ToString('o')) -Force

@@ -59,6 +59,40 @@ def _working_root_is_outside_kit(working_root_value, kit_root_path):
     return not (working_root == kit_root or working_root.is_relative_to(kit_root))
 
 
+DEFAULT_BLENDER_MCP_PORT = 9876
+# Below 1024 is the privileged range Windows reserves for services, and 65535
+# is the last TCP port; a supervised loopback listener lives strictly between.
+MIN_BLENDER_MCP_PORT = 1024
+MAX_BLENDER_MCP_PORT = 65535
+
+
+def blender_mcp_port(block):
+    """The TCP port this host's supervised Blender MCP listener binds.
+
+    Declared as a string in `server.env.BLENDER_PORT`, because that is what the
+    upstream server reads from its environment; absent means the historical
+    default. A value that is not a plain decimal integer in range is refused
+    here rather than forwarded to a PowerShell script that would bind whatever
+    `[int]` made of it.
+    """
+    env = (block.get("server") or {}).get("env") or {}
+    raw = env.get("BLENDER_PORT")
+    if raw is None:
+        return DEFAULT_BLENDER_MCP_PORT
+    if not isinstance(raw, str) or not re.fullmatch(r"[0-9]{1,5}", raw.strip()):
+        raise StudioError(
+            "blender_mcp.server.env.BLENDER_PORT must be a decimal port number "
+            f"between {MIN_BLENDER_MCP_PORT} and {MAX_BLENDER_MCP_PORT}"
+        )
+    port = int(raw.strip())
+    if not MIN_BLENDER_MCP_PORT <= port <= MAX_BLENDER_MCP_PORT:
+        raise StudioError(
+            "blender_mcp.server.env.BLENDER_PORT must be a decimal port number "
+            f"between {MIN_BLENDER_MCP_PORT} and {MAX_BLENDER_MCP_PORT}"
+        )
+    return port
+
+
 def _validate_blender_mcp(block):
     if not isinstance(block, dict):
         raise StudioError("blender_mcp must be an object")
@@ -90,24 +124,26 @@ def _validate_blender_mcp(block):
     ):
         raise StudioError("blender_mcp.server.args must be a string array")
     env = server.get("env")
+    # The host, not the port, is the safety property: the add-on must listen on
+    # loopback and telemetry must be off. The port itself is a host fact — a
+    # Windows box that reserved 9806-9905 for Hyper-V cannot bind the historical
+    # 9876 at all, and hard-coding it blocked every live session on such a host.
     required_env = {
         "BLENDER_HOST": "127.0.0.1",
-        "BLENDER_PORT": "9876",
         "DISABLE_TELEMETRY": "true",
         "BLENDER_MCP_DISABLE_TELEMETRY": "true",
     }
-    if (
-        not isinstance(env, dict)
-        or not all(
-            isinstance(key, str) and isinstance(value, str)
-            for key, value in env.items()
-        )
-        or any(env.get(k) != v for k, v in required_env.items())
+    if not isinstance(env, dict) or not all(
+        isinstance(key, str) and isinstance(value, str) for key, value in env.items()
     ):
-        raise StudioError(
-            "blender_mcp.server.env must select loopback port 9876 with "
-            "telemetry disabled"
-        )
+        raise StudioError("blender_mcp.server.env must be a string-to-string object")
+    for key, value in required_env.items():
+        if env.get(key) != value:
+            raise StudioError(
+                "blender_mcp.server.env must bind the loopback host 127.0.0.1 with "
+                f"telemetry disabled; {key} is not {value!r}"
+            )
+    blender_mcp_port(block)
     if not _working_root_is_outside_kit(block["working_root"], _kit_root()):
         raise StudioError("blender_mcp.working_root must be outside the installed kit")
 

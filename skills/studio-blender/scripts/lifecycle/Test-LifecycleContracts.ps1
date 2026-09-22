@@ -62,10 +62,21 @@ $contracts = @(
     @{Name='ensure closes owned startup failures without force'; Text=$ensure; Pattern='STARTUP_FAILED_CLOSED'},
     @{Name='ensure exposes bounded app rehandshake policy'; Text=$ensure; Pattern='ONE_READ_ONLY_RETRY_ON_10053'},
     @{Name='ensure uses active receipt'; Text=$ensure; Pattern='active-receipt\.json'},
+    @{Name='ensure takes the listener port as an explicit argument'; Text=$ensure; Pattern='\[int\]\$Port = 9876'},
+    @{Name='ensure checks every listener on the configured port'; Text=$ensure; Pattern='-LocalPort \$Port'},
+    @{Name='ensure names the configured port in the lifecycle mutex'; Text=$ensure; Pattern='GameStudioKit-BlenderMCP-127_0_0_1-\$Port'},
+    @{Name='ensure records the configured port in the ownership receipt'; Text=$ensure; Pattern='port = \$Port'},
+    @{Name='ensure refuses a Windows-excluded port before any launch'; Text=$ensure; Pattern='port_excluded'},
+    @{Name='ensure refuses an occupied port before any launch'; Text=$ensure; Pattern='port_occupied'},
+    @{Name='ensure refuses to reuse a session whose receipt names another port'; Text=$ensure; Pattern='\[int\]\$existing\.port -ne \$Port'},
+    @{Name='ensure refuses to launch while its own stdio could be inherited as a pipe'; Text=$ensure; Pattern='Assert-ParentStdioIsFileBacked'},
     @{Name='ensure resolves reparse points before the outside-kit check'; Text=$ensure; Pattern='function Resolve-ReparseTarget'},
     @{Name='ensure compares the reparse-resolved kit root, not a lexical GetFullPath form'; Text=$ensure; Pattern='\$kitRoot = Resolve-ReparseTarget'},
     @{Name='ensure compares the reparse-resolved working root, not a lexical GetFullPath form'; Text=$ensure; Pattern='\$workingRootFull = Resolve-ReparseTarget'},
     @{Name='health checks loopback'; Text=$test; Pattern="127\.0\.0\.1"},
+    @{Name='health checks the configured port'; Text=$test; Pattern='-LocalPort \$Port'},
+    @{Name='health refuses a receipt naming another port'; Text=$test; Pattern='\[int\]\$receipt\.port -ne \$Port'},
+    @{Name='health reports whether the launching parent has exited'; Text=$test; Pattern='parent_alive'},
     @{Name='health runs protocol probe'; Text=$test; Pattern='probe_mcp\.py'},
     @{Name='stop is receipt bound'; Text=$stop; Pattern='OwnershipReceipt'},
     @{Name='stop serializes lifecycle changes'; Text=$stop; Pattern='System\.Threading\.Mutex'},
@@ -74,7 +85,10 @@ $contracts = @(
     @{Name='stop adds closure receipt fields safely'; Text=$stop; Pattern="Add-Member -NotePropertyName closed_utc"},
     @{Name='stop allows cleanup of a verified process with an absent listener'; Text=$stop; Pattern='\$receipt\.listener = ''absent'''},
     @{Name='stop still refuses a conflicting listener owned by someone else'; Text=$stop; Pattern='Refusing cleanup: loopback listener ownership is ambiguous'},
+    @{Name='stop refuses a receipt naming another port'; Text=$stop; Pattern='receipt names port'},
+    @{Name='stop checks the configured port'; Text=$stop; Pattern='-LocalPort \$Port'},
     @{Name='bootstrap binds loopback'; Text=$bootstrap; Pattern='host=["'']127\.0\.0\.1["'']'},
+    @{Name='bootstrap binds the supervised port it was given'; Text=$bootstrap; Pattern='port=port'},
     @{Name='bootstrap disables telemetry'; Text=$bootstrap; Pattern='telemetry_consent = False'},
     @{Name='bootstrap records real exceptions'; Text=$bootstrap; Pattern='traceback\.format_exc\(\)'},
     @{Name='probe uses explicit server config'; Text=$probe; Pattern='--server-config'},
@@ -102,7 +116,13 @@ $forbidden = @(
     # Resolve-ReparseTarget above); the outside-kit check must never go
     # back to comparing raw GetFullPath results.
     @{Name='ensure never compares the kit root using a lexical-only GetFullPath form'; Text=$ensure; Pattern='\$kitRoot = \[IO\.Path\]::GetFullPath'},
-    @{Name='ensure never compares the working root using a lexical-only GetFullPath form'; Text=$ensure; Pattern='\$workingRootFull = \[IO\.Path\]::GetFullPath'}
+    @{Name='ensure never compares the working root using a lexical-only GetFullPath form'; Text=$ensure; Pattern='\$workingRootFull = \[IO\.Path\]::GetFullPath'},
+    # A Windows host that reserved the historical default port could not run
+    # this lifecycle at all while the number was written into the listener
+    # checks; it must never be hard-coded back into any of the three scripts.
+    @{Name='ensure never hard-codes the historical default port in a listener check'; Text=$ensure; Pattern='-LocalPort 9876'},
+    @{Name='health never hard-codes the historical default port in a listener check'; Text=$test; Pattern='-LocalPort 9876'},
+    @{Name='stop never hard-codes the historical default port in a listener check'; Text=$stop; Pattern='-LocalPort 9876'}
 )
 
 foreach ($contract in $forbidden) {
