@@ -21,9 +21,11 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import re
 import uuid
 
-from .common import StudioError, read_json, relative, safe_id
+from .common import StudioError, digest, read_json, relative, safe_id
+from .evidence import inventory
 
 PROFILE_KIND = "launch-profile"
 SCHEMA_VERSION = 1
@@ -120,37 +122,41 @@ def load(root, path):
     return record, file_record
 
 
-def _content_digest(root):
-    """The candidate's content digest, or None when no candidate record exists."""
+def candidate_digests(root):
+    """The candidate record's stored content digest and the project's actual one.
+
+    A stored digest is a claim about files, and the files move. Substituting
+    one into a launch without re-reading the project would hand the engine, and
+    then whatever reads its output, the identity of a build that no longer
+    exists -- which is precisely the confusion the digest was added to prevent.
+    Both numbers are computed the same way `new_candidate` computes the stored
+    one, so they are comparable rather than merely similar.
+    """
     path = Path(root) / CANDIDATE_RECORD
     if not path.is_file():
-        return None
-    try:
-        record = read_json(path)
-    except StudioError:
-        return None
-    value = record.get("content_digest") if isinstance(record, dict) else None
-    return value if isinstance(value, str) and value else None
+        raise StudioError(
+            f"This profile substitutes {CONTENT_DIGEST}, which comes from "
+            f"{CANDIDATE_RECORD}; run `studio candidate new` first"
+        )
+    record = read_json(path)
+    stored = record.get("content_digest") if isinstance(record, dict) else None
+    if not isinstance(stored, str) or not re.fullmatch(r"[0-9a-f]{64}", stored):
+        raise StudioError(
+            f"{CANDIDATE_RECORD} has no content_digest of 64 lowercase hexadecimal "
+            f"characters, so {CONTENT_DIGEST} has nothing to substitute; "
+            "run `studio candidate new`"
+        )
+    return stored, digest(inventory(root))
 
 
-def substitute(values, *, root, label):
+def substitute(values, *, root, label, content_digest=None):
     """Replace the three declared placeholders in a passthrough list.
 
     Literal replacement, not `str.format`: a passthrough argument may legally
-    contain braces of its own, and a profile that names `{content_digest}`
-    without a candidate record beside it is refused rather than launched with
-    the word itself handed to the engine as a hash.
+    contain braces of its own, so only the three declared tokens are touched.
     """
-    digest = None
-    if any(CONTENT_DIGEST in item for item in values):
-        digest = _content_digest(root)
-        if digest is None:
-            raise StudioError(
-                f"This profile substitutes {CONTENT_DIGEST}, which comes from "
-                f"{CANDIDATE_RECORD}; run `studio candidate new` first"
-            )
     replacements = ((LABEL, label), (PROJECT, str(Path(root).resolve())),
-                    (CONTENT_DIGEST, digest))
+                    (CONTENT_DIGEST, content_digest))
     resolved = []
     for item in values:
         for token, value in replacements:
@@ -205,7 +211,12 @@ def resolve(config, root, command, overrides, *, path, label=None, check=False):
         if value is not None and value != []:
             fields[name] = value
     passthrough = list(fields.pop("passthrough", [])) + list(feature_flags)
-    passthrough = substitute(passthrough, root=root, label=label)
+    # Resolved before the receipt is built, so a stale candidate refuses with
+    # the profile named in the refusal like every other verdict here.
+    stored = actual = None
+    if any(CONTENT_DIGEST in item for item in passthrough):
+        stored, actual = candidate_digests(root)
+    passthrough = substitute(passthrough, root=root, label=label, content_digest=stored)
     if passthrough and passthrough[0] != "--":
         # Godot exposes only arguments after `--` through
         # OS.get_cmdline_user_args(), so the separator itself must reach it.
@@ -219,6 +230,27 @@ def resolve(config, root, command, overrides, *, path, label=None, check=False):
             "identity_receipt": identity.get("receipt"),
         }
     }
+    if stored is not None and stored != actual:
+        return {"refused": {
+            "schema_version": 1,
+            "kind": "launch-profile-refusal",
+            "verdict": "candidate_stale",
+            "ok": False,
+            "command": command,
+            "launched": False,
+            **receipt,
+            "candidate": {
+                "record": CANDIDATE_RECORD,
+                "recorded_content_digest": stored,
+                "current_content_digest": actual,
+            },
+            "failure": (
+                f"This profile substitutes {CONTENT_DIGEST} from {CANDIDATE_RECORD}, "
+                "but the project's files no longer hash to the digest that record "
+                "stores; run `studio candidate new` before launching so the engine "
+                "is handed the identity of the build it is actually running"
+            ),
+        }}
     if not identity["ok"]:
         return {"refused": {
             "schema_version": 1,

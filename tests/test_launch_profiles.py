@@ -224,20 +224,33 @@ class ProfileIdentityTests(ProfileCase):
 
 
 class ProfilePlaceholderTests(ProfileCase):
-    def candidate(self, digest="c" * 64):
+    def candidate(self, digest=None):
+        """Write a candidate record carrying the project's current digest.
+
+        Called after every project file the test writes, because the digest is
+        a claim about the files that exist when it is made -- which is exactly
+        what the stale check re-reads. The record itself lives under
+        `artifacts/`, which the inventory excludes, so writing it cannot move
+        the number it stores.
+        """
+        from studio_tools.common import digest as hash_record
+        from studio_tools.evidence import inventory
+
+        value = digest or hash_record(inventory(self.root))
         write_json(self.root / "artifacts/candidate.json",
-                   {"kind": "candidate", "content_digest": digest})
+                   {"kind": "candidate", "content_digest": value})
+        return value
 
     def test_the_three_placeholders_are_substituted_in_passthrough_and_flags(self):
-        self.candidate()
         name = self.profile(
             command="playtest", max_minutes=1,
             passthrough=["--evidence", "{project}/artifacts/run/{label}"],
             feature_flags=["--candidate-hash", "{content_digest}"],
         )
+        current = self.candidate()
         self.invoke(self.playtest_argv("--profile", name, "--label", "substituted"))
         self.assertIn(f"{self.root}/artifacts/run/substituted", self.last_args)
-        self.assertIn("c" * 64, self.last_args)
+        self.assertIn(current, self.last_args)
 
     def test_a_generated_label_is_the_one_the_run_directory_uses(self):
         name = self.profile(command="playtest", max_minutes=1,
@@ -257,6 +270,59 @@ class ProfilePlaceholderTests(ProfileCase):
         self.assertIn("artifacts/candidate.json", message)
         self.assertFalse((self.root / "artifacts/playtests").exists())
 
+    def test_a_stale_candidate_record_refuses_rather_than_naming_an_old_build(self):
+        # A stored digest is a claim about files, and the files moved. Handing
+        # the engine the identity of a build that no longer exists is exactly
+        # the confusion the digest was added to prevent.
+        name = self.profile(command="playtest", max_minutes=1,
+                            passthrough=["--hash", "{content_digest}"])
+        recorded = self.candidate()
+        (self.root / "asset.bin").write_bytes(b"different asset bytes")
+        with patch("studio_tools.playtest.run") as run:
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                with contextlib.redirect_stderr(io.StringIO()) as err:
+                    status = cli.main(self.playtest_argv("--profile", name, "--label", "stale"))
+        self.assertEqual(err.getvalue(), "")
+        self.assertEqual(status, 1)
+        run.assert_not_called()
+        payload = json.loads(out.getvalue())
+        self.assertEqual(payload["verdict"], "candidate_stale")
+        self.assertFalse(payload["ok"])
+        self.assertFalse(payload["launched"])
+        self.assertEqual(payload["candidate"]["recorded_content_digest"], recorded)
+        self.assertNotEqual(payload["candidate"]["current_content_digest"], recorded)
+        self.assertIn("studio candidate new", payload["failure"])
+        self.assertFalse((self.root / "artifacts/playtests").exists())
+
+    def test_a_candidate_record_without_a_hex_content_digest_is_refused(self):
+        name = self.profile(command="playtest", max_minutes=1,
+                            passthrough=["--hash", "{content_digest}"])
+        for record in ({"kind": "candidate"},
+                       {"kind": "candidate", "content_digest": ""},
+                       {"kind": "candidate", "content_digest": "not-a-digest"},
+                       {"kind": "candidate", "content_digest": "C" * 64},
+                       {"kind": "candidate", "content_digest": "a" * 63},
+                       {"kind": "candidate", "content_digest": 7}):
+            write_json(self.root / "artifacts/candidate.json", record)
+            with self.subTest(record=record):
+                status, _, err = self.invoke(self.playtest_argv("--profile", name))
+                self.assertEqual(status, 1)
+                message = json.loads(err)["error"]
+                self.assertIn("64 lowercase hexadecimal", message)
+                self.assertFalse((self.root / "artifacts/playtests").exists())
+
+    def test_a_stale_candidate_is_only_consulted_when_the_placeholder_is_used(self):
+        name = self.profile(command="playtest", max_minutes=1,
+                            passthrough=["--no-placeholder-here"])
+        self.candidate()
+        (self.root / "asset.bin").write_bytes(b"different asset bytes")
+        status, out, err = self.invoke(
+            self.playtest_argv("--profile", name, "--label", "unaffected")
+        )
+        self.assertEqual(err, "")
+        self.assertEqual(status, 0)
+        self.assertEqual(json.loads(out)["verdict"], "completed")
+
     def test_a_passthrough_brace_that_is_not_a_placeholder_is_left_alone(self):
         name = self.profile(command="playtest", max_minutes=1,
                             passthrough=["--json", '{"a": 1}'])
@@ -266,15 +332,19 @@ class ProfilePlaceholderTests(ProfileCase):
 
 class ProfileCheckTests(ProfileCase):
     def test_check_verifies_the_manifest_and_launches_nothing(self):
-        self.candidate_digest = "d" * 64
-        write_json(self.root / "artifacts/candidate.json",
-                   {"kind": "candidate", "content_digest": self.candidate_digest})
+        from studio_tools.common import digest as hash_record
+        from studio_tools.evidence import inventory
+
         name = self.profile(
             command="playtest", max_minutes=1, scene="res://scenes/entry.tscn",
             identity_manifest=self.manifest(),
             passthrough=["--secret-flag", "{content_digest}"],
             feature_flags=["--another-secret"],
         )
+        # Written last: the digest describes the files that exist now.
+        self.candidate_digest = hash_record(inventory(self.root))
+        write_json(self.root / "artifacts/candidate.json",
+                   {"kind": "candidate", "content_digest": self.candidate_digest})
         with patch("studio_tools.playtest.run") as run:
             with contextlib.redirect_stdout(io.StringIO()) as out:
                 with contextlib.redirect_stderr(io.StringIO()) as err:
@@ -292,6 +362,19 @@ class ProfileCheckTests(ProfileCase):
         for secret in ("--secret-flag", "--another-secret", self.candidate_digest):
             self.assertNotIn(secret, out.getvalue())
         self.assertFalse((self.root / "artifacts/playtests").exists())
+
+    def test_check_refuses_a_stale_candidate_too(self):
+        from studio_tools.common import digest as hash_record
+        from studio_tools.evidence import inventory
+
+        name = self.profile(command="playtest", max_minutes=1,
+                            passthrough=["{content_digest}"])
+        write_json(self.root / "artifacts/candidate.json",
+                   {"kind": "candidate", "content_digest": hash_record(inventory(self.root))})
+        (self.root / "asset.bin").write_bytes(b"moved on")
+        status, out, _ = self.invoke(self.playtest_argv("--profile", name, "--check"))
+        self.assertEqual(status, 1)
+        self.assertEqual(json.loads(out)["verdict"], "candidate_stale")
 
     def test_check_reports_a_mismatch_as_a_refusal_rather_than_a_pass(self):
         name = self.profile(command="playtest", max_minutes=1,
@@ -318,21 +401,31 @@ class ProfileCheckTests(ProfileCase):
 
 class ProfileReceiptContainmentTests(ProfileCase):
     def test_no_receipt_carries_a_passthrough_value(self):
-        write_json(self.root / "artifacts/candidate.json",
-                   {"kind": "candidate", "content_digest": "e" * 64})
+        from studio_tools.common import digest as hash_record
+        from studio_tools.evidence import inventory
+
         name = self.profile(
             command="playtest", max_minutes=1, identity_manifest=self.manifest(),
             passthrough=["--private-passthrough-value", "{content_digest}"],
             feature_flags=["--private-feature-flag"],
         )
+        current = hash_record(inventory(self.root))
+        write_json(self.root / "artifacts/candidate.json",
+                   {"kind": "candidate", "content_digest": current})
         self.invoke(self.playtest_argv("--profile", name, "--label", "contained"),
                  code="print('private-passthrough-value seen')")
         run_dir = self.root / "artifacts/playtests/contained"
         for receipt in ("playtest.json", "exit.json", "diagnostics.json", "process/process.json"):
             text = (run_dir / receipt).read_text(encoding="utf-8")
             with self.subTest(receipt=receipt):
-                for secret in ("--private-passthrough-value", "--private-feature-flag", "e" * 64):
+                for secret in ("--private-passthrough-value", "--private-feature-flag"):
                     self.assertNotIn(secret, text)
+        # The content digest is not a passthrough value that leaked: the
+        # session receipt records which build was played on its own account,
+        # and this profile happens to hand the engine the same number.
+        record = read_json(run_dir / "playtest.json")
+        self.assertEqual(record["content_digest"], current)
+        self.assertNotIn(current, json.dumps(record["launch_profile"]))
         # The log still holds what the child printed; that is what it is for.
         self.assertIn("private-passthrough-value",
                       (run_dir / "process/stdout.log").read_text(encoding="utf-8"))
