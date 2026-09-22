@@ -429,8 +429,10 @@ class EditJournalTests(unittest.TestCase):
         # any other, so the row carries the run directory leaf and a hash.
         blender = text(BLENDER)
         checkpoint = json.loads(blender.split("```json", 1)[1].split("```", 1)[0])
-        self.assertEqual(sorted(checkpoint["working_receipt"]), ["run_directory", "sha256"])
-        self.assertIn("never its absolute path", blender)
+        self.assertEqual(sorted(checkpoint["working_receipt"]),
+                         ["pid", "process_start_utc", "run_directory", "session_id"])
+        self.assertIn("never the receipt's absolute path", blender)
+        self.assertTrue(checkpoint["saved_scene"]["path"].startswith("artifacts/blender/checkpoints/"))
 
     def test_template_is_a_listed_resource(self):
         resources = set(read_json(ROOT / "studio-kit.json")["resources"])

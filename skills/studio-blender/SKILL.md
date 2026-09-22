@@ -45,16 +45,16 @@ At the first live checkpoint, copy the [edit journal](../../templates/edit-journ
 ```json
 {
   "id": "",
-  "working_receipt": {"run_directory": "<stamp>-<id>", "sha256": ""},
+  "working_receipt": {"run_directory": "<stamp>-<id>", "session_id": "", "pid": 0, "process_start_utc": ""},
   "applied": {"kind": "script | live-code", "path": "", "sha256": "", "reproducible": false},
-  "saved_scene": {"path": "", "sha256_after": ""},
+  "saved_scene": {"path": "artifacts/blender/checkpoints/<source-stem>/<id>.blend", "sha256_after": ""},
   "evidence": [],
   "authority": "agent | human",
   "limitation": "transcript-only edits; not reproducible from a project script"
 }
 ```
 
-`working_receipt` identifies the owning session portably: the leaf name of the run directory `ensure` created under `runs\` (`<stamp>-<id>`) and the receipt's sha256, never its absolute path, because a journal that names one host's drive cannot be read on another. The handback's evidence index lists the journal path. A checkpoint is reproducible only when it names a project script with that script's hash; otherwise it carries the transcript-only limitation, and no report may call it reproducible. Reopening from a checkpoint to apply a guarded script refuses a source whose hash differs from that checkpoint's `sha256_after`, because the journal then describes a scene that no longer exists and the script would be applied to something else. Keep secrets and user prompts out of the journal: it records paths, hashes, authority and evidence.
+`working_receipt` identifies the owning session portably and immutably: the leaf name of the run directory `ensure` created under `runs\` (`<stamp>-<id>`) plus the receipt's `session_id`, `pid` and `process_start_utc`, which the stop never rewrites; never the receipt's absolute path, because a journal that names one host's drive cannot be read on another, and never a hash of the receipt file, because the stop overwrites that file with its own status and the hash would then match nothing retained. `saved_scene.path` is a project-relative copy: each checkpoint publishes the saved working scene to `<GAME>/artifacts/blender/checkpoints/<source-stem>/<id>.blend` and hashes that copy, because the working scene itself lives in the external run directory and a handback that points there transfers nothing. The handback's evidence index lists the journal path. A checkpoint is reproducible only when it names a project script with that script's hash; otherwise it carries the transcript-only limitation, and no report may call it reproducible. Reopening from a checkpoint to apply a guarded script refuses a source whose hash differs from that checkpoint's `sha256_after`, because the journal then describes a scene that no longer exists and the script would be applied to something else. Keep secrets and user prompts out of the journal: it records paths, hashes, authority and evidence.
 
 Before stopping or restarting a live session, save a checkpoint, tell the human the visible window will close, run the receipt-bound stop — `python <KIT>/scripts/studio.py blender-mcp stop --project <GAME> --config <HOST> --receipt <ownership receipt>`, the receipt `ensure` returned — and report `CLOSED` only when that stop receipt records `status: CLOSED`. The stop writes one of two statuses ([`Stop-SupervisedBlenderMCP.ps1`](scripts/lifecycle/Stop-SupervisedBlenderMCP.ps1)): on `NEEDS_USER_CLOSE` the app did not close and nothing was force-killed, so preserve the receipt, tell the human which window needs a manual close, and start or reuse no session until a later stop records `CLOSED`. A human watched a window disappear during a listener restart and read it as a crash, because nothing had said it would close. A window that disappears during an interrupted stop is never reported as a crash without the receipt; it is an unconfirmed stop, named with its receipt, until the receipt-bound stop confirms it.
 
