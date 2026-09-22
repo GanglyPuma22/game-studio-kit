@@ -15,12 +15,21 @@ still requiring the loopback host exactly, refusing a privileged,
 out-of-range or non-numeric port; the configured port reaching every packaged
 script as an explicit `-Port` argument; a contract check that parses the three
 `.ps1` files and asserts no literal `9876` survives outside a parameter default,
-that the mutex name, the ownership receipt, the bootstrap and every listener
-check name the configured port instead, and that the excluded-port and
-occupied-port refusals come before the working copy is made; a fake PowerShell
-parent (`sys.executable -c`) that writes its JSON to the redirected file and
-spawns a long-lived grandchild, with `_run` asserted to return within the bound
-while that grandchild is still alive and the grandchild cleaned up afterwards;
+that the ownership receipt, the bootstrap and every listener check name the
+configured port instead, and that the excluded-port and occupied-port refusals
+come before the working copy is made; the lifecycle mutex asserted to stay
+host-wide and portless in both `Ensure` and `Stop`, because this lifecycle
+supervises one session per host and a per-port lock would let two starts race;
+the bound asserted to cover both bounded phases of a successful cold start (the
+60-second bootstrap window and the initial probe's own 75-second read timeout,
+read out of `probe_mcp.py`) rather than a round number; the stdio guard
+asserted to read `GetStdHandle`/`GetFileType` and refuse only `FILE_TYPE_PIPE`,
+never a .NET stream property, which reads false for file-redirected output on
+Windows PowerShell 5.1 and would have refused the packaged entrypoint; a fake
+PowerShell parent (`sys.executable -c`) that writes its JSON to the redirected
+file and spawns a long-lived grandchild, with `_run` asserted to return within
+the bound while that grandchild is still alive and the grandchild cleaned up
+afterwards;
 the per-call run directory named by operation and UTC stamp holding both
 streams; a parent that outlives the bound returning a terminal receipt with
 `status: ensure_did_not_return`, `owned_process_action: "none"` and no host path
@@ -279,10 +288,13 @@ verdict; a profile declaring no manifest saying `not_declared` rather than
 claiming a match; `{label}`, `{project}` and `{content_digest}` substituted in
 both the passthrough and the feature flags, a generated label naming the run
 directory the receipts are in, the content-digest placeholder refused without
-`artifacts/candidate.json`, and a passthrough brace that is not a placeholder
-left alone; `--check` verifying the manifest, launching nothing, printing counts
-and field names and no passthrough value, refusing a mismatch and needing a
-`--profile`; no receipt of a profile-resolved run carrying a passthrough value
+`artifacts/candidate.json`, a candidate record whose stored digest no longer
+describes the project refused with verdict `candidate_stale` and both digests
+named, a record carrying no 64-character lowercase hexadecimal digest refused
+outright, the candidate consulted only when the placeholder is actually used,
+and a passthrough brace that is not a placeholder left alone; `--check` verifying the manifest, launching nothing, printing counts
+and field names and no passthrough value, refusing a mismatch and a stale
+candidate, and needing a `--profile`; no receipt of a profile-resolved run carrying a passthrough value
 while the combined log still holds it; and a command without a profile recording
 `launch_profile: null` and behaving exactly as before. The shipped
 `templates/launch-profile.json` is checked as a file: a valid profile naming all
@@ -350,10 +362,15 @@ produced, with the must-vary check still reported beside it; a held invariant
 over varying runs passing; a run whose declared result never appeared making the
 whole check `unverified` rather than passing; a pointer that names nothing
 counted as a violation rather than a match; pointers walking nested objects and
-array indexes, including the whole-document pointer `""`; every malformed
-declaration refused before any run starts; and the shipped
-`templates/batch-plan.json` declaring both fields by example. Each run declares
-its own result file, which is what makes the set comparable at all.
+array indexes, including the whole-document pointer `""` and `//value`, whose
+first token is the empty string and names a key that is literally `""`; every
+malformed declaration refused before any run starts, including a non-finite
+number (`NaN`, `Infinity`, `-Infinity`) nested anywhere inside an invariant's
+`equals`; two runs declaring the same result file refused before anything
+launches while the same plan without an experiment still runs; a path spelled
+two ways caught as one file; and the shipped `templates/batch-plan.json`
+declaring both fields by example with a distinct result file per run. Each run
+declares its own result file, which is what makes the set comparable at all.
 
 ## Cleanroom and host preflight tests
 
