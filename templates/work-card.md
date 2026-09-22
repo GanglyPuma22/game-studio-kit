@@ -5,6 +5,7 @@
 - Approved reference IDs, versions, hashes and rights:
 - Decided / proposed / open facts (include companion/narrative state):
 - Scene or asset scope and explicit out-of-scope items:
+- Decision type (perceptual-exploratory | deterministic-repeatable) and chosen route (live scene | owned background job):
 - Existing session authorization / provider account route:
 - Time, request/credit/money and iteration budgets, current rate check:
 - Asset source/runtime destinations and expected dimensions/pivot:
@@ -17,6 +18,8 @@
 - Relevant acceptance dimensions and required evidence:
 - Current candidate/content/workflow identity:
 - Completed work / known limits / next decision:
+
+Decision type picks the route before the first command: a perceptual question — silhouette, proportion, construction language, reference match, composition, material response, camera readability — starts in a persistent live scene, or labels a background result a time-boxed blockout that enters a visual loop immediately, because one monolithic generator run answers a look question with a take nobody watched being made; a deterministic operation — import, export, bake, reduction, measurement, qualification, replay of a settled edit — runs as an owned background job, because it has to leave a receipt and repeat tomorrow.
 
 Use exact facts; leave unknown facts open. A bounded correction can fix an observed
 failure within this card. Stop a paid retry when budget is exhausted or submission

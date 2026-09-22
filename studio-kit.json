@@ -131,7 +131,8 @@
     "templates/state.md",
     "templates/worker-brief.md",
     "templates/work-card.md",
-    "templates/playtest-harness.gd"
+    "templates/playtest-harness.gd",
+    "templates/edit-journal.json"
   ],
   "commands": [
     "check-package",

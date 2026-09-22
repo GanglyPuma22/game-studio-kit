@@ -27,6 +27,7 @@ preserve unique run logs and classify completed output before reporting status.
 | Gameplay action, story/companion state | [studio-game-design](../studio-game-design/SKILL.md) |
 | Reference/style contract and concept comparison | [studio-art-direction](../studio-art-direction/SKILL.md) |
 | Modeling, material, render, GLB | [studio-blender](../studio-blender/SKILL.md) |
+| Is this Blender question perceptual (silhouette, proportion, construction language, reference match, composition, material response, camera readability) or deterministic (import, export, bake, reduce, measure, qualify, replay a settled edit)? | Perceptual: a persistent [live scene](../studio-blender/SKILL.md#live-sessions-journal-then-save-announce-stop). Deterministic: an owned background job, `blender run`, the row below. Decide it on this row, because a monolithic background generator answers a look question with one take nobody watched being made |
 | Blender script to execute headlessly (bake, export, mesh repair) | `studio blender run` with an explicit `--source`, `--script` and each `--result` it must produce |
 | Provider mesh arrived, is it usable? | `studio blender inspect`: per-mesh topology, because a triangle count inside budget is not a usable mesh |
 | Mesh too dense or defective for a rig or collision | `studio blender reduce` from the intact archived original, not a second paid remesh |
