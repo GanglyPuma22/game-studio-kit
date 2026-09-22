@@ -885,7 +885,11 @@ class PlaytestContentDigestTests(PlaytestCase):
                                  label="ordered", max_minutes=1)
         self.assertTrue(seen["engine_started_after"])
 
-    def test_an_attended_session_records_both_digests_across_its_collection(self):
+    def test_an_attended_collection_measures_at_collect_not_at_an_observed_exit(self):
+        # Nothing waited for this session, so an edit between quitting and
+        # collecting cannot be attributed to the playing: the collection says
+        # the project changed before it was collected, which is a reason to
+        # distrust the evidence rather than a claim about what was played.
         started = self.attend("import time;time.sleep(0.2)", label="watched")
         record = read_json(self.root / "artifacts/playtests/watched/playtest.json")
         self.assertEqual(started["content_digest"], record["content_digest"])
@@ -893,8 +897,32 @@ class PlaytestContentDigestTests(PlaytestCase):
         (self.root / "scenes" / "entry.tscn").write_text("[gd_scene]\nlater\n", encoding="utf-8")
         collected = playtest.collect(self.config, self.root, "watched")
         self.assertEqual(collected["content_digest"], record["content_digest"])
-        self.assertNotEqual(collected["content_digest_after_exit"], record["content_digest"])
-        self.assertTrue(collected["diagnostics"]["content_changed_during_session"])
+        self.assertNotEqual(collected["content_digest_at_collect"], record["content_digest"])
+        self.assertTrue(collected["diagnostics"]["content_changed_before_collect"])
+        # The during-session claim belongs to the sessions this kit waited
+        # for, and is never made about one it did not observe.
+        self.assertNotIn("content_digest_after_exit", collected)
+        self.assertNotIn("content_changed_during_session", collected["diagnostics"])
+        on_disk = read_json(self.root / "artifacts/playtests/watched/exit.json")
+        self.assertEqual(on_disk["content_digest_at_collect"],
+                         collected["content_digest_at_collect"])
+        self.assertNotIn("content_digest_after_exit", on_disk)
+        self.assertNotIn("content_changed_during_session",
+                         read_json(self.root / "artifacts/playtests/watched/diagnostics.json"))
+
+    def test_an_unchanged_attended_project_reports_no_change_before_collect(self):
+        started = self.attend("import time;time.sleep(0.2)", label="steady")
+        self.settled(started["pid"])
+        collected = playtest.collect(self.config, self.root, "steady")
+        self.assertEqual(collected["content_digest_at_collect"], collected["content_digest"])
+        self.assertFalse(collected["diagnostics"]["content_changed_before_collect"])
+
+    def test_a_waited_session_keeps_the_during_session_wording(self):
+        result = self.execute("print('played')", label="waited", max_minutes=1)
+        self.assertIn("content_digest_after_exit", result)
+        self.assertIn("content_changed_during_session", result["diagnostics"])
+        self.assertNotIn("content_digest_at_collect", result)
+        self.assertNotIn("content_changed_before_collect", result["diagnostics"])
 
     def test_a_project_that_cannot_be_inventoried_still_plays(self):
         with patch("studio_tools.playtest.inventory", side_effect=StudioError("not portable")):

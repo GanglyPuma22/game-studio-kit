@@ -806,11 +806,18 @@ def _collected(config, root, run_dir, record_path, playtest):
     playtest["engine_running_at_collect"] = running
     write_json(record_path, playtest)
     diagnostics = classify_log(text)
-    after_content = content_digest(root)
-    diagnostics["content_changed_during_session"] = (
+    # Measured now, which for an attended session is whenever the player got
+    # round to asking for the collection -- not when they quit the game.
+    # Nothing here observed the exit, so a difference cannot be attributed to
+    # the session: it says the project changed at some point before this
+    # collection, which is a reason to distrust the evidence rather than a
+    # claim about what was played. `content_changed_during_session` is left to
+    # the sessions this kit actually waited for.
+    collect_content = content_digest(root)
+    diagnostics["content_changed_before_collect"] = (
         playtest.get("content_digest") is not None
-        and after_content is not None
-        and after_content != playtest["content_digest"]
+        and collect_content is not None
+        and collect_content != playtest["content_digest"]
     )
     write_json(run_dir / "diagnostics.json", diagnostics)
     result_files = _result_files(root, playtest)
@@ -858,7 +865,9 @@ def _collected(config, root, run_dir, record_path, playtest):
         "survivors": None,
         "combined_log_bytes": log_path.stat().st_size if log_path.is_file() else 0,
         "content_digest": playtest.get("content_digest"),
-        "content_digest_after_exit": after_content,
+        # Named for when it was taken. There is no observed exit to measure
+        # after, so this is not `content_digest_after_exit`.
+        "content_digest_at_collect": collect_content,
         "diagnostics": diagnostics,
         "result_files": result_files,
         "failure": failure,
