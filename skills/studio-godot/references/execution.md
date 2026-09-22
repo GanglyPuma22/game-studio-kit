@@ -30,6 +30,18 @@ Configure a real `export_presets.cfg`, then run `godot export --project <GAME> -
 
 ## Owned blocking launch
 
+A project that is launched the same way more than once declares how in a
+`launch-profile.json` (copy `templates/launch-profile.json` from the kit)
+and runs `launch --profile <file>` or `playtest start --profile <file>`: the
+profile names the mode or session, scene, script, renderer, resolution, timeouts,
+results, passthrough and feature flags, and an identity manifest the command
+verifies before anything starts (`identity_mismatch` refuses). `{label}`,
+`{project}` and `{content_digest}` are substituted in passthrough strings, and
+`--check` verifies the manifest and prints counts without launching. This is
+the replacement for a project script that hashes assets and then builds the
+launch command by hand; nine such scripts were found in one project, six of
+them identical but for the flags. See [process and evidence lifecycle](../../../references/execution-evidence.md).
+
 `launch` runs the engine once for a project-owned script and returns one verdict
 when the process ends; see [process and evidence lifecycle](../../../references/execution-evidence.md).
 Modes: `import` (`--headless --audio-driver Dummy --editor --import`), `test` and
