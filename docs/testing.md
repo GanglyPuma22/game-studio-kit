@@ -7,7 +7,37 @@ python -m unittest discover -s tests -v
 python -m studio_tools check-package --root .
 ```
 
-The standard-library tests use temporary directories and mocked provider boundaries. They cover package relocation and reference closure, invalid config/missing tools, process timeout ownership, candidate content/capture mismatches, missing exports/clip metadata, nonhumanoid rig rejection, interrupted/ambiguous Meshy lifecycle, partial downloads, local PCM/trim/loop behavior, hosted audio error redaction, terrain dimensions/seams, Gaea capability/recipe checks, app command construction, and Blender MCP status/retry policy. They do not call a provider or control the visible desktop. `Test-LifecycleContracts.ps1` checks PowerShell parsing and static invariants; it is not a count of native lifecycle behavior tests.
+The standard-library tests use temporary directories and mocked provider boundaries. They cover package relocation and reference closure, invalid config/missing tools, process timeout ownership, candidate content/capture mismatches, missing exports/clip metadata, nonhumanoid rig rejection, interrupted/ambiguous Meshy lifecycle, partial downloads, local PCM/trim/loop behavior, hosted audio error redaction, terrain dimensions/seams, Gaea capability/recipe checks, app command construction, and Blender MCP status/retry policy.
+`test_blender_mcp_lifecycle.py` also covers the configurable listener port and
+the `ensure` return guarantee with no PowerShell and no Blender: the validator
+accepting any `BLENDER_PORT` from 1024 to 65535 and defaulting to 9876 while
+still requiring the loopback host exactly, refusing a privileged,
+out-of-range or non-numeric port; the configured port reaching every packaged
+script as an explicit `-Port` argument; a contract check that parses the three
+`.ps1` files and asserts no literal `9876` survives outside a parameter default,
+that the mutex name, the ownership receipt, the bootstrap and every listener
+check name the configured port instead, and that the excluded-port and
+occupied-port refusals come before the working copy is made; a fake PowerShell
+parent (`sys.executable -c`) that writes its JSON to the redirected file and
+spawns a long-lived grandchild, with `_run` asserted to return within the bound
+while that grandchild is still alive and the grandchild cleaned up afterwards;
+the per-call run directory named by operation and UTC stamp holding both
+streams; a parent that outlives the bound returning a terminal receipt with
+`status: ensure_did_not_return`, `owned_process_action: "none"` and no host path
+in it; and the two-layer connection report — `overall` never `CONNECTED` unless
+the helper passed and the app client is connected, the exact reconnect
+instruction carried only by `RECONNECT_REQUIRED`, each app-client status mapped
+to its own state, the documented stale status retried exactly once and a second
+one reported rather than retried again, nothing retried without a passed
+`ensure`, a transport exception propagating untouched, no mutation routed
+through the retrying reader, and `blender-mcp status` reporting
+`app_client: UNKNOWN` because the kit cannot see the app's connector.
+The native Windows behaviour behind all of this — one `ensure` returning one
+JSON object within the bound while its PowerShell parent has exited and the
+receipt-bound Blender is alive, and a later `stop` closing exactly that PID — is
+a documented hand procedure in the
+[native Windows qualification card](../skills/studio-blender/references/windows-lifecycle-qualification.md),
+not a portable test. They do not call a provider or control the visible desktop. `Test-LifecycleContracts.ps1` checks PowerShell parsing and static invariants; it is not a count of native lifecycle behavior tests.
 
 For optional isolated native QOA success/failure regressions, set `STUDIO_TEST_GODOT`
 to an existing native Godot executable before running the suite. The test creates
@@ -195,6 +225,18 @@ nor a task record, a key rotated between the request and its redaction leaving
 the sent key out of the record, and a malformed declaration refused when the
 host config loads.
 
+`test_audio_balance.py` covers the read-only `audio balance` command with the
+provider transport replaced: the ElevenLabs subscription endpoint called with
+the `xi-api-key` header and nothing else, only tier, status and the character
+counts printed while the rest of the subscription response (billing period,
+currency, voice slots, reset timestamp) is dropped, a declared credential file
+used with no file written anywhere, every failure returned as an error *type*
+with `network_probed` saying honestly whether the account was contacted, a
+missing credential refused before any request, a partial response reporting only
+what it carried, `--provider fish` answering `unsupported` because this adapter
+knows no Fish account endpoint, and the operations that write still requiring
+their project. No network call is made.
+
 `test_meshy_balance.py` covers the read-only `meshy balance` command with the
 provider transport replaced: the number and nothing else about the account
 printed, a non-finite balance refused rather than serialized, a declared credential file used with no file written anywhere, every
@@ -210,12 +252,45 @@ invented by the helper, and an out-of-range request refused before any transport
 is constructed.
 
 ```text
+python -m unittest discover -s tests -p test_audio_balance.py -v
 python -m unittest discover -s tests -p test_blender_run.py -v
 python -m unittest discover -s tests -p test_mesh_topology.py -v
 # and once where numpy is importable, to run the array-path comparisons
 python -m unittest discover -s tests -p test_credential_files.py -v
 python -m unittest discover -s tests -p test_meshy_balance.py -v
 python -m unittest discover -s tests -p test_meshy_image_profile.py -v
+```
+
+## Launch and playtest profiles
+
+`test_launch_profiles.py` covers the project-owned profile that replaces a
+wrapper script, with small Python child processes standing in for the engine: a
+playtest profile supplying session, scene, renderer, resolution, cap,
+passthrough and feature flags; a launch profile supplying mode, script, timeout,
+scope and results; an explicitly typed flag overriding the single field it names
+while everything else still comes from the profile; a typed passthrough
+replacing the profile's own without dropping its feature flags; a profile
+written for the other command refused; a field belonging to the other parser
+named rather than ignored; malformed profiles and a profile outside the project
+refused before anything starts; a mismatched or missing identity-manifest item
+returning verdict `identity_mismatch` with nothing launched and the identity
+receipt named project-relative; a matching manifest reaching both receipts as a
+verdict; a profile declaring no manifest saying `not_declared` rather than
+claiming a match; `{label}`, `{project}` and `{content_digest}` substituted in
+both the passthrough and the feature flags, a generated label naming the run
+directory the receipts are in, the content-digest placeholder refused without
+`artifacts/candidate.json`, and a passthrough brace that is not a placeholder
+left alone; `--check` verifying the manifest, launching nothing, printing counts
+and field names and no passthrough value, refusing a mismatch and needing a
+`--profile`; no receipt of a profile-resolved run carrying a passthrough value
+while the combined log still holds it; and a command without a profile recording
+`launch_profile: null` and behaving exactly as before. The shipped
+`templates/launch-profile.json` is checked as a file: a valid profile naming all
+three placeholders, registered in `studio-kit.json`, and loadable through the
+real resolver.
+
+```text
+python -m unittest discover -s tests -p test_launch_profiles.py -v
 ```
 
 ## Interactive playtest
@@ -249,9 +324,36 @@ refused. A separate check reads the skill and template as files: that they name
 the kit commands they describe, keep the two harness rules, and contain no
 host-specific absolute path. No engine, provider or desktop is involved.
 
+A separate class covers the session's content digest: `playtest.json` carrying
+the same `evidence.inventory` digest a candidate record carries and `exit.json`
+carrying it again as `content_digest_after_exit`, the receipts this session
+writes under `artifacts/` never moving the number, content edited under the
+session reported as `content_changed_during_session` in both the result and
+`diagnostics.json` while the run-health verdict and `acceptance` are unchanged,
+the digest taken before the engine starts, an attended session recording both
+digests across its later `collect`, and a project that cannot be inventoried
+portably still playing with `null` for both.
+
 ```text
 python -m unittest discover -s tests -p test_playtest.py -v
 ```
+
+## Batched launches and declared experiments
+
+`test_batch.py` covers the blocking `batch` command and, in a separate class,
+the optional experiment a plan may declare: a plan without `invariants` or
+`must_vary` behaving exactly as before with `experiment: null`; identical values
+failing `must_vary` with verdict `invalid_experiment` and `ok` false even though
+every row ran and every row is ok; two distinct values satisfying it; a violated
+invariant naming the pointer, the runs that violated it and the value each run
+produced, with the must-vary check still reported beside it; a held invariant
+over varying runs passing; a run whose declared result never appeared making the
+whole check `unverified` rather than passing; a pointer that names nothing
+counted as a violation rather than a match; pointers walking nested objects and
+array indexes, including the whole-document pointer `""`; every malformed
+declaration refused before any run starts; and the shipped
+`templates/batch-plan.json` declaring both fields by example. Each run declares
+its own result file, which is what makes the set comparable at all.
 
 ## Cleanroom and host preflight tests
 

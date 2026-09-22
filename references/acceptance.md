@@ -12,6 +12,8 @@ An evidence entry adds `content_digest`, `method`, `observer` to a hashed artifa
 
 Acceptance requires all relevant verdicts passed, reasons for inapplicable dimensions, no unresolved defects, and an explicit reviewer/rationale. `validate-record` refuses missing or mismatched evidence and changed content; it cannot authenticate invented captures or replace judgment.
 
+Three verdicts the kit now returns are refusals to produce evidence, never evidence themselves. `identity_mismatch` means a launch profile's declared identity manifest did not verify and nothing was started, so there is no session or run to judge. `invalid_experiment` means a batch of green runs did not produce the comparison its own plan asked for — a held-constant field moved, a must-vary field did not, or a declared result could not be read — so the numbers in those runs are not a comparison whatever their rows say. Neither says anything about what a passing run would have shown. The playtest content digest works the other way round: `content_digest` in `playtest.json` and `content_digest_after_exit` in `exit.json` are what bind a human's verdict to one build rather than to a date, and `content_changed_during_session: true` in the diagnostics means the session was not played on the build its own receipt names — attach such a session as evidence only with that fact recorded beside it.
+
 If the native route is unavailable, finish independent generation/import and provide [the native smoke procedure](../docs/windows-smoke.md), exact candidate identity, commands, expected observations and remaining questions. The package can be implementation-complete while target-host verification and production pilot acceptance remain pending.
 
 
