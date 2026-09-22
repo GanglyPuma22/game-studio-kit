@@ -3,6 +3,13 @@
   "kind": "feature-manifest",
   "canonical_route": [],
   "route_source": "contract",
+  "maturity_values": [
+    "source-ready",
+    "root-reviewed",
+    "integrated",
+    "native-reviewed",
+    "user-accepted"
+  ],
   "features": [
     {
       "feature": "example-feature",
@@ -11,6 +18,7 @@
       "launch_flags": [],
       "source_revision": "0000000000000000000000000000000000000000",
       "installed_by": "res://scenes/main.tscn",
+      "maturity": "source-ready",
       "human_verdict": "pending",
       "evidence": [],
       "content_digest": "0000000000000000000000000000000000000000000000000000000000000000"
