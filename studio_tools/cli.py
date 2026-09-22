@@ -40,7 +40,10 @@ def parser():
         "so the caller's harness must be told to wait at least that long."
     )
     c.add_argument("--sha256", required=True, help="Expected SHA-256 of executables.godot from the host config")
-    c.add_argument("--mode", choices=["import", "test", "check", "native"], default="import")
+    # Defaults live in dispatch rather than here, so a profile can supply a
+    # value and an explicitly typed flag can still be told apart from silence.
+    c.add_argument("--mode", choices=["import", "test", "check", "native"], default=None,
+                   help="Default import; a --profile may supply it instead")
     c.add_argument("--script", help="Engine script argument, for example res://tests/test_runner.gd")
     c.add_argument("--timeout", type=float, help="Seconds; defaults to host timeout, bounded by --cutoff-utc")
     c.add_argument("--cutoff-utc", help="ISO 8601 UTC instant after which no launch may start or run")
@@ -48,6 +51,10 @@ def parser():
     c.add_argument("--scope", help="Scope rung this launch is evidence for; persisted in the receipts")
     c.add_argument("--result", action="append", default=[], help="Project-relative file the run must produce")
     c.add_argument("--scrub-env", action="append", default=[], help="Environment prefix removed from the child")
+    c.add_argument("--profile", help="Project-relative launch profile JSON; see templates/launch-profile.json")
+    c.add_argument("--check", action="store_true",
+                   help="Verify the profile's identity manifest and print the resolved argument "
+                        "counts without launching anything")
     c.add_argument("passthrough", nargs=argparse.REMAINDER, help="-- and the arguments after it go to the engine unchanged")
     # Several launches, one blocking call. This is a command of its own rather
     # than a `launch` sub-verb because `launch`'s passthrough is a remainder
@@ -85,8 +92,9 @@ def parser():
     c.add_argument("--config")
     c.add_argument("--project", required=True, help="Explicit game/output root outside the toolkit")
     c.add_argument("--sha256", required=True, help="Expected SHA-256 of executables.godot from the host config")
-    c.add_argument("--session", choices=["handoff", "attended", "driven"], default="handoff",
-                   help="handoff blocks until the player quits; attended returns for one later collect; driven runs a harness")
+    c.add_argument("--session", choices=["handoff", "attended", "driven"], default=None,
+                   help="handoff blocks until the player quits; attended returns for one later collect; "
+                        "driven runs a harness. Default handoff; a --profile may supply it instead")
     c.add_argument("--scene", help="res:// scene to play; omitted plays the project's main scene")
     c.add_argument("--script", help="Harness script for --session driven, for example res://tests/route.gd")
     c.add_argument("--label", help="Run identity under artifacts/playtests; default is a new UUID")
@@ -103,6 +111,10 @@ def parser():
                    help="Play on the real user profile so saves and settings persist")
     c.add_argument("--no-launcher", action="store_true", help="Skip the re-runnable relaunch script")
     c.add_argument("--cutoff-utc", help="ISO 8601 UTC instant after which no playtest may start or run")
+    c.add_argument("--profile", help="Project-relative launch profile JSON; see templates/launch-profile.json")
+    c.add_argument("--check", action="store_true",
+                   help="Verify the profile's identity manifest and print the resolved argument "
+                        "counts without launching anything")
     c.add_argument("passthrough", nargs=argparse.REMAINDER, help="-- and the arguments after it go to the engine unchanged")
     c = ops.add_parser("collect")
     c.add_argument("--config")
@@ -302,6 +314,31 @@ def main(argv=None):
         return 1
 
 
+def _profile_fields(config, root, command, a, overrides):
+    """Resolve `--profile`/`--check` into the arguments a launcher already takes.
+
+    Returns (fields, receipt extras, refusal). Without `--profile` this is the
+    caller's own flags and nothing else, so a command that never names a
+    profile behaves exactly as it did.
+    """
+    if not a.profile:
+        if a.check:
+            raise StudioError(
+                "--check verifies a launch profile's identity manifest; name one with --profile"
+            )
+        fields = {name: value for name, value in overrides.items() if value not in (None, [])}
+        fields["label"] = a.label
+        return fields, {}, None
+    from . import profile as profiles
+
+    resolved = profiles.resolve(
+        config, root, command, overrides, path=a.profile, label=a.label, check=a.check
+    )
+    if "refused" in resolved:
+        return {}, {}, resolved["refused"]
+    return resolved["arguments"], resolved["receipt"], None
+
+
 def dispatch(a):
     config = load(a.config)
     if a.command == "check-package":
@@ -346,10 +383,19 @@ def dispatch(a):
         # not created here: a mistyped --project must fail, not be built empty.
         # Godot exposes only arguments after `--` through OS.get_cmdline_user_args(),
         # so the separator itself must reach the engine.
+        root = Path(a.project).resolve()
+        fields, extra, refusal = _profile_fields(config, root, "launch", a, {
+            "mode": a.mode, "script": a.script, "timeout": a.timeout, "scope": a.scope,
+            "results": a.result, "scrub_env": a.scrub_env, "passthrough": list(a.passthrough),
+        })
+        if refusal is not None:
+            return refusal
         return launch_execute(
-            config, Path(a.project).resolve(), sha256_expected=a.sha256, mode=a.mode,
-            script=a.script, timeout=a.timeout, cutoff_utc=a.cutoff_utc, label=a.label,
-            scope=a.scope, results=a.result, scrub=a.scrub_env, passthrough=list(a.passthrough),
+            config, root, sha256_expected=a.sha256, mode=fields.get("mode") or "import",
+            script=fields.get("script"), timeout=fields.get("timeout"), cutoff_utc=a.cutoff_utc,
+            label=fields.get("label"), scope=fields.get("scope"),
+            results=fields.get("results", []), scrub=fields.get("scrub_env", []),
+            passthrough=fields.get("passthrough", []), **extra,
         )
     if a.command == "batch":
         from .batch import execute as batch_execute
@@ -371,13 +417,25 @@ def dispatch(a):
         # OS.get_cmdline_user_args() to expose anything after it.
         if a.operation == "collect":
             return playtest_collect(config, Path(a.project).resolve(), a.label)
+        root = Path(a.project).resolve()
+        fields, extra, refusal = _profile_fields(config, root, "playtest", a, {
+            "session": a.session, "scene": a.scene, "script": a.script,
+            "rendering_method": a.rendering_method, "resolution": a.resolution,
+            "max_minutes": a.max_minutes, "results": a.result, "scrub_env": a.scrub_env,
+            "passthrough": list(a.passthrough),
+        })
+        if refusal is not None:
+            return refusal
         return playtest_execute(
-            config, Path(a.project).resolve(), sha256_expected=a.sha256, session=a.session,
-            scene=a.scene, script=a.script, label=a.label, max_minutes=a.max_minutes,
-            cutoff_utc=a.cutoff_utc, results=a.result, scrub=a.scrub_env,
-            passthrough=list(a.passthrough), use_host_profile=a.use_host_profile,
-            emit_launcher=not a.no_launcher, rendering_method=a.rendering_method,
-            resolution=a.resolution,
+            config, root, sha256_expected=a.sha256,
+            session=fields.get("session") or "handoff",
+            scene=fields.get("scene"), script=fields.get("script"),
+            label=fields.get("label"), max_minutes=fields.get("max_minutes"),
+            cutoff_utc=a.cutoff_utc, results=fields.get("results", []),
+            scrub=fields.get("scrub_env", []), passthrough=fields.get("passthrough", []),
+            use_host_profile=a.use_host_profile, emit_launcher=not a.no_launcher,
+            rendering_method=fields.get("rendering_method"),
+            resolution=fields.get("resolution"), **extra,
         )
     if a.command == "evidence":
         if a.operation == "verify":
