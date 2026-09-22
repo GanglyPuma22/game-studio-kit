@@ -11,7 +11,9 @@ for the engine; no engine, provider or desktop is involved.
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import unittest
@@ -322,6 +324,38 @@ class ProfilePlaceholderTests(ProfileCase):
         self.assertEqual(err, "")
         self.assertEqual(status, 0)
         self.assertEqual(json.loads(out)["verdict"], "completed")
+
+    def test_the_project_placeholder_takes_the_host_spelling_the_engine_gets(self):
+        # A Windows engine driven from WSL is handed `--path C:\Work`; a
+        # passthrough path spelled `/tmp/.../game` beside it would name a
+        # directory that engine cannot open.
+        engine = Path(self.tmp.name) / "godot.exe"
+        try:
+            os.link(sys.executable, engine)
+        except OSError:
+            shutil.copy2(sys.executable, engine)
+        write_json(self.host_config, {
+            "executables": {"godot": str(engine)},
+            "timeout": 5,
+            "path_mappings": [{"from": str(self.root), "to": "C:\\Work"}],
+        })
+        name = self.profile(command="playtest", max_minutes=1,
+                            passthrough=["--evidence", "{project}/artifacts/run"])
+        self.invoke([
+            "playtest", "start", "--project", str(self.root),
+            "--config", str(self.host_config), "--sha256", sha256(engine),
+            "--profile", name, "--label", "mapped",
+        ])
+        self.assertIn("C:\\Work/artifacts/run", self.last_args)
+        # The same spelling the launcher gave the engine for --path.
+        self.assertEqual(self.last_args[self.last_args.index("--path") + 1], "C:\\Work")
+        self.assertNotIn(str(self.root), " ".join(self.last_args))
+
+    def test_an_unmapped_host_still_substitutes_its_own_project_root(self):
+        name = self.profile(command="playtest", max_minutes=1,
+                            passthrough=["--evidence", "{project}"])
+        self.invoke(self.playtest_argv("--profile", name, "--label", "unmapped"))
+        self.assertIn(str(self.root), self.last_args)
 
     def test_a_passthrough_brace_that_is_not_a_placeholder_is_left_alone(self):
         name = self.profile(command="playtest", max_minutes=1,
