@@ -1,5 +1,6 @@
 """The run guidance a Codex agent executes: waiting, feature rows, tiers, snapshots."""
 
+import json
 from pathlib import Path
 import unittest
 
@@ -25,7 +26,10 @@ CHANGED_MARKDOWN = (
     PROCEDURE, BLOCK, PLAYTEST, REVIEW, GAME_DESIGN, CONTRACTS, RETURN, STATE,
     BLENDER, DIRECTOR, WORK_CARD,
 )
-MATURITY = ("source-ready", "root-reviewed", "integrated", "native-reviewed", "user-accepted")
+MATURITY = (
+    "in-progress", "source-ready", "root-reviewed", "integrated", "native-reviewed",
+    "user-accepted",
+)
 
 
 def text(path):
@@ -334,7 +338,9 @@ class LaneMaturityTests(unittest.TestCase):
     def test_the_manifest_row_carries_a_maturity_and_the_template_names_every_step(self):
         record = read_json(MANIFEST)
         self.assertEqual(record["maturity_values"], list(MATURITY))
-        self.assertEqual(record["features"][0]["maturity"], "source-ready")
+        # The example row is integrated, so its route fields are filled;
+        # an in-progress or source-ready row carries all four as null.
+        self.assertEqual(record["features"][0]["maturity"], "integrated")
         self.assertEqual(record["route_source"], "contract")
 
     def test_each_step_names_the_evidence_that_reaches_it(self):
@@ -360,34 +366,56 @@ class LaneMaturityTests(unittest.TestCase):
             self.assertIn("leaves the active-worker list", body, path.name)
         self.assertIn("never drop a row because its\nworker finished", text(PROCEDURE))
 
-    def test_a_row_exists_before_the_lane_is_wired(self):
+    def test_a_row_opens_in_progress_and_earns_source_ready(self):
         # A manifest of wired features only cannot show the finished lane
-        # nobody integrated, which is the failure it exists to make visible.
+        # nobody integrated; a row that opened at source-ready would claim a
+        # deliverable before anything had been produced.
         procedure = text(PROCEDURE)
         self.assertIn("A row is created by the work existing, not by the work being wired", procedure)
         for field in ("route_step", "entry", "installed_by", "launch_flags"):
             self.assertIn(f"`{field}`", procedure, field)
-        self.assertIn('`"maturity": "source-ready"`', procedure)
+        self.assertIn('`"maturity": "in-progress"`', procedure)
         self.assertIn('`"human_verdict": "pending"`', procedure)
-        self.assertIn("`null` until integration fills them", text(REVIEW))
+        self.assertIn('moves to `"maturity": "source-ready"` only when a checked deliverable exists', procedure)
+        self.assertIn("opened at `in-progress` when the\nworker was spawned", procedure)
+        review = text(REVIEW)
+        self.assertIn("`null` until integration fills them", review)
+        self.assertIn("an `in-progress` or `source-ready` row carries all four as `null`", review)
 
 
 class EditJournalTests(unittest.TestCase):
-    def test_template_parses_and_carries_the_checkpoint_fields(self):
+    def test_template_is_an_empty_journal_that_documents_its_checkpoint_fields(self):
+        # A copied template starts with no checkpoints, so the fields are
+        # documented rather than shipped as a row somebody has to delete.
         record = read_json(JOURNAL)
         self.assertEqual(record["schema_version"], 1)
         self.assertEqual(record["kind"], "edit-journal")
         self.assertEqual(sorted(record["source"]), ["path", "sha256_before"])
-        self.assertEqual(len(record["checkpoints"]), 1)
-        checkpoint = record["checkpoints"][0]
-        for field in ("id", "working_receipt", "applied", "saved_scene", "evidence", "authority", "limitation"):
-            self.assertIn(field, checkpoint)
+        self.assertEqual(record["checkpoints"], [])
+        self.assertEqual(
+            record["checkpoint_fields"],
+            ["id", "working_receipt", "applied", "saved_scene", "evidence", "authority", "limitation"],
+        )
+
+    def test_the_skill_shows_one_checkpoint_carrying_every_documented_field(self):
+        blender = text(BLENDER)
+        block = blender.split("```json", 1)[1].split("```", 1)[0]
+        checkpoint = json.loads(block)
+        self.assertEqual(sorted(checkpoint), sorted(read_json(JOURNAL)["checkpoint_fields"]))
         self.assertEqual(checkpoint["applied"]["kind"], "script | live-code")
         self.assertFalse(checkpoint["applied"]["reproducible"])
         self.assertIn("sha256", checkpoint["applied"])
         self.assertIn("sha256_after", checkpoint["saved_scene"])
         self.assertEqual(checkpoint["authority"], "agent | human")
         self.assertIn("transcript-only edits; not reproducible from a project script", checkpoint["limitation"])
+
+    def test_the_working_receipt_is_portable(self):
+        # An absolute receipt path names one host's drive and is unreadable on
+        # any other, so the row carries the run directory leaf and a hash.
+        blender = text(BLENDER)
+        checkpoint = json.loads(blender.split("```json", 1)[1].split("```", 1)[0])
+        self.assertEqual(sorted(checkpoint["working_receipt"]), ["run_directory", "sha256"])
+        self.assertIn("never its absolute path", blender)
 
     def test_template_is_a_listed_resource(self):
         resources = set(read_json(ROOT / "studio-kit.json")["resources"])
@@ -418,7 +446,7 @@ class LiveSessionStopTests(unittest.TestCase):
             body = text(path)
             self.assertIn("save a checkpoint", body, path.name)
             self.assertIn("tell the human the visible window will close", body, path.name)
-            self.assertIn("report `CLOSED` before starting or reusing a session", body, path.name)
+            self.assertIn("report `CLOSED`", body, path.name)
             self.assertIn("receipt-bound", body, path.name)
             # The bare verb was not runnable: this command requires --project,
             # --config and the receipt `ensure` returned (studio_tools/cli.py).
@@ -426,6 +454,15 @@ class LiveSessionStopTests(unittest.TestCase):
             self.assertIn("--config ", body, path.name)
             self.assertIn("--receipt ", body, path.name)
         self.assertIn("never reported as a crash without the receipt", text(BLENDER))
+        # Stop-SupervisedBlenderMCP.ps1 writes CLOSED or NEEDS_USER_CLOSE and
+        # force-kills nothing, so CLOSED is reported only when it is recorded.
+        for path in (BLENDER, BLOCK):
+            body = text(path)
+            self.assertIn("`NEEDS_USER_CLOSE`", body, path.name)
+            self.assertIn("records `status: CLOSED`", body, path.name)
+            self.assertIn("force-killed" if path is BLOCK else "nothing was force-killed", body, path.name)
+        self.assertIn("start or reuse no session until a later stop records `CLOSED`", text(BLENDER))
+        self.assertIn("start no session until a later stop records `CLOSED`", text(BLOCK))
         self.assertIn("unconfirmed stop named with its receipt, never a crash", text(BLOCK))
 
     def test_both_connection_layers_are_named_with_the_reconnect(self):

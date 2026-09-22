@@ -5,23 +5,14 @@
     "path": "",
     "sha256_before": ""
   },
-  "checkpoints": [
-    {
-      "id": "",
-      "working_receipt": "",
-      "applied": {
-        "kind": "script | live-code",
-        "path": "",
-        "sha256": "",
-        "reproducible": false
-      },
-      "saved_scene": {
-        "path": "",
-        "sha256_after": ""
-      },
-      "evidence": [],
-      "authority": "agent | human",
-      "limitation": "transcript-only edits; not reproducible from a project script"
-    }
-  ]
+  "checkpoint_fields": [
+    "id",
+    "working_receipt",
+    "applied",
+    "saved_scene",
+    "evidence",
+    "authority",
+    "limitation"
+  ],
+  "checkpoints": []
 }

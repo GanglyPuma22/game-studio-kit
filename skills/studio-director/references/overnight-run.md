@@ -30,7 +30,7 @@ so receipts from different runs are never confused with each other.
 4. Copy [identity-manifest](../../../templates/identity-manifest.json) to `<run>/artifacts/run/identity-manifest.json` and fill it from the production contract (engine path and sha256, project sources in this worktree), or use the manifest path the contract already provides.
 5. `python <KIT>/scripts/studio.py candidate verify --project <run> --manifest <run>/artifacts/run/identity-manifest.json` for the engine, helpers, sources and packages the contract names, hashed from this worktree. A mismatch stops the run. Verification records identities at the moment it runs; it must be run against the same worktree every later stage uses, never a worktree created or swapped afterward.
 6. Read the production contract's `settings.viewport` and `settings.renderer` (`project.json`). `launch --mode native` (`studio_tools/launch.py`'s `mode_flags`) unconditionally passes `--resolution 1920x1080 --rendering-method forward_plus`; there is no flag to change it. If the contract's declared viewport is not exactly `[1920, 1080]` or its declared renderer is not exactly `forward_plus`, record `declared render settings differ from the fixed native launch profile; no performance evidence citable` in `STATE.md` at this checkpoint and refuse stage 4 when it is reached; carry the same sentence into `RETURN.md`'s Not demonstrated section. This is a known limit of `launch --mode native`, not a bug to work around mid-run: the kit fixes native launches to 1920x1080/forward_plus, so this procedure only cites stage 4-7 evidence when the contract already declares that exact resolution and renderer.
-7. Copy [feature-manifest](../../../templates/feature-manifest.json) to `<run>/artifacts/run/feature-manifest.json` and fill `canonical_route` from the production contract's own `canonical_route` ([production contracts](../../../references/production-contracts.md)), recording `"route_source": "contract"`. A contract that predates that field has no route: derive one from its `input_route` and the project's main scene, record `"route_source": "derived"`, and flag it in `RETURN.md` for the user to confirm. Leave `features` empty; the run appends a row the moment a lane produces a `source-ready` deliverable — when a worker returns one, or when the root starts the lane itself — carrying `"maturity": "source-ready"` and `"human_verdict": "pending"`, with `route_step`, `entry`, `installed_by` and `launch_flags` `null` until integration fills them. A row is created by the work existing, not by the work being wired: a manifest that holds only wired features cannot show a finished lane nobody integrated, which is the failure it exists to make visible. The template's example row has those four fields filled because it shows an integrated row.
+7. Copy [feature-manifest](../../../templates/feature-manifest.json) to `<run>/artifacts/run/feature-manifest.json` and fill `canonical_route` from the production contract's own `canonical_route` ([production contracts](../../../references/production-contracts.md)), recording `"route_source": "contract"`. A contract that predates that field has no route: derive one from its `input_route` and the project's main scene, record `"route_source": "derived"`, and flag it in `RETURN.md` for the user to confirm. Leave `features` empty; the run appends a row the moment a lane starts — when a worker is spawned for it, or when the root takes it on — carrying `"maturity": "in-progress"` and `"human_verdict": "pending"`, with `route_step`, `entry`, `installed_by` and `launch_flags` `null` until integration fills them. The row moves to `"maturity": "source-ready"` only when a checked deliverable exists, because a lane that opened at `source-ready` would claim a deliverable before anything had been produced. A row is created by the work existing, not by the work being wired: a manifest that holds only wired features cannot show a finished lane nobody integrated, which is the failure it exists to make visible. The template's example row has those four fields filled because it shows an integrated row.
 
 There is no ledger script: the machine ledgers are the receipts the kit
 commands already write (preflight receipts, `owned-launch.json`,
@@ -248,11 +248,12 @@ returns the JSON record plus a summary under 400 words and terminates; it
 takes no follow-up task. The root spawns a new worker that reads state from
 files and never re-reads a source a previous worker already summarized.
 
-A worker report is not integration. When the root reads one, it creates that
-lane's row in `<run>/artifacts/run/feature-manifest.json` if the lane has none
-— `"maturity": "source-ready"`, `"human_verdict": "pending"`, and `route_step`,
-`entry`, `installed_by` and `launch_flags` `null` until integration fills them
-— and records the `maturity` the report's own evidence supports: assertion counts, a clean export and a green
+A worker report is not integration. The lane's row in
+`<run>/artifacts/run/feature-manifest.json` was opened at `in-progress` when the
+worker was spawned — `"human_verdict": "pending"`, with `route_step`, `entry`,
+`installed_by` and `launch_flags` `null` until integration fills them — and when
+the root reads the report it records the `maturity` that report's own evidence
+supports: a checked deliverable, assertion counts, a clean export and a green
 launch reach `source-ready`, and the root having read the deliverable and its
 receipts reaches `root-reviewed`. Neither reaches the route. A completed worker
 task leaves the active-worker list; its deliverable stays in the manifest at its
@@ -337,9 +338,11 @@ derived rather than supplied (`route_source: derived`), say so on the same line:
 the user is confirming the route as well as the features.
 
 **Lanes by maturity.** Every manifest row also carries `maturity`:
-`source-ready`, `root-reviewed`, `integrated`, `native-reviewed`,
-`user-accepted`. A lane advances only on the evidence for that step. Assertion
-counts, clean exports and green launches set at most `source-ready`;
+`in-progress`, `source-ready`, `root-reviewed`, `integrated`,
+`native-reviewed`, `user-accepted`. A lane advances only on the evidence for
+that step. `in-progress` is where a row opens and says only that the lane
+started; a checked deliverable, assertion counts, clean exports and green
+launches set at most `source-ready`;
 `root-reviewed` means the root read the deliverable and its receipts;
 `integrated` needs the feature wired on the canonical route, with `installed_by`
 naming a scene the route enters; `native-reviewed` needs a native launch receipt

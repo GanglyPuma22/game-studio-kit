@@ -40,9 +40,23 @@ Use `run` when the work is a script: baking, exporting, repairing, measuring or 
 
 A live session has two connection layers: the listener the Blender add-on runs inside the visible app, and the Codex connector that sends to it. They fail separately, so a listener restart requires a Codex-side reconnect before the next call means anything.
 
-At the first live checkpoint, copy the [edit journal](../../templates/edit-journal.json) to `<GAME>/artifacts/blender/journal/<source-stem>.json`, creating that directory, and fill `source` with the live source's path and its hash before the session's first edit. Every meaningful live checkpoint then appends one checkpoint there and saves a versioned scene, because a live edit otherwise exists only in a transcript and in a `.blend` nobody can replay. The handback's evidence index lists that journal path. A checkpoint is reproducible only when it names a project script with that script's hash; otherwise it carries the transcript-only limitation, and no report may call it reproducible. Reopening from a checkpoint to apply a guarded script refuses a source whose hash differs from that checkpoint's `sha256_after`, because the journal then describes a scene that no longer exists and the script would be applied to something else. Keep secrets and user prompts out of the journal: it records paths, hashes, authority and evidence.
+At the first live checkpoint, copy the [edit journal](../../templates/edit-journal.json) to `<GAME>/artifacts/blender/journal/<source-stem>.json`, creating that directory, and fill `source` with the live source's path and its hash before the session's first edit. Every meaningful live checkpoint then appends one entry there and saves a versioned scene, because a live edit otherwise exists only in a transcript and in a `.blend` nobody can replay. The template ships with `checkpoints` empty and lists the fields each entry carries in `checkpoint_fields`; one entry has this shape:
 
-Before stopping or restarting a live session, save a checkpoint, tell the human the visible window will close, run the receipt-bound stop — `python <KIT>/scripts/studio.py blender-mcp stop --project <GAME> --config <HOST> --receipt <ownership receipt>`, the receipt `ensure` returned — and report `CLOSED` before starting or reusing a session. A human watched a window disappear during a listener restart and read it as a crash, because nothing had said it would close. A window that disappears during an interrupted stop is never reported as a crash without the receipt; it is an unconfirmed stop, named with its receipt, until the receipt-bound stop confirms it.
+```json
+{
+  "id": "",
+  "working_receipt": {"run_directory": "<stamp>-<id>", "sha256": ""},
+  "applied": {"kind": "script | live-code", "path": "", "sha256": "", "reproducible": false},
+  "saved_scene": {"path": "", "sha256_after": ""},
+  "evidence": [],
+  "authority": "agent | human",
+  "limitation": "transcript-only edits; not reproducible from a project script"
+}
+```
+
+`working_receipt` identifies the owning session portably: the leaf name of the run directory `ensure` created under `runs\` (`<stamp>-<id>`) and the receipt's sha256, never its absolute path, because a journal that names one host's drive cannot be read on another. The handback's evidence index lists the journal path. A checkpoint is reproducible only when it names a project script with that script's hash; otherwise it carries the transcript-only limitation, and no report may call it reproducible. Reopening from a checkpoint to apply a guarded script refuses a source whose hash differs from that checkpoint's `sha256_after`, because the journal then describes a scene that no longer exists and the script would be applied to something else. Keep secrets and user prompts out of the journal: it records paths, hashes, authority and evidence.
+
+Before stopping or restarting a live session, save a checkpoint, tell the human the visible window will close, run the receipt-bound stop — `python <KIT>/scripts/studio.py blender-mcp stop --project <GAME> --config <HOST> --receipt <ownership receipt>`, the receipt `ensure` returned — and report `CLOSED` only when that stop receipt records `status: CLOSED`. The stop writes one of two statuses ([`Stop-SupervisedBlenderMCP.ps1`](scripts/lifecycle/Stop-SupervisedBlenderMCP.ps1)): on `NEEDS_USER_CLOSE` the app did not close and nothing was force-killed, so preserve the receipt, tell the human which window needs a manual close, and start or reuse no session until a later stop records `CLOSED`. A human watched a window disappear during a listener restart and read it as a crash, because nothing had said it would close. A window that disappears during an interrupted stop is never reported as a crash without the receipt; it is an unconfirmed stop, named with its receipt, until the receipt-bound stop confirms it.
 
 ## Qualify before collision or rig
 

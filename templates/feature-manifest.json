@@ -4,6 +4,7 @@
   "canonical_route": [],
   "route_source": "contract",
   "maturity_values": [
+    "in-progress",
     "source-ready",
     "root-reviewed",
     "integrated",
@@ -18,7 +19,7 @@
       "launch_flags": [],
       "source_revision": "0000000000000000000000000000000000000000",
       "installed_by": "res://scenes/main.tscn",
-      "maturity": "source-ready",
+      "maturity": "integrated",
       "human_verdict": "pending",
       "evidence": [],
       "content_digest": "0000000000000000000000000000000000000000000000000000000000000000"
