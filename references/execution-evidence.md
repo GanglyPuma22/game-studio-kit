@@ -652,13 +652,22 @@ it does not say the comparison was the right one to ask for, and a varying
 number is not a result a person has accepted.
 
 **Playtest content digest (`content_digest`, `content_digest_after_exit`,
-`content_changed_during_session`).** `playtest.json` records the project's
+`content_changed_during_session`, `content_digest_at_collect`,
+`content_changed_before_collect`).** `playtest.json` records the project's
 content digest — `evidence.inventory` hashed exactly the way a candidate record
 hashes it — taken after the engine identity checks and before the engine starts,
-so a human verdict can be bound to a build rather than to a date. `exit.json`
-records the same measurement again after the session, as
-`content_digest_after_exit`, and a difference between the two is reported in
-`diagnostics` as `content_changed_during_session: true`. The inventory excludes
+so a human verdict can be bound to a build rather than to a date. For a session
+this kit waited for, `exit.json` records the same measurement again when the
+engine exits, as `content_digest_after_exit`, and a difference between the two
+is reported in `diagnostics` as `content_changed_during_session: true`. An
+attended session is different and says so in its field names: nothing waited for
+it, so the second measurement is taken whenever the player got round to asking
+for the collection, which may be long after they quit. It is recorded as
+`content_digest_at_collect`, and a difference is
+`content_changed_before_collect: true`. Neither key appears on the other kind of
+session: an edit made between quitting and collecting is a reason to distrust
+the evidence, not a claim that the project changed while the game was being
+played, and only a session whose exit was observed can make that claim. The inventory excludes
 `artifacts/`, so the session's own receipts, launcher and profile directory
 never move the number. It is a statement about the evidence, not a run-health
 verdict: a session whose content changed under it still reports whatever the
@@ -698,7 +707,17 @@ are all fine to inherit. A parent that outlives that bound is
 stopped and the call returns a terminal receipt with `status:
 ensure_did_not_return`, `ok: false` and `owned_process_action: "none"` — a
 Blender an ownership receipt already names is never killed by a timeout, only by
-`blender-mcp stop` with that receipt. `blender-mcp status` reports the two layers
+`blender-mcp stop` with that receipt. Which is why that receipt is handed back:
+before the parent is stopped, the newest directory under `<working_root>/runs/`
+belonging to this call is read, and when it holds an `ownership.json` the
+timeout record carries its absolute path as `ownership_receipt` (with the
+directory's own name as `run_directory`), so `blender-mcp stop --receipt` can
+close exactly the Blender this call started. That path is the one absolute host
+path a receipt here carries, because it is the argument the stop command has to
+be given and a name alone could not be passed to it. A call that timed out
+before it owned any process reports `ownership_receipt: null`, and a run
+directory older than this call is never offered: a handle for a process this
+timeout knows nothing about is worse than none. `blender-mcp status` reports the two layers
 separately: `helper` (`PASS`/`FAIL`, the listener this kit supervises) and
 `app_client` (`CONNECTED`, `RECONNECT_REQUIRED` or `UNKNOWN`, the connector the
 app holds), and an `overall` that is never `CONNECTED` unless both are. The kit

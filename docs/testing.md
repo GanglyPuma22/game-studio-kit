@@ -32,8 +32,11 @@ the bound while that grandchild is still alive and the grandchild cleaned up
 afterwards;
 the per-call run directory named by operation and UTC stamp holding both
 streams; a parent that outlives the bound returning a terminal receipt with
-`status: ensure_did_not_return`, `owned_process_action: "none"` and no host path
-in it; and the two-layer connection report — `overall` never `CONNECTED` unless
+`status: ensure_did_not_return` and `owned_process_action: "none"`, carrying no
+host path when it owned nothing and carrying the `ownership.json` of a Blender
+it had already started when it did, so `blender-mcp stop --receipt` can close
+exactly that one — with a run directory that holds no ownership receipt, and one
+left by an earlier call, both refused as handles; and the two-layer connection report — `overall` never `CONNECTED` unless
 the helper passed and the app client is connected, the exact reconnect
 instruction carried only by `RECONNECT_REQUIRED`, each app-client status mapped
 to its own state, the documented stale status retried exactly once and a second
@@ -344,9 +347,13 @@ carrying it again as `content_digest_after_exit`, the receipts this session
 writes under `artifacts/` never moving the number, content edited under the
 session reported as `content_changed_during_session` in both the result and
 `diagnostics.json` while the run-health verdict and `acceptance` are unchanged,
-the digest taken before the engine starts, an attended session recording both
-digests across its later `collect`, and a project that cannot be inventoried
-portably still playing with `null` for both.
+the digest taken before the engine starts, an attended session naming its
+second measurement `content_digest_at_collect` and its difference
+`content_changed_before_collect`, because nothing observed its exit and an edit
+between quitting and collecting is not something that happened during the
+session, while a waited session keeps the during-session wording and neither
+kind carries the other's keys; and a project that cannot be inventoried portably
+still playing with `null` for both.
 
 ```text
 python -m unittest discover -s tests -p test_playtest.py -v
