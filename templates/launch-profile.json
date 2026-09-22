@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "launch-profile",
+  "command": "playtest",
+  "$comment": "How this project is played, declared once instead of written again in a wrapper script. Copy it into the project (for example tools/play-wetland.json) and run `studio playtest start --project <GAME> --config <HOST> --sha256 <ENGINE> --profile tools/play-wetland.json`, or `--check` to verify the identity manifest and print the resolved counts without launching. Any flag typed on the command line overrides the single field it names. command is launch or playtest and decides which fields are legal: launch takes mode, script, timeout and scope; playtest takes session, scene, script, rendering_method, resolution and max_minutes; both take results, scrub_env, passthrough, identity_manifest and feature_flags. identity_manifest is a project-relative identity manifest in the templates/identity-manifest.json shape; every item must verify as match or the command refuses with verdict identity_mismatch and launches nothing. feature_flags are appended to passthrough. Three placeholders are substituted in passthrough and feature_flags: {label} is this run's label, {project} is the absolute project root, and {content_digest} is content_digest from artifacts/candidate.json, which must exist when the placeholder is used. The receipts record this file's path and hash and the manifest verdict, never a passthrough value.",
+  "identity_manifest": "tools/wetland-identity.json",
+  "session": "handoff",
+  "scene": "res://scenes/game_entry.tscn",
+  "rendering_method": "forward_plus",
+  "resolution": "1920x1080",
+  "max_minutes": 0,
+  "results": [],
+  "scrub_env": [],
+  "passthrough": [
+    "--experimental-planet-package",
+    "{project}/source/planet/candidate.planet-package",
+    "--experimental-planet-evidence-dir",
+    "{project}/artifacts/run/{label}",
+    "--candidate-content-digest",
+    "{content_digest}"
+  ],
+  "feature_flags": [
+    "--wetland-living-assets",
+    "--wetland-kite-observation"
+  ]
+}

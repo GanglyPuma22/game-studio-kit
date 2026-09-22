@@ -164,6 +164,7 @@ def _readable_digest(path):
 def execute(
     config, project, *, sha256_expected, mode="import", script=None,
     timeout=None, cutoff_utc=None, label=None, scope=None, results=(), scrub=(), passthrough=(),
+    launch_profile=None,
 ):
     """Verify identity, launch once, wait, and return a verdict with receipts."""
     root = Path(project).resolve()
@@ -239,6 +240,13 @@ def execute(
         "engine": {"name": engine_path.name, "sha256": actual, "sha256_after_exit": None},
         "project": str(root),
         "profile": "profile",
+        # The project-owned profile this launch was resolved from, if any:
+        # its project-relative path, its hash and the verdict of the identity
+        # manifest it declared. Never its passthrough, which is the whole
+        # reason the resolution happens outside the receipt. Spelled
+        # `launch_profile` because `profile` above already names the isolated
+        # environment profile directory this launcher writes.
+        "launch_profile": launch_profile,
         "script": script,
         "passthrough_count": len(passthrough) - (1 if list(passthrough)[:1] == ["--"] else 0),
         "expected_results": expected,
@@ -419,6 +427,7 @@ def _finish(root, run_dir, launch, record, text, verdict, failure, survivors=Non
         "kit": kit_identity(),
         "label": launch["label"],
         "scope": launch.get("scope"),
+        "launch_profile": launch.get("launch_profile"),
         "verdict": verdict,
         "ok": verdict == "completed",
         "status": status,

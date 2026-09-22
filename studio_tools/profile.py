@@ -1,0 +1,260 @@
+"""Project-owned launch and playtest profiles: the wrapper script, as a file.
+
+Six wrapper scripts around one project were the same thirty lines with a
+different worktree and a different set of feature flags: verify a list of asset
+hashes, offer a `--check` that verifies without launching, then call
+`playtest start` with a fixed scene, session, renderer, resolution and a long
+passthrough list. Three more read a project's accepted arguments, appended an
+output path and the candidate's content digest, and called `launch` or
+`bench cleanroom`. None of that is project logic an agent should be writing in
+Python; all of it is a declaration about how this project is played.
+
+A profile is that declaration. The kit already owns the pieces it was made of:
+`manifest.verify` is the asset-hash check, `launch`/`playtest start` are the
+launch, and `artifacts/candidate.json` is where the content digest lives. This
+module only resolves one file into the arguments those commands already take,
+and it keeps the one rule the wrappers had no way to keep: the passthrough
+values never reach a receipt.
+"""
+
+from __future__ import annotations
+import hashlib
+import json
+from pathlib import Path
+import uuid
+
+from .common import StudioError, read_json, relative, safe_id
+
+PROFILE_KIND = "launch-profile"
+SCHEMA_VERSION = 1
+COMMANDS = ("launch", "playtest")
+
+# Exactly the fields each command's parser takes, under the names it uses. An
+# unknown field is refused rather than ignored: a misspelled `passthrough`
+# would otherwise silently launch the game without the flags it exists for.
+SHARED_FIELDS = {
+    "script": str,
+    "results": list,
+    "scrub_env": list,
+    "passthrough": list,
+    "identity_manifest": str,
+    "feature_flags": list,
+}
+COMMAND_FIELDS = {
+    "launch": {"mode": str, "timeout": (int, float), "scope": str, **SHARED_FIELDS},
+    "playtest": {
+        "session": str, "scene": str, "rendering_method": str, "resolution": str,
+        "max_minutes": (int, float), **SHARED_FIELDS,
+    },
+}
+LIST_FIELDS = ("results", "scrub_env", "passthrough", "feature_flags")
+# Free-text keys a profile may carry for whoever reads it; never resolved.
+COMMENT_FIELDS = ("$comment", "description")
+
+LABEL = "{label}"
+CONTENT_DIGEST = "{content_digest}"
+PROJECT = "{project}"
+PLACEHOLDERS = (LABEL, CONTENT_DIGEST, PROJECT)
+CANDIDATE_RECORD = "artifacts/candidate.json"
+
+
+def _profile_path(root, path):
+    """The profile file, which belongs to the project it describes.
+
+    Recorded project-relative in the receipt, so the profile has to be inside
+    the project; a profile kept somewhere else could not be named in a receipt
+    without naming a host path.
+    """
+    root = Path(root).resolve()
+    candidate = Path(path).expanduser()
+    if candidate.is_absolute():
+        resolved = candidate.resolve()
+        if not resolved.is_relative_to(root):
+            raise StudioError(
+                "A launch profile belongs to the project it describes; "
+                "name it with a project-relative path"
+            )
+        return resolved
+    return relative(root, str(candidate).replace("\\", "/"))
+
+
+def load(root, path):
+    """Read and fully validate one profile; return (record, file record).
+
+    The bytes are read once, so the recorded hash and the resolved fields can
+    never describe two different files.
+    """
+    profile_path = _profile_path(root, path)
+    try:
+        raw = profile_path.read_bytes()
+        record = json.loads(raw.decode("utf-8"))
+    except (OSError, ValueError) as exc:
+        raise StudioError(f"Cannot read JSON record: {profile_path.name}") from exc
+    if not isinstance(record, dict) or record.get("kind") != PROFILE_KIND:
+        raise StudioError(f'Expected a {PROFILE_KIND} record')
+    if record.get("schema_version") != SCHEMA_VERSION:
+        raise StudioError(f"Launch profile schema_version must be {SCHEMA_VERSION}")
+    command = record.get("command")
+    if command not in COMMANDS:
+        raise StudioError('Launch profile command must be "launch" or "playtest"')
+    allowed = COMMAND_FIELDS[command]
+    for name, value in record.items():
+        if name in ("schema_version", "kind", "command") or name in COMMENT_FIELDS:
+            continue
+        if name not in allowed:
+            other = next((c for c in COMMANDS if name in COMMAND_FIELDS[c]), None)
+            raise StudioError(
+                f'Launch profile field "{name}" is not a {command} field'
+                + (f"; it belongs to {other}" if other else "")
+            )
+        if not isinstance(value, allowed[name]) or isinstance(value, bool):
+            raise StudioError(f'Launch profile field "{name}" has the wrong type')
+        if name in LIST_FIELDS and not all(isinstance(item, str) and item for item in value):
+            raise StudioError(f'Launch profile field "{name}" must be a list of nonempty strings')
+        if allowed[name] is str and not value.strip():
+            raise StudioError(f'Launch profile field "{name}" must be a nonempty string')
+    file_record = {
+        "path": Path(profile_path).resolve().relative_to(Path(root).resolve()).as_posix(),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+    }
+    return record, file_record
+
+
+def _content_digest(root):
+    """The candidate's content digest, or None when no candidate record exists."""
+    path = Path(root) / CANDIDATE_RECORD
+    if not path.is_file():
+        return None
+    try:
+        record = read_json(path)
+    except StudioError:
+        return None
+    value = record.get("content_digest") if isinstance(record, dict) else None
+    return value if isinstance(value, str) and value else None
+
+
+def substitute(values, *, root, label):
+    """Replace the three declared placeholders in a passthrough list.
+
+    Literal replacement, not `str.format`: a passthrough argument may legally
+    contain braces of its own, and a profile that names `{content_digest}`
+    without a candidate record beside it is refused rather than launched with
+    the word itself handed to the engine as a hash.
+    """
+    digest = None
+    if any(CONTENT_DIGEST in item for item in values):
+        digest = _content_digest(root)
+        if digest is None:
+            raise StudioError(
+                f"This profile substitutes {CONTENT_DIGEST}, which comes from "
+                f"{CANDIDATE_RECORD}; run `studio candidate new` first"
+            )
+    replacements = ((LABEL, label), (PROJECT, str(Path(root).resolve())),
+                    (CONTENT_DIGEST, digest))
+    resolved = []
+    for item in values:
+        for token, value in replacements:
+            if value is not None:
+                item = item.replace(token, value)
+        resolved.append(item)
+    return resolved
+
+
+def _identity(root, record, config):
+    """Verify the profile's identity manifest, or report that it declared none."""
+    from .manifest import verify
+
+    declared = record.get("identity_manifest")
+    if not declared:
+        return {"declared": False, "verdict": "not_declared", "ok": True}
+    result = verify(root, relative(root, declared), config=config)
+    return {
+        "declared": True,
+        "manifest": declared,
+        "verdict": result["verdict"],
+        "totals": result["totals"],
+        "receipt": Path(result["receipt"]).resolve().relative_to(Path(root).resolve()).as_posix(),
+        "ok": result["verdict"] == "match",
+    }
+
+
+def resolve(config, root, command, overrides, *, path, label=None, check=False):
+    """Turn one profile plus the explicit CLI flags into command arguments.
+
+    Returns a dict with either `refused` (an `identity_mismatch` verdict, or a
+    `--check` report) or `arguments` and `receipt`. Explicit CLI flags win over
+    the profile: the profile is the project's default way to play, not a lock.
+    """
+    root = Path(root).resolve()
+    record, file_record = load(root, path)
+    if record["command"] != command:
+        raise StudioError(
+            f'This profile is a {record["command"]} profile; run it with `studio {record["command"]}`'
+        )
+    # A label is resolved here rather than inside the launcher, because
+    # `{label}` has to name the run directory the receipts are actually in.
+    label = safe_id(label) if label else uuid.uuid4().hex
+    identity = _identity(root, record, config)
+    fields = {name: value for name, value in record.items() if name in COMMAND_FIELDS[command]}
+    fields.pop("identity_manifest", None)
+    feature_flags = fields.pop("feature_flags", [])
+    for name, value in overrides.items():
+        # Only a flag the caller actually typed overrides the profile: argparse
+        # leaves everything else None, and an empty --result/--scrub-env list
+        # is the parser's own default rather than a caller's choice.
+        if value is not None and value != []:
+            fields[name] = value
+    passthrough = list(fields.pop("passthrough", [])) + list(feature_flags)
+    passthrough = substitute(passthrough, root=root, label=label)
+    if passthrough and passthrough[0] != "--":
+        # Godot exposes only arguments after `--` through
+        # OS.get_cmdline_user_args(), so the separator itself must reach it.
+        passthrough = ["--", *passthrough]
+    receipt = {
+        "launch_profile": {
+            "path": file_record["path"],
+            "sha256": file_record["sha256"],
+            "command": command,
+            "identity_verdict": identity["verdict"],
+            "identity_receipt": identity.get("receipt"),
+        }
+    }
+    if not identity["ok"]:
+        return {"refused": {
+            "schema_version": 1,
+            "kind": "launch-profile-refusal",
+            "verdict": "identity_mismatch",
+            "ok": False,
+            "command": command,
+            "launched": False,
+            **receipt,
+            "identity": {
+                key: identity[key] for key in ("manifest", "verdict", "totals", "receipt")
+            },
+            "failure": (
+                "The identity manifest this profile declares did not verify, so "
+                "nothing was launched; the items are listed in the identity receipt"
+            ),
+        }}
+    if check:
+        return {"refused": {
+            "schema_version": 1,
+            "kind": "launch-profile-check",
+            "verdict": "checked",
+            "ok": True,
+            "command": command,
+            "launched": False,
+            **receipt,
+            "identity": {
+                key: identity[key] for key in ("declared", "verdict", "totals", "receipt")
+                if key in identity
+            },
+            # Counts and field names only. A passthrough value is exactly what
+            # `--check` must not print: it is the reason the receipts never
+            # carry one either.
+            "resolved_fields": sorted(fields),
+            "passthrough_count": len(passthrough) - (1 if passthrough[:1] == ["--"] else 0),
+        }}
+    fields["passthrough"] = passthrough
+    fields["label"] = label
+    return {"arguments": fields, "receipt": receipt, "identity": identity}
