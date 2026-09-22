@@ -7,12 +7,14 @@ param(
     [Parameter(Mandatory=$true)][string]$McpServerConfig,
     [Parameter(Mandatory=$true)][string]$OwnerIdentity,
     [string]$ExpectedSourceSha256 = '',
+    [int]$Port = 9876,
     [int]$StartupTimeoutSeconds = 60,
     [switch]$PlanOnly,
     [switch]$Probe
 )
 
 $ErrorActionPreference = 'Stop'
+$defaultPort = 9876
 $ownerName = $OwnerIdentity
 $rehandshakePolicy = 'ONE_READ_ONLY_RETRY_ON_10053'
 
@@ -101,6 +103,56 @@ function Resolve-ReparseTarget {
     }
     return $existing
 }
+function Get-ExcludedPortRange {
+    # Windows hands whole TCP ranges to Hyper-V/WinNAT and to its own dynamic
+    # port reservations; a port inside one cannot be bound at all, and the
+    # failure surfaces as a Blender that starts and then cannot listen. Read
+    # the reservations first so the refusal happens before any launch.
+    param([Parameter(Mandatory=$true)][int]$Candidate)
+    $netsh = Get-Command -Name 'netsh.exe' -CommandType Application -ErrorAction SilentlyContinue
+    if (!$netsh) { return $null }
+    try {
+        $text = & $netsh.Source int ipv4 show excludedportrange protocol=tcp 2>$null
+    } catch {
+        return $null
+    }
+    foreach ($line in @($text)) {
+        $match = [regex]::Match([string]$line, '^\s*(\d+)\s+(\d+)\s*\*?\s*$')
+        if ($match.Success) {
+            $start = [int]$match.Groups[1].Value
+            $end = [int]$match.Groups[2].Value
+            if ($Candidate -ge $start -and $Candidate -le $end) { return "$start-$end" }
+        }
+    }
+    return $null
+}
+
+function Assert-ParentStdioIsFileBacked {
+    # The owned Blender process inherits this PowerShell process's open
+    # handles. When the parent's own stdout/stderr are pipes -- which is what
+    # a caller that captures output through a pipe hands it -- the inherited
+    # duplicates keep those pipes open for as long as Blender lives, and the
+    # caller waits for an end-of-file that only arrives when the GUI is
+    # closed. That is why `ensure` never returned while Blender stayed open.
+    # A file-backed (seekable) standard stream cannot hold anybody open, so
+    # the launch below provably inherits no stdio a reader is waiting on. The
+    # packaged `studio blender-mcp` entrypoint always redirects to files; this
+    # refuses the direct invocation that would hang instead.
+    # The streams are not disposed: [Console]::OpenStandardOutput() hands back
+    # a stream over a non-owning handle, and this script still has its own JSON
+    # result to write to stdout after the check.
+    foreach ($name in @('stdout','stderr')) {
+        $stream = if ($name -eq 'stdout') { [Console]::OpenStandardOutput() } else { [Console]::OpenStandardError() }
+        $seekable = $false
+        try { $seekable = [bool]$stream.CanSeek } catch { $seekable = $false }
+        if (!$seekable) {
+            throw ("ensure_stdio_not_file_backed: this script's $name is a console or a pipe, " +
+                   'which the launched Blender would inherit and hold open. Invoke the packaged ' +
+                   'lifecycle through `studio blender-mcp ensure`, which redirects both streams to files.')
+        }
+    }
+}
+if ($Port -lt 1024 -or $Port -gt 65535) { throw "Port must be between 1024 and 65535; got $Port" }
 if ($SessionId -notmatch '^[A-Za-z0-9._-]{1,128}$') { throw 'SessionId must use 1-128 letters, digits, dots, underscores, or hyphens' }
 if ($ownerName -notmatch '^[A-Za-z0-9._-]{1,128}$') { throw 'OwnerIdentity must use 1-128 letters, digits, dots, underscores, or hyphens' }
 $sourcePath = (Resolve-Path -LiteralPath $SourceScene -ErrorAction Stop).Path
@@ -125,8 +177,12 @@ foreach ($pair in @(
     }
 }
 $serverEnv = $hostMcp.server.env
-if (!$hostMcp.server.command -or $serverEnv.BLENDER_HOST -ne '127.0.0.1' -or $serverEnv.BLENDER_PORT -ne '9876' -or $serverEnv.DISABLE_TELEMETRY -ne 'true' -or $serverEnv.BLENDER_MCP_DISABLE_TELEMETRY -ne 'true') {
-    throw 'MCP server config must select an explicit command, loopback port 9876 and telemetry off'
+$configuredPort = if ($null -ne $serverEnv.BLENDER_PORT -and "$($serverEnv.BLENDER_PORT)".Trim()) { [int]"$($serverEnv.BLENDER_PORT)".Trim() } else { $defaultPort }
+if (!$hostMcp.server.command -or $serverEnv.BLENDER_HOST -ne '127.0.0.1' -or $serverEnv.DISABLE_TELEMETRY -ne 'true' -or $serverEnv.BLENDER_MCP_DISABLE_TELEMETRY -ne 'true') {
+    throw 'MCP server config must select an explicit command, the loopback host 127.0.0.1 and telemetry off'
+}
+if ($configuredPort -ne $Port) {
+    throw "Port does not match the explicit host config: argument $Port, config $configuredPort"
 }
 $kitRoot = Resolve-ReparseTarget -Path (Join-Path $PSScriptRoot '..\..\..\..')
 $workingRootFull = Resolve-ReparseTarget -Path $WorkingRoot
@@ -144,12 +200,13 @@ $plan = [ordered]@{
     probe_python = $ProbePython
     mcp_server_config = [IO.Path]::GetFullPath($McpServerConfig)
     owner = $ownerName
-    listener = '127.0.0.1:9876'
+    listener = "127.0.0.1:$Port"
+    port = $Port
     native_client_rehandshake_policy = $rehandshakePolicy
 }
 if ($PlanOnly) { $plan | ConvertTo-Json -Depth 5; return }
 
-$lifecycleMutex = [System.Threading.Mutex]::new($false, 'Global\GameStudioKit-BlenderMCP-127_0_0_1-9876')
+$lifecycleMutex = [System.Threading.Mutex]::new($false, "Global\GameStudioKit-BlenderMCP-127_0_0_1-$Port")
 $mutexAcquired = $false
 try {
     try {
@@ -183,12 +240,19 @@ if (Test-Path -LiteralPath $activePath) {
         # reuse only by owned-process identity, receipt fields and a
         # loopback-listener check (-SkipProtocolProbe) unless -Probe is
         # explicitly passed to force the full round-trip.
+        # A receipt that names another port describes a listener this Ensure
+        # is not asking for; reusing it would hand back a session bound
+        # somewhere else and call it the configured one.
+        if ($null -ne $existing.port -and [int]$existing.port -ne $Port) {
+            throw "The active supervised Blender session owns port $($existing.port), not the configured port $Port; stop it with its ownership receipt first"
+        }
         $reuseHealthArgs = @{
             OwnershipReceipt = $active.receipt_path
             WorkingRoot = $WorkingRoot
             ProbePython = $ProbePython
             McpServerConfig = $McpServerConfig
             OwnerIdentity = $ownerName
+            Port = $Port
         }
         if (!$Probe) { $reuseHealthArgs['SkipProtocolProbe'] = $true }
         $healthJson = Invoke-LifecycleHealthCheck -Script $testScript -Arguments $reuseHealthArgs -FailureMessage 'Existing owned Blender session failed its health check'
@@ -201,7 +265,7 @@ if (Test-Path -LiteralPath $activePath) {
             [StringComparison]::OrdinalIgnoreCase
         )
         if (!$sameSourcePath -or $existing.source_sha256 -ne $sourceSha) {
-            throw "A healthy supervised Blender session owns port 9876 for another source: $($existing.working_scene)"
+            throw "A healthy supervised Blender session owns port $Port for another source: $($existing.working_scene)"
         }
         $sameExecutable = [string]::Equals(
             [IO.Path]::GetFullPath($existing.executable),
@@ -218,16 +282,19 @@ if (Test-Path -LiteralPath $activePath) {
         return
     } catch {
         $anyBlender = @(Get-Process -Name blender -ErrorAction SilentlyContinue)
-        $anyListener = @(Get-NetTCPConnection -State Listen -LocalPort 9876 -ErrorAction SilentlyContinue)
+        $anyListener = @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue)
         if ($anyBlender.Count -or $anyListener.Count) { throw }
         Move-Item -LiteralPath $activePath -Destination ($activePath + '.stale-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
     }
 }
 
+$excludedRange = Get-ExcludedPortRange -Candidate $Port
+if ($excludedRange) { throw "port_excluded: port $Port lies inside the Windows excluded TCP range $excludedRange and cannot be bound; choose another BLENDER_PORT in the host config" }
 $unownedBlender = @(Get-Process -Name blender -ErrorAction SilentlyContinue)
-$unownedListener = @(Get-NetTCPConnection -State Listen -LocalPort 9876 -ErrorAction SilentlyContinue)
+$unownedListener = @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue)
 if ($unownedBlender.Count) { throw 'Blender is already running without a valid supervised ownership receipt; refusing to adopt it' }
-if ($unownedListener.Count) { throw 'Port 9876 is already occupied without a valid supervised ownership receipt' }
+if ($unownedListener.Count) { throw "port_occupied: port $Port is already occupied without a valid supervised ownership receipt" }
+Assert-ParentStdioIsFileBacked
 
 $runDirectory = Join-Path $WorkingRoot ('runs\' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '-' + [Guid]::NewGuid().ToString('N').Substring(0,8))
 New-Item -ItemType Directory -Path $runDirectory | Out-Null
@@ -248,7 +315,8 @@ $arguments = @(
     ('"' + $bootstrapReceipt + '"'),
     ('"' + $workingScene + '"'),
     $sourceSha,
-    $ownerName
+    $ownerName,
+    $Port
 )
 
 $process = $null
@@ -261,6 +329,7 @@ try {
         pid = $process.Id
         process_start_utc = $process.StartTime.ToUniversalTime().ToString('o')
         executable = $BlenderExe
+        port = $Port
         source_scene = $sourcePath
         source_sha256 = $sourceSha
         initial_working_sha256 = $workingCopySha
@@ -282,12 +351,12 @@ try {
         Start-Sleep -Milliseconds 250
     }
     if (!(Test-Path -LiteralPath $bootstrapReceipt)) { throw "Blender bootstrap timed out; inspect $runDirectory" }
-    $listeners = @(Get-NetTCPConnection -State Listen -LocalPort 9876 -ErrorAction Stop)
+    $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction Stop)
     if ($listeners.Count -ne 1 -or $listeners[0].OwningProcess -ne $process.Id -or $listeners[0].LocalAddress -ne '127.0.0.1') {
         throw 'Blender MCP listener ownership or loopback assertion failed'
     }
     $receipt.status = 'RUNNING'
-    $receipt.listener = '127.0.0.1:9876'
+    $receipt.listener = "127.0.0.1:$Port"
     Set-ReceiptContentAtomic -Path $ownershipReceipt -Value $receipt
     $freshHealthArgs = @{
         OwnershipReceipt = $ownershipReceipt
@@ -295,6 +364,7 @@ try {
         ProbePython = $ProbePython
         McpServerConfig = $McpServerConfig
         OwnerIdentity = $ownerName
+        Port = $Port
     }
     # Publish the durable active pointer only after the initial protocol
     # probe has actually passed. The probe is always called with this exact

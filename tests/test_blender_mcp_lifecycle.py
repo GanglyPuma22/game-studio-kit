@@ -7,19 +7,26 @@ import json
 import os
 import re
 import subprocess
+import signal
 import sys
 import tempfile
+import time
+from types import SimpleNamespace
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from studio_tools.blender_mcp import (
+    RECONNECT_INSTRUCTION,
+    app_client_state,
     call_current_addon_status,
+    connection_report,
+    current_connection,
     load_explicit_server_config,
     require_current_native_status,
 )
 from studio_tools.common import StudioError
-from studio_tools.config import load
+from studio_tools.config import blender_mcp_port, load
 from studio_tools.doctor import inspect
 
 
@@ -171,7 +178,7 @@ class BlenderMcpConfigDoctorTests(unittest.TestCase):
     def test_config_rejects_non_loopback_or_telemetry_enabled_server(self):
         for env_update in (
             {"BLENDER_HOST": "0.0.0.0"},
-            {"BLENDER_PORT": "9999"},
+            {"BLENDER_HOST": "localhost"},
             {"DISABLE_TELEMETRY": "false"},
             {"BLENDER_MCP_DISABLE_TELEMETRY": "false"},
         ):
@@ -179,6 +186,33 @@ class BlenderMcpConfigDoctorTests(unittest.TestCase):
             block["server"]["env"] = {**self.block["server"]["env"], **env_update}
             with self.subTest(env_update=env_update):
                 with self.assertRaises(StudioError):
+                    load(overrides={"blender_mcp": block})
+
+    def test_config_accepts_any_ordinary_loopback_port_and_defaults_to_9876(self):
+        # A Windows host that reserved 9806-9905 for Hyper-V cannot bind the
+        # historical default at all, which blocked every live session while
+        # the number was a requirement rather than a host fact.
+        for port, expected in (("19876", 19876), ("1024", 1024), ("65535", 65535)):
+            block = {**self.block, "server": {**self.block["server"]}}
+            block["server"]["env"] = {**self.block["server"]["env"], "BLENDER_PORT": port}
+            with self.subTest(port=port):
+                config = load(overrides={"blender_mcp": block})
+                self.assertEqual(blender_mcp_port(config["blender_mcp"]), expected)
+        without = {**self.block, "server": {**self.block["server"]}}
+        without["server"]["env"] = {
+            key: value
+            for key, value in self.block["server"]["env"].items()
+            if key != "BLENDER_PORT"
+        }
+        config = load(overrides={"blender_mcp": without})
+        self.assertEqual(blender_mcp_port(config["blender_mcp"]), 9876)
+
+    def test_config_refuses_a_port_that_is_privileged_out_of_range_or_not_a_number(self):
+        for port in ("80", "1023", "65536", "abc", "9876.0", " ", "-1", "0x2694"):
+            block = {**self.block, "server": {**self.block["server"]}}
+            block["server"]["env"] = {**self.block["server"]["env"], "BLENDER_PORT": port}
+            with self.subTest(port=port):
+                with self.assertRaisesRegex(StudioError, "BLENDER_PORT"):
                     load(overrides={"blender_mcp": block})
 
     def test_config_rejects_empty_command_or_non_string_environment(self):
@@ -372,6 +406,13 @@ class BlenderMcpLifecycleCliTests(unittest.TestCase):
         (self.game / "source").mkdir(parents=True)
         (self.game / "source" / "asset.blend").write_bytes(b"blend")
         self.host = root / "host.json"
+        # The lifecycle now redirects PowerShell's own streams to files under
+        # the configured working root, so that value has to be a directory
+        # this host can actually create. The host JSON still declares the
+        # Windows-only form the validator requires; `loaded()` swaps in the
+        # temporary directory afterwards, exactly as a Windows host's own
+        # external run root would behave.
+        self.runs = root / "runs"
         # blender_mcp identity paths are Windows-only and are never resolved
         # against the real filesystem by config.py or blender_mcp_lifecycle.py
         # (they are forwarded to the PowerShell scripts verbatim), so plain
@@ -394,20 +435,35 @@ class BlenderMcpLifecycleCliTests(unittest.TestCase):
         }
         self.host.write_text(json.dumps({"blender_mcp": self.block}))
 
+    def loaded(self, **overrides):
+        config = load(path=self.host)
+        config["blender_mcp"]["working_root"] = str(self.runs)
+        config["blender_mcp"].update(overrides)
+        return config
+
+    @staticmethod
+    def fake_powershell(stdout_text="{}", returncode=0):
+        """Stand in for the PowerShell parent, writing to the redirected file."""
+
+        def start(command, stdout=None, stderr=None, stdin=None):
+            stdout.write(stdout_text.encode("utf-8"))
+            stdout.flush()
+            return SimpleNamespace(wait=lambda timeout=None: returncode, kill=lambda: None)
+
+        return start
+
     def test_entrypoint_routes_ensure_through_packaged_lifecycle_script(self):
         from studio_tools.blender_mcp_lifecycle import execute
 
-        completed = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout='{"status":"PLAN_VALID"}', stderr=""
-        )
         with patch(
             "studio_tools.blender_mcp_lifecycle._powershell",
             return_value="C:\\Program Files\\PowerShell\\7\\pwsh.exe",
         ), patch(
-            "studio_tools.blender_mcp_lifecycle.subprocess.run", return_value=completed
+            "studio_tools.blender_mcp_lifecycle.subprocess.Popen",
+            side_effect=self.fake_powershell('{"status":"PLAN_VALID"}'),
         ) as runner:
             result = execute(
-                load(path=self.host),
+                self.loaded(),
                 self.host,
                 self.game,
                 "ensure",
@@ -422,27 +478,25 @@ class BlenderMcpLifecycleCliTests(unittest.TestCase):
         self.assertIn(str(ROOT / "skills/studio-blender/scripts/lifecycle/Ensure-SupervisedBlenderMCP.ps1"), command)
         self.assertIn(str((self.game / "source" / "asset.blend").resolve()), command)
         self.assertIn(str(self.host.resolve()), command)
-        # working_root is a Windows-only value forwarded verbatim to the
-        # PowerShell script; it is never resolved against this host's
-        # filesystem, unlike the source/host paths asserted above.
-        self.assertIn(self.block["working_root"], command)
+        self.assertIn(str(self.runs), command)
+        # The port the host config declares reaches the script as an explicit
+        # argument; no packaged script picks one for itself.
+        self.assertEqual(command[command.index("-Port") + 1], "9876")
 
     def test_entrypoint_routes_stop_through_packaged_lifecycle_script(self):
         from studio_tools.blender_mcp_lifecycle import execute
 
         receipt = Path(self.temp.name) / "ownership.json"
         receipt.write_text("{}")
-        completed = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout='{"status":"CLOSED"}', stderr=""
-        )
         with patch(
             "studio_tools.blender_mcp_lifecycle._powershell",
             return_value="C:\\Program Files\\PowerShell\\7\\pwsh.exe",
         ), patch(
-            "studio_tools.blender_mcp_lifecycle.subprocess.run", return_value=completed
+            "studio_tools.blender_mcp_lifecycle.subprocess.Popen",
+            side_effect=self.fake_powershell('{"status":"CLOSED"}'),
         ) as runner:
             result = execute(
-                load(path=self.host),
+                self.loaded(),
                 self.host,
                 self.game,
                 "stop",
@@ -463,19 +517,16 @@ class BlenderMcpLifecycleCliTests(unittest.TestCase):
     def test_contract_check_wraps_plain_powershell_success_as_json(self):
         from studio_tools.blender_mcp_lifecycle import execute
 
-        completed = subprocess.CompletedProcess(
-            args=[],
-            returncode=0,
-            stdout="PASS: 5 components and 35 lifecycle contracts\n",
-            stderr="",
-        )
         with patch(
             "studio_tools.blender_mcp_lifecycle._powershell", return_value="pwsh.exe"
         ), patch(
-            "studio_tools.blender_mcp_lifecycle.subprocess.run", return_value=completed
+            "studio_tools.blender_mcp_lifecycle.subprocess.Popen",
+            side_effect=self.fake_powershell(
+                "PASS: 5 components and 35 lifecycle contracts\n"
+            ),
         ):
             result = execute(
-                load(path=self.host), self.host, self.game, "contracts"
+                self.loaded(), self.host, self.game, "contracts"
             )
 
         self.assertEqual(
@@ -528,7 +579,7 @@ class BlenderMcpLifecycleCliTests(unittest.TestCase):
 
         stderr = io.StringIO()
         with patch(
-            "studio_tools.blender_mcp_lifecycle.subprocess.run"
+            "studio_tools.blender_mcp_lifecycle.subprocess.Popen"
         ) as runner, contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(
             io.StringIO()
         ):
@@ -556,7 +607,7 @@ class BlenderMcpLifecycleCliTests(unittest.TestCase):
         for operation in ("stop", "contracts"):
             stderr = io.StringIO()
             with self.subTest(operation=operation), patch(
-                "studio_tools.blender_mcp_lifecycle.subprocess.run"
+                "studio_tools.blender_mcp_lifecycle.subprocess.Popen"
             ) as runner, contextlib.redirect_stderr(
                 stderr
             ), contextlib.redirect_stdout(io.StringIO()):
@@ -581,38 +632,27 @@ class BlenderMcpLifecycleCliTests(unittest.TestCase):
     def test_status_defaults_to_skip_protocol_probe_but_probe_flag_forces_it(self):
         from studio_tools.blender_mcp_lifecycle import execute
 
-        completed = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout='{"status":"PASS"}', stderr=""
-        )
-        with patch(
-            "studio_tools.blender_mcp_lifecycle._powershell", return_value="pwsh.exe"
-        ), patch(
-            "studio_tools.blender_mcp_lifecycle.subprocess.run", return_value=completed
-        ) as runner:
-            execute(load(path=self.host), self.host, self.game, "status")
-        self.assertIn("-SkipProtocolProbe", runner.call_args.args[0])
-
-        with patch(
-            "studio_tools.blender_mcp_lifecycle._powershell", return_value="pwsh.exe"
-        ), patch(
-            "studio_tools.blender_mcp_lifecycle.subprocess.run", return_value=completed
-        ) as runner:
-            execute(load(path=self.host), self.host, self.game, "status", probe=True)
-        self.assertNotIn("-SkipProtocolProbe", runner.call_args.args[0])
+        for probe, expected in ((False, self.assertIn), (True, self.assertNotIn)):
+            with patch(
+                "studio_tools.blender_mcp_lifecycle._powershell", return_value="pwsh.exe"
+            ), patch(
+                "studio_tools.blender_mcp_lifecycle.subprocess.Popen",
+                side_effect=self.fake_powershell('{"status":"PASS"}'),
+            ) as runner:
+                execute(self.loaded(), self.host, self.game, "status", probe=probe)
+            expected("-SkipProtocolProbe", runner.call_args.args[0])
 
     def test_ensure_probe_flag_forwards_probe_switch(self):
         from studio_tools.blender_mcp_lifecycle import execute
 
-        completed = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout='{"status":"PLAN_VALID"}', stderr=""
-        )
         with patch(
             "studio_tools.blender_mcp_lifecycle._powershell", return_value="pwsh.exe"
         ), patch(
-            "studio_tools.blender_mcp_lifecycle.subprocess.run", return_value=completed
+            "studio_tools.blender_mcp_lifecycle.subprocess.Popen",
+            side_effect=self.fake_powershell('{"status":"PLAN_VALID"}'),
         ) as runner:
             execute(
-                load(path=self.host),
+                self.loaded(),
                 self.host,
                 self.game,
                 "ensure",
@@ -628,13 +668,13 @@ class BlenderMcpLifecycleCliTests(unittest.TestCase):
         receipt_inside_kit = ROOT / "runs" / "ownership.json"
         for operation in ("status", "stop"):
             with self.subTest(operation=operation), patch(
-                "studio_tools.blender_mcp_lifecycle.subprocess.run"
+                "studio_tools.blender_mcp_lifecycle.subprocess.Popen"
             ) as runner:
                 with self.assertRaisesRegex(
                     StudioError, "must be outside the installed kit"
                 ):
                     execute(
-                        load(path=self.host),
+                        self.loaded(),
                         self.host,
                         self.game,
                         operation,
@@ -652,7 +692,7 @@ class BlenderMcpPowerShellRegressionTests(unittest.TestCase):
 
     def test_stop_serializes_before_receipt_validation(self):
         source = self._source("Stop-SupervisedBlenderMCP.ps1")
-        self.assertIn("GameStudioKit-BlenderMCP-127_0_0_1-9876", source)
+        self.assertIn("GameStudioKit-BlenderMCP-127_0_0_1-$Port", source)
         self.assertLess(source.index("WaitOne"), source.index("$receiptPath"))
         self.assertIn("ReleaseMutex", source)
 
@@ -666,7 +706,7 @@ class BlenderMcpPowerShellRegressionTests(unittest.TestCase):
         ]
         self.assertIn("if ($listeners.Count) {", process_block)
         self.assertIn("Refusing cleanup: loopback listener ownership is ambiguous", process_block)
-        self.assertIn("$receipt.listener = '127.0.0.1:9876'", process_block)
+        self.assertIn('$receipt.listener = "127.0.0.1:$Port"', process_block)
         self.assertIn("$receipt.listener = 'absent'", process_block)
 
     def test_ensure_and_stop_recover_an_abandoned_lifecycle_mutex(self):
@@ -839,6 +879,342 @@ class BlenderMcpPowerShellRegressionTests(unittest.TestCase):
             self.assertEqual(json.loads(receipt_path.read_text()), {"status": "PASS"})
             leftovers = [p for p in Path(tmp).iterdir() if p != receipt_path]
             self.assertEqual(leftovers, [])
+
+
+class ConfigurablePortTests(unittest.TestCase):
+    """The listener port is a host fact, declared once and forwarded explicitly."""
+
+    LIFECYCLE = ROOT / "skills/studio-blender/scripts/lifecycle"
+    SCRIPTS = (
+        "Ensure-SupervisedBlenderMCP.ps1",
+        "Test-SupervisedBlenderMCP.ps1",
+        "Stop-SupervisedBlenderMCP.ps1",
+    )
+
+    def test_no_lifecycle_script_still_hard_codes_the_historical_default_port(self):
+        # Every remaining `9876` must be the parameter (or the one named
+        # fallback the parameter mirrors); anything else is a listener check,
+        # a mutex name or a receipt field that a host with the range reserved
+        # could not use.
+        default_assignment = re.compile(r"^\s*(?:\[int\])?\$[A-Za-z]*[Pp]ort\s*=\s*9876,?\s*$")
+        for name in self.SCRIPTS:
+            text = (self.LIFECYCLE / name).read_text(encoding="utf-8")
+            offending = [
+                line for line in text.splitlines()
+                if "9876" in line and not default_assignment.match(line)
+            ]
+            with self.subTest(script=name):
+                self.assertEqual(offending, [])
+                self.assertRegex(text, r"\[int\]\$Port = 9876")
+                self.assertIn("-LocalPort $Port", text)
+
+    def test_the_mutex_receipt_and_bootstrap_all_name_the_configured_port(self):
+        ensure = (self.LIFECYCLE / "Ensure-SupervisedBlenderMCP.ps1").read_text(encoding="utf-8")
+        self.assertIn('"Global\\GameStudioKit-BlenderMCP-127_0_0_1-$Port"', ensure)
+        self.assertIn("port = $Port", ensure)
+        self.assertIn("port_excluded", ensure)
+        self.assertIn("port_occupied", ensure)
+        # The refusals happen before the working copy is even made, so an
+        # excluded or occupied port leaves no owned process behind.
+        self.assertLess(ensure.index("port_excluded"), ensure.index("Copy-Item"))
+        self.assertLess(ensure.index("port_occupied"), ensure.index("Copy-Item"))
+        bootstrap = (self.LIFECYCLE / "supervised_bootstrap.py").read_text(encoding="utf-8")
+        self.assertIn("port=port", bootstrap)
+        self.assertNotIn("9876", bootstrap)
+
+    def test_stop_and_health_refuse_a_receipt_that_names_another_port(self):
+        for name in ("Stop-SupervisedBlenderMCP.ps1", "Test-SupervisedBlenderMCP.ps1"):
+            text = (self.LIFECYCLE / name).read_text(encoding="utf-8")
+            with self.subTest(script=name):
+                self.assertIn("[int]$receipt.port -ne $Port", text)
+
+
+class LifecyclePortForwardingTests(BlenderMcpLifecycleCliTests):
+    """The configured port reaches every packaged script as an argument."""
+
+    def port_argument(self, operation, port, **kwargs):
+        from studio_tools.blender_mcp_lifecycle import execute
+
+        config = self.loaded()
+        config["blender_mcp"]["server"]["env"]["BLENDER_PORT"] = port
+        with patch(
+            "studio_tools.blender_mcp_lifecycle._powershell", return_value="pwsh.exe"
+        ), patch(
+            "studio_tools.blender_mcp_lifecycle.subprocess.Popen",
+            side_effect=self.fake_powershell('{"status":"PASS"}'),
+        ) as runner:
+            execute(config, self.host, self.game, operation, **kwargs)
+        command = runner.call_args.args[0]
+        return command[command.index("-Port") + 1]
+
+    def test_every_operation_forwards_the_configured_port(self):
+        receipt = Path(self.temp.name) / "ownership.json"
+        receipt.write_text("{}")
+        for operation, kwargs in (
+            ("ensure", {"source": "source/asset.blend", "session": "review-fix"}),
+            ("status", {}),
+            ("stop", {"receipt": receipt}),
+        ):
+            with self.subTest(operation=operation):
+                self.assertEqual(self.port_argument(operation, "19876", **kwargs), "19876")
+
+    def test_an_unconfigured_port_forwards_the_documented_default(self):
+        self.assertEqual(self.port_argument("status", "9876"), "9876")
+
+
+class EnsureReturnsTests(unittest.TestCase):
+    """`ensure` returns while the Blender it started is still open."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="studio lifecycle space ")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / "runs"
+
+    def test_run_returns_within_its_bound_while_a_grandchild_is_still_alive(self):
+        from studio_tools import blender_mcp_lifecycle as lifecycle
+
+        marker = Path(self.temp.name) / "grandchild.pid"
+        # The parent writes its JSON to the stream the lifecycle redirected to
+        # a file, spawns a long-lived grandchild that inherits that same
+        # stream, and exits. Under the old pipe-backed capture the read would
+        # have waited for the grandchild; against a file it cannot.
+        child = (
+            "import os,pathlib,subprocess,sys;"
+            "p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(120)'],"
+            "stdout=sys.stdout,stderr=sys.stderr);"
+            f"pathlib.Path({str(marker)!r}).write_text(str(p.pid));"
+            "sys.stdout.write('{\"status\":\"PASS\"}');sys.stdout.flush()"
+        )
+        started = time.monotonic()
+        with patch.object(lifecycle, "_command", return_value=[sys.executable, "-c", child]):
+            result = lifecycle._run(
+                "Ensure-SupervisedBlenderMCP.ps1", [],
+                working_root=self.root, operation="ensure",
+            )
+        elapsed = time.monotonic() - started
+        grandchild = int(marker.read_text())
+        try:
+            self.assertEqual(result, {"status": "PASS"})
+            self.assertLess(elapsed, lifecycle.RUN_TIMEOUT_SECONDS)
+            # Still running: the return did not depend on it, and nothing
+            # here stopped a process the lifecycle does not own.
+            os.kill(grandchild, 0)
+        finally:
+            with contextlib.suppress(OSError):
+                os.kill(grandchild, signal.SIGKILL)
+
+    def test_streams_land_in_a_run_directory_named_by_operation_and_stamp(self):
+        from studio_tools import blender_mcp_lifecycle as lifecycle
+
+        child = "import sys;sys.stdout.write('{\"status\":\"CLOSED\"}');sys.stderr.write('noise')"
+        with patch.object(lifecycle, "_command", return_value=[sys.executable, "-c", child]):
+            lifecycle._run(
+                "Stop-SupervisedBlenderMCP.ps1", [],
+                working_root=self.root, operation="stop",
+            )
+        directories = sorted((self.root / "lifecycle").iterdir())
+        self.assertEqual(len(directories), 1)
+        self.assertTrue(directories[0].name.startswith("stop-"))
+        self.assertEqual(
+            (directories[0] / "powershell.stdout.json").read_text(), '{"status":"CLOSED"}'
+        )
+        self.assertEqual((directories[0] / "powershell.stderr.log").read_text(), "noise")
+
+    def test_a_parent_that_never_returns_becomes_a_terminal_receipt(self):
+        from studio_tools import blender_mcp_lifecycle as lifecycle
+
+        child = "import time;time.sleep(120)"
+        with patch.object(lifecycle, "_command", return_value=[sys.executable, "-c", child]), \
+                patch.object(lifecycle, "RUN_TIMEOUT_SECONDS", 1):
+            result = lifecycle._run(
+                "Ensure-SupervisedBlenderMCP.ps1", [],
+                working_root=self.root, operation="ensure",
+            )
+        self.assertEqual(result["status"], "ensure_did_not_return")
+        self.assertFalse(result["ok"])
+        # Nothing an ownership receipt already names was touched.
+        self.assertEqual(result["owned_process_action"], "none")
+        self.assertIn("blender-mcp stop", result["failure"])
+        directory = sorted((self.root / "lifecycle").iterdir())[0]
+        self.assertEqual(
+            json.loads((directory / "lifecycle-timeout.json").read_text())["status"],
+            "ensure_did_not_return",
+        )
+        # A receipt this kit writes names no host path: the run's own
+        # directory name is the handle.
+        self.assertNotIn(str(self.root), json.dumps(result))
+        self.assertEqual(result["run"], directory.name)
+
+    def test_the_bound_is_the_scripts_own_startup_window_plus_thirty_seconds(self):
+        from studio_tools import blender_mcp_lifecycle as lifecycle
+
+        self.assertEqual(lifecycle.STARTUP_TIMEOUT_SECONDS, 60)
+        self.assertEqual(lifecycle.RUN_TIMEOUT_SECONDS, 90)
+        ensure = (
+            ROOT / "skills/studio-blender/scripts/lifecycle/Ensure-SupervisedBlenderMCP.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("[int]$StartupTimeoutSeconds = 60", ensure)
+
+    def test_ensure_refuses_to_launch_while_its_own_stdio_could_be_inherited(self):
+        ensure = (
+            ROOT / "skills/studio-blender/scripts/lifecycle/Ensure-SupervisedBlenderMCP.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("function Assert-ParentStdioIsFileBacked", ensure)
+        self.assertIn("ensure_stdio_not_file_backed", ensure)
+        # The guard runs before the working copy and the launch, not after.
+        self.assertLess(
+            ensure.index("Assert-ParentStdioIsFileBacked\n"), ensure.index("Copy-Item")
+        )
+
+
+class ConnectionStateTests(unittest.TestCase):
+    """Helper health and app-client connection are two answers, never one."""
+
+    def test_overall_is_connected_only_when_both_layers_are(self):
+        self.assertEqual(
+            connection_report("PASS", "CONNECTED"),
+            {"helper": "PASS", "app_client": "CONNECTED", "overall": "CONNECTED"},
+        )
+        for helper, app_client, overall in (
+            ("FAIL", "CONNECTED", "FAIL"),
+            ("PASS", "UNKNOWN", "UNKNOWN"),
+            ("FAIL", "UNKNOWN", "FAIL"),
+            ("PASS", "RECONNECT_REQUIRED", "RECONNECT_REQUIRED"),
+            ("FAIL", "RECONNECT_REQUIRED", "RECONNECT_REQUIRED"),
+        ):
+            with self.subTest(helper=helper, app_client=app_client):
+                report = connection_report(helper, app_client)
+                self.assertEqual(report["overall"], overall)
+                self.assertNotEqual(report["overall"], "CONNECTED")
+
+    def test_reconnect_required_carries_the_exact_two_layer_instruction(self):
+        report = connection_report("PASS", "RECONNECT_REQUIRED")
+        self.assertEqual(report["instruction"], RECONNECT_INSTRUCTION)
+        self.assertIn("Blender add-on listener is one layer", report["instruction"])
+        self.assertIn("Codex connector is the other", report["instruction"])
+        self.assertIn("Reconnect the Blender MCP connector from the Codex side",
+                      report["instruction"])
+        # Nothing else carries an instruction: there is nothing to do.
+        for app_client in ("CONNECTED", "UNKNOWN"):
+            self.assertNotIn("instruction", connection_report("PASS", app_client))
+
+    def test_unknown_states_are_refused_rather_than_invented(self):
+        for helper, app_client in (("pass", "CONNECTED"), ("PASS", "connected"),
+                                   ("PASS", "DISCONNECTED"), (None, "UNKNOWN")):
+            with self.subTest(helper=helper, app_client=app_client):
+                with self.assertRaises(StudioError):
+                    connection_report(helper, app_client)
+
+    def test_each_app_client_status_maps_to_its_own_state(self):
+        self.assertEqual(app_client_state(CURRENT), "CONNECTED")
+        self.assertEqual(
+            app_client_state({"source": "error", "warning": "[WinError 10053] oops"}),
+            "RECONNECT_REQUIRED",
+        )
+        self.assertEqual(
+            app_client_state({"source": "error", "warning": "Connection to Blender lost"}),
+            "RECONNECT_REQUIRED",
+        )
+        for unknown in (
+            {"source": "error", "warning": "connection timed out"},
+            {**CURRENT, "protocol_version": 4},
+            {**CURRENT, "telemetry_consent": True},
+            {"source": "native", "warning": "Connection to Blender lost"},
+            "not json",
+            [],
+        ):
+            with self.subTest(status=unknown):
+                self.assertEqual(app_client_state(unknown), "UNKNOWN")
+
+    def test_the_documented_stale_status_is_retried_exactly_once(self):
+        responses = [{"source": "error", "warning": "WinError 10053"}, CURRENT]
+        calls = []
+
+        async def call(tool, arguments):
+            calls.append(tool)
+            return responses.pop(0)
+
+        report = asyncio.run(current_connection(call, ensure_passed=True, helper="PASS"))
+        self.assertEqual(report["overall"], "CONNECTED")
+        self.assertEqual(calls, ["get_addon_status", "get_addon_status"])
+
+    def test_a_second_stale_status_is_reported_rather_than_retried_again(self):
+        stale = {"source": "error", "warning": "Connection to Blender lost"}
+        responses = [stale, stale]
+        calls = []
+
+        async def call(tool, arguments):
+            calls.append(tool)
+            return responses.pop(0)
+
+        report = asyncio.run(current_connection(call, ensure_passed=True, helper="PASS"))
+        self.assertEqual(report["app_client"], "RECONNECT_REQUIRED")
+        self.assertEqual(report["overall"], "RECONNECT_REQUIRED")
+        self.assertEqual(calls, ["get_addon_status", "get_addon_status"])
+
+    def test_nothing_is_retried_without_a_passed_ensure_or_a_transport_failure(self):
+        calls = []
+
+        async def stale(tool, arguments):
+            calls.append(tool)
+            return {"source": "error", "warning": "WinError 10053"}
+
+        report = asyncio.run(current_connection(stale, ensure_passed=False, helper="FAIL"))
+        self.assertEqual(report, {
+            "helper": "FAIL", "app_client": "RECONNECT_REQUIRED",
+            "overall": "RECONNECT_REQUIRED", "instruction": RECONNECT_INSTRUCTION,
+        })
+        self.assertEqual(calls, ["get_addon_status"])
+
+        transport = []
+
+        async def broken(tool, arguments):
+            transport.append(tool)
+            raise ConnectionResetError("transport went away")
+
+        with self.assertRaises(ConnectionResetError):
+            asyncio.run(current_connection(broken, ensure_passed=True, helper="PASS"))
+        self.assertEqual(transport, ["get_addon_status"])
+
+    def test_a_mutation_is_never_routed_through_the_retrying_reader(self):
+        calls = []
+
+        async def call(tool, arguments):
+            calls.append(tool)
+            return {"source": "error", "warning": "WinError 10053"}
+
+        asyncio.run(current_connection(call, ensure_passed=True, helper="PASS"))
+        # Only the read-only status tool is ever called, twice at most; no
+        # scene query and no mutation is repeated on a stale connection.
+        self.assertEqual(set(calls), {"get_addon_status"})
+        self.assertLessEqual(len(calls), 2)
+
+
+class StatusReportsBothLayersTests(BlenderMcpLifecycleCliTests):
+    def status(self, payload):
+        from studio_tools.blender_mcp_lifecycle import execute
+
+        with patch(
+            "studio_tools.blender_mcp_lifecycle._powershell", return_value="pwsh.exe"
+        ), patch(
+            "studio_tools.blender_mcp_lifecycle.subprocess.Popen",
+            side_effect=self.fake_powershell(json.dumps(payload)),
+        ):
+            return execute(self.loaded(), self.host, self.game, "status")
+
+    def test_status_reports_the_helper_and_leaves_the_app_client_unknown(self):
+        result = self.status({"status": "PASS", "pid": 4242})
+        self.assertEqual(result["helper"], "PASS")
+        # The kit supervises the listener; it cannot see the app's connector,
+        # and a probe of its own would be a third party rather than that one.
+        self.assertEqual(result["app_client"], "UNKNOWN")
+        self.assertEqual(result["overall"], "UNKNOWN")
+        self.assertEqual(result["pid"], 4242)
+
+    def test_a_failing_helper_is_never_dressed_up_as_a_connection(self):
+        result = self.status({"status": "BLOCKED"})
+        self.assertEqual(result["helper"], "FAIL")
+        self.assertEqual(result["overall"], "FAIL")
 
 
 if __name__ == "__main__":

@@ -70,14 +70,20 @@ def _write_receipt_atomic(path: Path, data: dict) -> None:
 
 def main() -> None:
     args = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
-    if len(args) != 4:
+    if len(args) != 5:
         raise RuntimeError(
-            "Expected: <bootstrap-receipt> <working-scene> <source-sha256> <owner>"
+            "Expected: <bootstrap-receipt> <working-scene> <source-sha256> <owner> <port>"
         )
     receipt_path = Path(args[0])
     expected_scene = Path(args[1]).resolve()
     source_sha256 = args[2].lower()
     owner = args[3]
+    # The port is a host fact the supervisor resolves from the explicit host
+    # config; a Windows box that reserved the historical default cannot bind
+    # it at all, so the listener binds whatever the supervisor was told.
+    port = int(args[4])
+    if not 1024 <= port <= 65535:
+        raise RuntimeError(f"Port must be between 1024 and 65535; got {port}")
 
     try:
         if bpy.app.background:
@@ -107,11 +113,11 @@ def main() -> None:
         if existing:
             existing.stop()
             del bpy.types.blendermcp_server
-        server = blender_mcp.BlenderMCPServer(host='127.0.0.1', port=9876)
+        server = blender_mcp.BlenderMCPServer(host='127.0.0.1', port=port)
         bpy.types.blendermcp_server = server
         server.start()
         scene.blendermcp_server_running = server.running
-        if not server.running or server.socket.getsockname() != ("127.0.0.1", 9876):
+        if not server.running or server.socket.getsockname() != ("127.0.0.1", port):
             raise RuntimeError("Blender MCP did not bind the expected loopback listener")
 
         receipt = {
@@ -126,6 +132,7 @@ def main() -> None:
             "addon_version": list(blender_mcp.bl_info["version"]),
             "protocol_version": blender_mcp.ADDON_PROTOCOL_VERSION,
             "telemetry_consent": prefs.telemetry_consent,
+            "port": port,
             "listener": list(server.socket.getsockname()),
         }
         _write_receipt_atomic(receipt_path, receipt)

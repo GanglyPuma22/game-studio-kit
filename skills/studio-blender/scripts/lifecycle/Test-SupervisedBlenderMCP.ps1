@@ -4,10 +4,12 @@ param(
     [Parameter(Mandatory=$true)][string]$ProbePython,
     [Parameter(Mandatory=$true)][string]$McpServerConfig,
     [Parameter(Mandatory=$true)][string]$OwnerIdentity,
+    [int]$Port = 9876,
     [switch]$SkipProtocolProbe
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Port -lt 1024 -or $Port -gt 65535) { throw "Port must be between 1024 and 65535; got $Port" }
 $ownerName = $OwnerIdentity
 $activePath = Join-Path $WorkingRoot 'active-receipt.json'
 if (!$OwnershipReceipt) {
@@ -18,16 +20,32 @@ if (!(Test-Path -LiteralPath $OwnershipReceipt -PathType Leaf)) { throw "Missing
 $receipt = Get-Content -LiteralPath $OwnershipReceipt -Raw | ConvertFrom-Json
 if ($receipt.owner -ne $ownerName) { throw 'Ownership receipt belongs to another lifecycle' }
 if ($receipt.status -notin @('STARTING','RUNNING')) { throw "Receipt is not active: $($receipt.status)" }
+if ($null -ne $receipt.port -and [int]$receipt.port -ne $Port) { throw "Ownership receipt names port $($receipt.port), not $Port" }
 
 $process = Get-Process -Id $receipt.pid -ErrorAction Stop
 if ([IO.Path]::GetFullPath($process.Path) -ne [IO.Path]::GetFullPath($receipt.executable)) { throw 'Blender executable identity mismatch' }
 $expectedStartUtc = ([DateTimeOffset]$receipt.process_start_utc).UtcDateTime
 $startDelta = ($process.StartTime.ToUniversalTime() - $expectedStartUtc).Duration()
 if ($startDelta -gt [TimeSpan]::FromMilliseconds(10)) { throw "Blender process start-time mismatch ($($startDelta.TotalMilliseconds) ms)" }
-$listeners = @(Get-NetTCPConnection -State Listen -LocalPort 9876 -ErrorAction Stop)
-if ($listeners.Count -ne 1) { throw "Expected one port-9876 listener; found $($listeners.Count)" }
-if ($listeners[0].OwningProcess -ne $receipt.pid -or $listeners[0].LocalAddress -ne '127.0.0.1') { throw 'Port 9876 is not owned by the expected loopback Blender process' }
+$listeners = @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction Stop)
+if ($listeners.Count -ne 1) { throw "Expected one port-$Port listener; found $($listeners.Count)" }
+if ($listeners[0].OwningProcess -ne $receipt.pid -or $listeners[0].LocalAddress -ne '127.0.0.1') { throw "Port $Port is not owned by the expected loopback Blender process" }
 if (!(Test-Path -LiteralPath $receipt.working_scene -PathType Leaf)) { throw 'Working Blender scene is missing' }
+# Whether the PowerShell parent that started this Blender has already exited.
+# Reported, never enforced: Ensure calls this script in-process while it is
+# still running, so a live parent is normal there. It is the observation the
+# documented ensure-returns regression reads, because `ensure` returning while
+# the owned GUI stays open is exactly a live Blender with a dead parent.
+$parentPid = $null
+$parentAlive = $null
+try {
+    $parentPid = (Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $($receipt.pid)" -ErrorAction Stop).ParentProcessId
+    if ($null -ne $parentPid) {
+        $parentAlive = [bool](Get-Process -Id $parentPid -ErrorAction SilentlyContinue)
+    }
+} catch {
+    $parentPid = $null
+}
 
 $result = [ordered]@{
     status = 'PASS'
@@ -37,7 +55,10 @@ $result = [ordered]@{
     ownership_receipt = [IO.Path]::GetFullPath($OwnershipReceipt)
     working_scene = $receipt.working_scene
     source_sha256 = $receipt.source_sha256
-    listener = '127.0.0.1:9876'
+    listener = "127.0.0.1:$Port"
+    port = $Port
+    parent_pid = $parentPid
+    parent_alive = $parentAlive
     protocol_probe = 'SKIPPED'
 }
 

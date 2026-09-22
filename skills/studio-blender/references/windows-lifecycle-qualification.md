@@ -26,7 +26,14 @@ python "$Kit\scripts\studio.py" doctor --config $HostConfig
 python "$Kit\scripts\studio.py" blender-mcp contracts --project $Project --config $HostConfig
 ```
 
-Record portable tests, package validation and the PowerShell static contracts separately. Static contracts do not qualify native lifecycle behavior. Confirm the host configuration points to the intended existing Blender executable, probe Python, MCP server command, loopback port `9876`, telemetry-off environment and an empty external working root.
+Record portable tests, package validation and the PowerShell static contracts separately. Static contracts do not qualify native lifecycle behavior. Confirm the host configuration points to the intended existing Blender executable, probe Python, MCP server command, telemetry-off environment and an empty external working root, and record the `BLENDER_PORT` this host is qualified on. The port is a host fact: any integer 1024–65535 is accepted and `9876` is only the default. Record the reserved ranges before choosing, because a port inside one cannot be bound at all:
+
+```powershell
+netsh int ipv4 show excludedportrange protocol=tcp
+Get-NetTCPConnection -State Listen -LocalPort <PORT> -ErrorAction SilentlyContinue
+```
+
+Require the chosen port to be outside every excluded range and unoccupied. Then qualify the two refusals directly: set `BLENDER_PORT` to a port inside a reported excluded range and require `ensure` to fail with `port_excluded` before any Blender starts, and set it to a port an unrelated process is listening on and require `port_occupied`. In both cases require no new Blender process, no new ownership receipt in `RUNNING` state, and the desktop untouched.
 
 ## Native stage
 
@@ -53,6 +60,69 @@ python "$Kit\scripts\studio.py" blender-mcp stop --project $Project --receipt $C
 
 Require the owned Blender/listener to close while the app-owned MCP subprocess and unrelated applications remain untouched. If graceful close reports `NEEDS_USER_CLOSE`, retain the receipt and ask the desktop owner to handle the visible prompt. Do not force-kill.
 
+## `ensure` returns while Blender stays open
+
+This is the regression that cannot be expressed in a portable test, because it
+is about Windows handle inheritance: the launched Blender inherits the
+PowerShell parent's handles, and a parent whose own stdout is a *pipe* is held
+open by that inherited duplicate until the GUI is closed. The packaged
+entrypoint redirects both of the parent's streams to files under the configured
+working root and waits a bounded 90 seconds. Run this once per host, in the
+authorized desktop window, and retain every number:
+
+1. From a fresh shell, with no owned Blender running, record the wall clock and
+   run one `ensure` through the packaged entrypoint:
+
+   ```powershell
+   $Before = Get-Date
+   $Current = python "$Kit\scripts\studio.py" blender-mcp ensure --project $Project --source $SourceRelative --session $Session --config $HostConfig | ConvertFrom-Json
+   $Elapsed = (Get-Date) - $Before
+   ```
+
+2. Require the command to have **returned** while the Blender window is still
+   open on the desktop. Record `$Elapsed.TotalSeconds` and require it under 90.
+   Require exactly one JSON object on stdout (`$Current` parsed without error,
+   and `$Current.GetType().Name` not an array); the streams of the call itself
+   are in the newest directory under `<WorkingRoot>\lifecycle\ensure-*`, whose
+   `powershell.stdout.json` must hold that same one object and nothing else.
+3. Require the PowerShell parent to have exited and the owned Blender to be
+   alive, which is the whole point of the change:
+
+   ```powershell
+   $Owned = Get-Process -Id $Current.pid
+   $ParentId = (Get-CimInstance Win32_Process -Filter "ProcessId = $($Current.pid)").ParentProcessId
+   Get-Process -Id $ParentId -ErrorAction SilentlyContinue
+   ```
+
+   Require `$Owned` to exist, and the parent lookup to return nothing (the
+   packaged health check reports the same observation as `parent_pid` and
+   `parent_alive`; `blender-mcp status` must show `parent_alive` false here,
+   while the same fields are expected true when `Ensure` itself calls it
+   in-process). Require no PowerShell process to be waiting on the call.
+4. Repeat the whole step a second time in the same shell. Require the second
+   `ensure` to return with `reused=true`, the same PID, and again within the
+   bound. The original failure was that a *second* `ensure` never returned.
+5. Stop through the receipt and require exactly that PID to close:
+
+   ```powershell
+   python "$Kit\scripts\studio.py" blender-mcp stop --project $Project --receipt $Current.ownership_receipt --config $HostConfig
+   Get-Process -Id $Current.pid -ErrorAction SilentlyContinue
+   ```
+
+   Require `CLOSED`, the lookup to return nothing, and every unrelated Blender
+   or application on the desktop to be untouched.
+6. Qualify the refusal that protects the guarantee: run
+   `Ensure-SupervisedBlenderMCP.ps1` directly from a console rather than through
+   the packaged entrypoint and require it to refuse with
+   `ensure_stdio_not_file_backed` before launching anything. That refusal is the
+   reason the packaged entrypoint is the only supported route.
+7. Qualify the timeout receipt if it can be provoked without a desktop hazard
+   (for example by pointing `blender_executable` at a stub that never
+   bootstraps): require `status: ensure_did_not_return`, `ok: false`,
+   `owned_process_action: "none"`, and require any Blender an ownership receipt
+   already named to still be running afterwards. Mark this step pending rather
+   than inventing it if it cannot be provoked safely.
+
 ## Evidence and decision
 
-Return the exact KIT revision when available, package manifest and lifecycle file hashes, redacted configured paths, source and working-copy hashes, separate portable/static/helper-subprocess/app-client results, start/reuse/conflict/negative-test receipts, edit-save inspection, retry evidence when exercised, and cleanup state. Mark unexecuted native cases as pending. Qualification does not install or adopt the KIT; any plugin upgrade or registration is a separate explicit action.
+Return the exact KIT revision when available, package manifest and lifecycle file hashes, redacted configured paths, the qualified `BLENDER_PORT` and the excluded-range listing it was chosen against, source and working-copy hashes, separate portable/static/helper-subprocess/app-client results, the `ensure`-returns timings and parent/PID observations above, start/reuse/conflict/negative-test receipts, edit-save inspection, retry evidence when exercised, and cleanup state. Report the helper and app-client layers separately and never as one word: `overall` is `CONNECTED` only when the supervised helper passed and the app client is connected, and the packaged status reports `app_client: UNKNOWN` because it cannot see the connector at all. Mark unexecuted native cases as pending. Qualification does not install or adopt the KIT; any plugin upgrade or registration is a separate explicit action.
