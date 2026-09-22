@@ -678,7 +678,7 @@ class BatchExperimentTests(BatchCase):
         experiment = rollup["experiment"]
         self.assertEqual(experiment["status"], "unverified")
         self.assertEqual(experiment["must_vary"][0]["status"], "unverified")
-        self.assertEqual([entry["label"] for entry in experiment["unread_results"]], ["run-1"])
+        self.assertEqual([entry["label"] for entry in experiment["unusable_results"]], ["run-1"])
 
     def test_a_pointer_that_names_nothing_is_not_a_value(self):
         code, rollup = self.run_experiment(
@@ -810,6 +810,162 @@ class BatchExperimentTests(BatchCase):
         self.assertEqual(code, 0)
         self.assertEqual(rollup["experiment"]["invariants"][0]["status"], "held")
 
+    def test_an_unknown_top_level_plan_field_is_named_rather_than_ignored(self):
+        # The failure a silently ignored key hides is invisible: a misspelled
+        # must_vary leaves the batch running every launch and reporting ok,
+        # with the comparison the plan was written to make simply not made.
+        for field in ("must_vary_", "mustvary", "invariant", "$comment", "notes"):
+            plan = self.plan(document={
+                "schema_version": 1, "kind": "launch-batch-plan",
+                "runs": [{"label": "only"}], field: ["/population"],
+            })
+            with self.subTest(field=field):
+                code, _, err = self.cli_batch(plan)
+                self.assertEqual(code, 1)
+                message = json.loads(err)["error"]
+                self.assertIn(f'unknown top-level field: "{field}"', message)
+                self.assertIn("must_vary", message)
+                self.assertFalse((self.root / "artifacts").exists())
+
+    def test_a_non_finite_number_in_a_result_file_makes_it_unreadable(self):
+        # NaN and the infinities are not JSON, and this kit's own writer
+        # refuses them: a rollup carrying one could not be written at all, so
+        # the file is unreadable and the experiment is unverified instead.
+        for literal in ("NaN", "Infinity", "-Infinity"):
+            root = Path(self.tmp.name) / f"game-{literal}"
+            root.mkdir()
+            (root / "project.godot").touch()
+            plan = self.plan(document={
+                "schema_version": 1, "kind": "launch-batch-plan",
+                "must_vary": ["/population"],
+                "runs": [
+                    {"label": "first", "results": ["artifacts/summary-0.json"]},
+                    {"label": "second", "results": ["artifacts/summary-1.json"]},
+                ],
+            })
+            writes = (
+                "import pathlib;print('run ok');"
+                "pathlib.Path('artifacts').mkdir(exist_ok=True);"
+                'pathlib.Path("artifacts/summary-0.json").write_text('
+                f"'{{\"population\": {literal}}}')"
+            )
+            with self.subTest(literal=literal):
+                argv = ["batch", "--project", str(root), "--config", str(self.host_config),
+                        "--sha256", self.sha, "--plan", str(plan)]
+                with patch("studio_tools.launch.run",
+                           side_effect=self.fake_child(writes, self.writes(1, {"population": 2}))):
+                    with contextlib.redirect_stdout(io.StringIO()) as out:
+                        with contextlib.redirect_stderr(io.StringIO()) as err:
+                            code = cli.main(argv)
+                self.assertEqual(err.getvalue(), "")
+                self.assertEqual(code, 1)
+                rollup = json.loads(out.getvalue())
+                experiment = rollup["experiment"]
+                self.assertEqual(experiment["status"], "unverified")
+                self.assertEqual(rollup["verdict"], "invalid_experiment")
+                self.assertEqual(
+                    [entry["label"] for entry in experiment["unusable_results"]], ["first"]
+                )
+                # The terminal receipt was writable, which is the point.
+                self.assertTrue((root / "artifacts/batches").is_dir())
+
+    def test_a_result_beside_an_unsuccessful_run_is_never_read(self):
+        # The file predates the batch; the refused run did not produce it, and
+        # reading it would let a run that never happened contribute a value.
+        (self.root / "artifacts").mkdir(parents=True, exist_ok=True)
+        (self.root / "artifacts/summary-1.json").write_text(
+            json.dumps({"population": 99}), encoding="utf-8"
+        )
+        plan = self.plan(document={
+            "schema_version": 1, "kind": "launch-batch-plan",
+            "must_vary": ["/population"],
+            "runs": [
+                {"label": "ran", "results": ["artifacts/summary-0.json"]},
+                # Its own authorized window had already closed, so the
+                # launcher refuses it and no engine ever starts for it.
+                {"label": "refused", "cutoff_utc": "2020-01-01T00:00:00Z",
+                 "results": ["artifacts/summary-1.json"]},
+            ],
+        })
+        code, out, err = self.cli_batch(plan, codes=(self.writes(0, {"population": 1}),))
+        self.assertEqual(err, "")
+        self.assertEqual(code, 1)
+        rollup = json.loads(out)
+        # One run ran and was ok; the other never started.
+        self.assertEqual([run["ok"] for run in rollup["runs"]], [True, False])
+        self.assertEqual(rollup["runs"][1]["verdict"], "cutoff_passed")
+        self.assertEqual(rollup["experiment"]["status"], "unverified")
+        self.assertEqual(rollup["verdict"], "invalid_experiment")
+        self.assertFalse(rollup["ok"])
+        reasons = {entry["label"]: entry["reason"]
+                   for entry in rollup["experiment"]["unusable_results"]}
+        self.assertEqual(list(reasons), ["refused"])
+        self.assertIn("not successful", reasons["refused"])
+        self.assertEqual(rollup["experiment"]["must_vary"][0]["status"], "unverified")
+        # The pre-existing file's value never reached the comparison.
+        self.assertNotIn(99, [entry["value"]
+                              for entry in rollup["experiment"]["must_vary"][0]["values"]])
+
+    def test_must_vary_compares_numbers_by_value_and_never_by_spelling(self):
+        code, rollup = self.run_experiment(
+            {"population": 1}, {"population": 1.0}, must_vary=["/population"]
+        )
+        row = rollup["experiment"]["must_vary"][0]
+        self.assertEqual(row["distinct"], 1)
+        self.assertEqual(row["status"], "identical")
+        self.assertEqual(code, 1)
+
+    def test_a_boolean_is_never_the_same_value_as_the_number_one(self):
+        code, rollup = self.run_experiment(
+            {"population": 1}, {"population": True}, must_vary=["/population"]
+        )
+        row = rollup["experiment"]["must_vary"][0]
+        self.assertEqual(row["distinct"], 2)
+        self.assertEqual(row["status"], "varied")
+        self.assertEqual(code, 0)
+
+    def test_objects_written_in_a_different_key_order_are_one_value(self):
+        code, rollup = self.run_experiment(
+            {"summary": {"a": 1, "b": [2, 3]}},
+            {"summary": {"b": [2, 3.0], "a": 1.0}},
+            must_vary=["/summary"],
+        )
+        self.assertEqual(rollup["experiment"]["must_vary"][0]["distinct"], 1)
+        self.assertEqual(code, 1)
+
+    def test_an_invariant_holds_across_two_spellings_of_one_number(self):
+        code, rollup = self.run_experiment(
+            {"budget": 16, "population": 1}, {"budget": 16.0, "population": 2},
+            invariants=[{"field": "/budget", "equals": 16.0}],
+            must_vary=["/population"],
+        )
+        self.assertEqual(rollup["experiment"]["invariants"][0]["status"], "held")
+        self.assertEqual(code, 0)
+
+    def test_a_malformed_pointer_escape_is_refused_at_plan_validation(self):
+        for pointer in ("/a/~2b", "/a/~", "/~", "/~x", "~"):
+            for document in ({"must_vary": [pointer]},
+                             {"invariants": [{"field": pointer, "equals": 1}]}):
+                plan = self.plan(document={
+                    "schema_version": 1, "kind": "launch-batch-plan",
+                    "runs": [{"label": "only"}], **document,
+                })
+                with self.subTest(pointer=pointer, document=document):
+                    code, _, err = self.cli_batch(plan)
+                    self.assertEqual(code, 1)
+                    self.assertIn("JSON pointer", json.loads(err)["error"])
+                    self.assertFalse((self.root / "artifacts").exists())
+
+    def test_a_well_formed_escape_still_resolves_the_key_it_names(self):
+        code, rollup = self.run_experiment(
+            {"a/b": 1, "c~d": "x"}, {"a/b": 2, "c~d": "x"},
+            invariants=[{"field": "/c~0d", "equals": "x"}],
+            must_vary=["/a~1b"],
+        )
+        self.assertEqual(rollup["experiment"]["invariants"][0]["status"], "held")
+        self.assertEqual(rollup["experiment"]["must_vary"][0]["distinct"], 2)
+        self.assertEqual(code, 0)
+
     def test_the_shipped_template_declares_both_fields_by_example(self):
         template = read_json(ROOT / "templates/batch-plan.json")
         self.assertEqual(template["kind"], "launch-batch-plan")
@@ -820,7 +976,9 @@ class BatchExperimentTests(BatchCase):
             self.assertTrue(item["field"].startswith("/"))
         for field in template["must_vary"]:
             self.assertTrue(field.startswith("/"))
-        self.assertIn("invalid_experiment", template["$comment"])
+        # A plan carries exactly its declared fields, so the template has to
+        # as well: it is read by whoever copies it into a project.
+        self.assertEqual(set(template) - set(batch.PLAN_FIELDS), set())
         # The template declares an experiment, so it has to be a valid one:
         # every run writes its own result file.
         declared = [item for run in template["runs"] for item in run.get("results", [])]

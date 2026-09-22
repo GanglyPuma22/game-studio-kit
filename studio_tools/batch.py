@@ -16,6 +16,7 @@ order, under which total cap, and whether every one of them was ok.
 
 from __future__ import annotations
 from datetime import datetime, timedelta, timezone
+from fractions import Fraction
 import hashlib
 import json
 import math
@@ -28,6 +29,12 @@ from .launch import MODES, parse_utc
 
 PLAN_KIND = "launch-batch-plan"
 PLAN_SCHEMA_VERSION = 1
+# Exactly the keys a plan may carry at the top level. An unknown one is
+# refused rather than ignored, because the failure it hides is silent: a
+# misspelled `must_vary` would leave the batch running every launch and
+# reporting ok, with the comparison the plan was written to make simply
+# not happening and nothing in the rollup saying so.
+PLAN_FIELDS = ("schema_version", "kind", "runs", "invariants", "must_vary")
 DEFAULT_MAX_MINUTES = 60
 # A batch has nobody watching it, so it stays bounded like every other
 # unattended wait; a night is the longest window one of them is authorized for.
@@ -89,7 +96,45 @@ def _pointer(document, pointer):
 
 
 def _valid_pointer(value):
-    return isinstance(value, str) and (value == "" or value.startswith("/"))
+    """A syntactically valid RFC 6901 pointer.
+
+    `~` is the escape character: it is only ever followed by `0` (a literal
+    `~`) or `1` (a literal `/`). A bare `~2` or a trailing `~` names nothing,
+    and left unchecked it would reach `_pointer`, resolve to "not found" and
+    be reported as a field every run failed to carry rather than as the typo
+    it is.
+    """
+    if not isinstance(value, str) or not (value == "" or value.startswith("/")):
+        return False
+    return not re.search(r"~(?![01])", value)
+
+
+def _canonical(value):
+    """One comparable form per JSON value, by value rather than by spelling.
+
+    Two runs that reported `1` and `1.0` reported the same number, and a
+    must-vary check comparing serialized text would have called that two
+    distinct values and passed an experiment that never varied. Numbers are
+    compared exactly through `Fraction`, which neither rounds a large integer
+    nor confuses `1` with `1.0`, and `true` stays distinct from `1` even
+    though Python makes `bool` an `int`.
+    """
+    if isinstance(value, bool):
+        return ("bool", value)
+    if isinstance(value, (int, float)):
+        return ("number", Fraction(value))
+    if value is None:
+        return ("null", None)
+    if isinstance(value, str):
+        return ("string", value)
+    if isinstance(value, list):
+        return ("list", tuple(_canonical(item) for item in value))
+    if isinstance(value, dict):
+        # Sorted by key, so two equal objects written in a different key order
+        # are one value rather than two.
+        return ("object", tuple(sorted((key, _canonical(item))
+                                       for key, item in value.items())))
+    return ("other", repr(value))
 
 
 def _finite(value):
@@ -162,38 +207,65 @@ def _distinct_results(root, entries):
             seen[key] = index
 
 
+def _refuse_constant(name):
+    raise ValueError(f"{name} is not a JSON value this kit can record")
+
+
 def _experiment(root, entries, runs, invariants, must_vary):
     """Read every run's first declared result and judge the declared experiment.
 
     Read after the last run, from the file each run declared, because that is
     the only thing here that describes what the engine produced rather than
-    what the launcher did with it. A result that is absent or unreadable makes
-    the check `unverified`: an experiment nobody could read did not pass.
+    what the launcher did with it, and only from a run the receipts already
+    call successful. A run that did not succeed, declared nothing, or left a
+    result that is absent or unreadable makes the check `unverified`: an
+    experiment nobody could read did not pass.
     """
     documents = {}
-    unreadable = []
+    unusable = []
     for entry, row in zip(entries, runs):
         declared = entry.get("results", [])
+        if not row.get("ok"):
+            # A result beside an unsuccessful run is not this run's output. It
+            # may predate the batch entirely, or be the bytes an earlier
+            # attempt left behind; the launcher's own receipts already decided
+            # that, reporting a missing or stale result as not ok. Reading it
+            # anyway would let a refused run contribute a value to a
+            # comparison it never ran.
+            unusable.append({
+                "label": entry["label"],
+                "reason": f'run was not successful (status {row.get("status")}, '
+                          f'verdict {row.get("verdict")})',
+            })
+            continue
         if not declared:
-            unreadable.append({"label": entry["label"], "reason": "no declared result file"})
+            unusable.append({"label": entry["label"], "reason": "no declared result file"})
             continue
         try:
             target = relative(root, declared[0])
-            documents[entry["label"]] = json.loads(target.read_text(encoding="utf-8"))
+            documents[entry["label"]] = json.loads(
+                target.read_text(encoding="utf-8"),
+                # NaN and the infinities are not JSON, and a value this kit's
+                # own writer refuses to serialize must never reach the rollup
+                # it would then be unable to write. Such a file is unreadable,
+                # which makes the experiment unverified rather than failing.
+                parse_constant=_refuse_constant,
+            )
         except (StudioError, OSError, ValueError):
-            unreadable.append({"label": entry["label"], "reason": "result file absent or not JSON"})
+            unusable.append({"label": entry["label"], "reason": "result file absent or not JSON"})
     invariant_rows = []
     for item in invariants:
         seen = []
         violated = []
+        expected = _canonical(item["equals"])
         for label, document in documents.items():
             found, value = _pointer(document, item["field"])
             seen.append({"label": label, "found": found, "value": value if found else None})
-            if not found or value != item["equals"]:
+            if not found or _canonical(value) != expected:
                 violated.append(label)
         invariant_rows.append({
             "field": item["field"], "equals": item["equals"],
-            "status": "unverified" if unreadable else ("violated" if violated else "held"),
+            "status": "unverified" if unusable else ("violated" if violated else "held"),
             "violated_by": violated, "values": seen,
         })
     vary_rows = []
@@ -203,19 +275,19 @@ def _experiment(root, entries, runs, invariants, must_vary):
         for label, document in documents.items():
             found, value = _pointer(document, field)
             seen.append({"label": label, "found": found, "value": value if found else None})
-            # Compared by their canonical JSON form, so two equal objects in a
-            # different key order are one value rather than two.
-            key = json.dumps(value, sort_keys=True, default=str) if found else None
+            # Compared by value, never by spelling: `1` and `1.0` are one
+            # number that did not vary, while `1` and `true` are two values.
+            key = _canonical(value) if found else None
             if found and key not in distinct:
                 distinct.append(key)
         vary_rows.append({
             "field": field, "distinct": len(distinct),
-            "status": "unverified" if unreadable else ("identical" if len(distinct) < 2 else "varied"),
+            "status": "unverified" if unusable else ("identical" if len(distinct) < 2 else "varied"),
             "values": seen,
         })
     failed = [row["field"] for row in invariant_rows if row["status"] == "violated"]
     failed += [row["field"] for row in vary_rows if row["status"] == "identical"]
-    if unreadable:
+    if unusable:
         status = "unverified"
     elif failed:
         status = "failed"
@@ -225,7 +297,10 @@ def _experiment(root, entries, runs, invariants, must_vary):
         "declared": True,
         "status": status,
         "failed_fields": failed,
-        "unread_results": unreadable,
+        # Every run whose result could not be used, and why: an unsuccessful
+        # run, a run that declared no result, or a file that is absent or is
+        # not JSON this kit can record.
+        "unusable_results": unusable,
         "invariants": invariant_rows,
         "must_vary": vary_rows,
     }
@@ -356,6 +431,12 @@ def _plan(root, path, reserved):
         raise StudioError(f'Batch plan must declare kind "{PLAN_KIND}"')
     if document.get("schema_version") != PLAN_SCHEMA_VERSION:
         raise StudioError(f"Batch plan schema_version must be {PLAN_SCHEMA_VERSION}")
+    unknown = sorted(set(document) - set(PLAN_FIELDS))
+    if unknown:
+        raise StudioError(
+            f'Batch plan has an unknown top-level field: "{unknown[0]}"; a plan carries '
+            + ", ".join(PLAN_FIELDS)
+        )
     if not document["runs"]:
         raise StudioError("Batch plan lists no runs; a batch of nothing has nothing to report")
     seen = {}
