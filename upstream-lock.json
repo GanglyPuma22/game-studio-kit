@@ -123,7 +123,7 @@
           "upstream": "README.md",
           "upstream_sha256": "ed61269d0820a232bd75ed297ca4a110115f8c623c8275df76e19c3e02183786",
           "local": "skills/studio-blender/references/mcp.md",
-          "sha256": "64f7305bf9570f920eac969e8e1a1012f27a8222f7a0109d0c3565c4d142f5c2",
+          "sha256": "f9da6fc6cc262d2561abea616619c517f6cdea2abef3d8763b358b8bc626750f",
           "change": "Studio-authored condensed adaptation; external skill/setup dependency links replaced with repository-local routes; added the package-owned supervised Windows lifecycle route documenting both accepted add-on module names and the pinned bl_info validation, the host-configurable loopback listener port, the bounded ensure-returns guarantee, and the separate helper/app-client connection states; no upstream server/addon runtime code copied"
         }
       ],

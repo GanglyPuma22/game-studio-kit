@@ -67,7 +67,7 @@ is about Windows handle inheritance: the launched Blender inherits the
 PowerShell parent's handles, and a parent whose own stdout is a *pipe* is held
 open by that inherited duplicate until the GUI is closed. The packaged
 entrypoint redirects both of the parent's streams to files under the configured
-working root and waits a bounded 90 seconds. Run this once per host, in the
+working root and waits a bounded 180 seconds. Run this once per host, in the
 authorized desktop window, and retain every number:
 
 1. From a fresh shell, with no owned Blender running, record the wall clock and
@@ -80,7 +80,7 @@ authorized desktop window, and retain every number:
    ```
 
 2. Require the command to have **returned** while the Blender window is still
-   open on the desktop. Record `$Elapsed.TotalSeconds` and require it under 90.
+   open on the desktop. Record `$Elapsed.TotalSeconds` and require it under 180.
    Require exactly one JSON object on stdout (`$Current` parsed without error,
    and `$Current.GetType().Name` not an array); the streams of the call itself
    are in the newest directory under `<WorkingRoot>\lifecycle\ensure-*`, whose
@@ -112,10 +112,13 @@ authorized desktop window, and retain every number:
    Require `CLOSED`, the lookup to return nothing, and every unrelated Blender
    or application on the desktop to be untouched.
 6. Qualify the refusal that protects the guarantee: run
-   `Ensure-SupervisedBlenderMCP.ps1` directly from a console rather than through
-   the packaged entrypoint and require it to refuse with
-   `ensure_stdio_not_file_backed` before launching anything. That refusal is the
-   reason the packaged entrypoint is the only supported route.
+   `Ensure-SupervisedBlenderMCP.ps1` with its output piped to another command
+   (`... | ForEach-Object { $_ }`), so its own stdout is a pipe, and require it
+   to refuse with `ensure_stdio_is_pipe` before launching anything. Then run it
+   directly from a console with no redirection and require it *not* to refuse
+   on that ground: only a pipe is refused, because only a pipe is what an
+   inherited handle can hold open. That pair is the reason the packaged
+   entrypoint is the only supported route.
 7. Qualify the timeout receipt if it can be provoked without a desktop hazard
    (for example by pointing `blender_executable` at a stub that never
    bootstraps): require `status: ensure_did_not_return`, `ok: false`,

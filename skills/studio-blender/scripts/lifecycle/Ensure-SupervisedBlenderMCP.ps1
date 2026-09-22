@@ -127,28 +127,44 @@ function Get-ExcludedPortRange {
     return $null
 }
 
-function Assert-ParentStdioIsFileBacked {
+function Assert-ParentStdioIsNotAPipe {
     # The owned Blender process inherits this PowerShell process's open
-    # handles. When the parent's own stdout/stderr are pipes -- which is what
-    # a caller that captures output through a pipe hands it -- the inherited
+    # handles. When the parent's own stdout/stderr are *pipes* -- which is
+    # what a caller capturing output through a pipe hands it -- the inherited
     # duplicates keep those pipes open for as long as Blender lives, and the
-    # caller waits for an end-of-file that only arrives when the GUI is
+    # reader waits for an end-of-file that only arrives when the GUI is
     # closed. That is why `ensure` never returned while Blender stayed open.
-    # A file-backed (seekable) standard stream cannot hold anybody open, so
-    # the launch below provably inherits no stdio a reader is waiting on. The
-    # packaged `studio blender-mcp` entrypoint always redirects to files; this
-    # refuses the direct invocation that would hang instead.
-    # The streams are not disposed: [Console]::OpenStandardOutput() hands back
-    # a stream over a non-owning handle, and this script still has its own JSON
-    # result to write to stdout after the check.
-    foreach ($name in @('stdout','stderr')) {
-        $stream = if ($name -eq 'stdout') { [Console]::OpenStandardOutput() } else { [Console]::OpenStandardError() }
-        $seekable = $false
-        try { $seekable = [bool]$stream.CanSeek } catch { $seekable = $false }
-        if (!$seekable) {
-            throw ("ensure_stdio_not_file_backed: this script's $name is a console or a pipe, " +
-                   'which the launched Blender would inherit and hold open. Invoke the packaged ' +
-                   'lifecycle through `studio blender-mcp ensure`, which redirects both streams to files.')
+    #
+    # Only a pipe can do that, so only a pipe is refused. The handle type
+    # comes from the Win32 API rather than from a .NET stream's seekability
+    # property: on Windows PowerShell 5.1 that property reads false even for
+    # a stdout redirected to a file, which would refuse the very packaged
+    # entrypoint this check exists to permit. A file (FILE_TYPE_DISK), a
+    # console nobody is reading (FILE_TYPE_CHAR) and a process with no
+    # standard handle at all are all fine to inherit.
+    if (-not ('GameStudioKit.NativeStdIo' -as [type])) {
+        Add-Type -Namespace 'GameStudioKit' -Name 'NativeStdIo' -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+public static extern System.IntPtr GetStdHandle(int nStdHandle);
+
+[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+public static extern uint GetFileType(System.IntPtr hFile);
+'@
+    }
+    # STD_OUTPUT_HANDLE / STD_ERROR_HANDLE, and FILE_TYPE_PIPE.
+    foreach ($standard in @(
+        @{Name='stdout'; Id=-11},
+        @{Name='stderr'; Id=-12}
+    )) {
+        $handle = [GameStudioKit.NativeStdIo]::GetStdHandle($standard.Id)
+        # Null or INVALID_HANDLE_VALUE: this process has no such standard
+        # handle, so there is nothing for Blender to inherit and hold open.
+        if ($handle -eq [IntPtr]::Zero -or $handle.ToInt64() -eq -1) { continue }
+        if ([GameStudioKit.NativeStdIo]::GetFileType($handle) -eq 3) {
+            throw ("ensure_stdio_is_pipe: this script's $($standard.Name) is a pipe, which the " +
+                   'launched Blender would inherit and hold open until the GUI is closed. Invoke ' +
+                   'the packaged lifecycle through `studio blender-mcp ensure`, which redirects ' +
+                   'both streams to files.')
         }
     }
 }
@@ -206,7 +222,11 @@ $plan = [ordered]@{
 }
 if ($PlanOnly) { $plan | ConvertTo-Json -Depth 5; return }
 
-$lifecycleMutex = [System.Threading.Mutex]::new($false, "Global\GameStudioKit-BlenderMCP-127_0_0_1-$Port")
+# One supervised session per host, whatever port it binds. The lock is not
+# per-port: this lifecycle refuses to adopt or run beside a second Blender at
+# all, and a per-port name would have let two of them start concurrently and
+# then refuse each other halfway through.
+$lifecycleMutex = [System.Threading.Mutex]::new($false, 'Global\GameStudioKit-BlenderMCP')
 $mutexAcquired = $false
 try {
     try {
@@ -294,7 +314,7 @@ $unownedBlender = @(Get-Process -Name blender -ErrorAction SilentlyContinue)
 $unownedListener = @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue)
 if ($unownedBlender.Count) { throw 'Blender is already running without a valid supervised ownership receipt; refusing to adopt it' }
 if ($unownedListener.Count) { throw "port_occupied: port $Port is already occupied without a valid supervised ownership receipt" }
-Assert-ParentStdioIsFileBacked
+Assert-ParentStdioIsNotAPipe
 
 $runDirectory = Join-Path $WorkingRoot ('runs\' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '-' + [Guid]::NewGuid().ToString('N').Substring(0,8))
 New-Item -ItemType Directory -Path $runDirectory | Out-Null

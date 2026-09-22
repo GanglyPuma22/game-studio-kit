@@ -692,7 +692,7 @@ class BlenderMcpPowerShellRegressionTests(unittest.TestCase):
 
     def test_stop_serializes_before_receipt_validation(self):
         source = self._source("Stop-SupervisedBlenderMCP.ps1")
-        self.assertIn("GameStudioKit-BlenderMCP-127_0_0_1-$Port", source)
+        self.assertIn("'Global\\GameStudioKit-BlenderMCP'", source)
         self.assertLess(source.index("WaitOne"), source.index("$receiptPath"))
         self.assertIn("ReleaseMutex", source)
 
@@ -908,9 +908,21 @@ class ConfigurablePortTests(unittest.TestCase):
                 self.assertRegex(text, r"\[int\]\$Port = 9876")
                 self.assertIn("-LocalPort $Port", text)
 
-    def test_the_mutex_receipt_and_bootstrap_all_name_the_configured_port(self):
+    def test_the_lifecycle_lock_stays_host_wide_while_the_port_varies(self):
+        # One supervised session per host, whatever port it binds. A per-port
+        # lock name would let two Ensure runs start at once and only discover
+        # each other halfway, after one had already copied a working scene.
+        for name in ("Ensure-SupervisedBlenderMCP.ps1", "Stop-SupervisedBlenderMCP.ps1"):
+            text = (self.LIFECYCLE / name).read_text(encoding="utf-8")
+            with self.subTest(script=name):
+                self.assertIn(
+                    "[System.Threading.Mutex]::new($false, 'Global\\GameStudioKit-BlenderMCP')",
+                    text,
+                )
+                self.assertNotIn("GameStudioKit-BlenderMCP-127_0_0_1-$Port", text)
+
+    def test_the_receipt_and_bootstrap_both_name_the_configured_port(self):
         ensure = (self.LIFECYCLE / "Ensure-SupervisedBlenderMCP.ps1").read_text(encoding="utf-8")
-        self.assertIn('"Global\\GameStudioKit-BlenderMCP-127_0_0_1-$Port"', ensure)
         self.assertIn("port = $Port", ensure)
         self.assertIn("port_excluded", ensure)
         self.assertIn("port_occupied", ensure)
@@ -1045,25 +1057,50 @@ class EnsureReturnsTests(unittest.TestCase):
         self.assertNotIn(str(self.root), json.dumps(result))
         self.assertEqual(result["run"], directory.name)
 
-    def test_the_bound_is_the_scripts_own_startup_window_plus_thirty_seconds(self):
+    def test_the_bound_covers_both_bounded_phases_of_a_successful_ensure(self):
         from studio_tools import blender_mcp_lifecycle as lifecycle
 
+        # A successful ensure waits for the bootstrap receipt and *then* runs
+        # the initial protocol probe; the bound has to cover both, or a
+        # healthy cold start would be reported as a parent that never returned.
         self.assertEqual(lifecycle.STARTUP_TIMEOUT_SECONDS, 60)
-        self.assertEqual(lifecycle.RUN_TIMEOUT_SECONDS, 90)
-        ensure = (
-            ROOT / "skills/studio-blender/scripts/lifecycle/Ensure-SupervisedBlenderMCP.ps1"
-        ).read_text(encoding="utf-8")
+        self.assertEqual(lifecycle.PROBE_READ_TIMEOUT_SECONDS, 75)
+        self.assertGreaterEqual(
+            lifecycle.RUN_TIMEOUT_SECONDS,
+            lifecycle.STARTUP_TIMEOUT_SECONDS + lifecycle.PROBE_READ_TIMEOUT_SECONDS,
+        )
+        self.assertEqual(lifecycle.RUN_TIMEOUT_SECONDS, 180)
+        lifecycle_root = ROOT / "skills/studio-blender/scripts/lifecycle"
+        ensure = (lifecycle_root / "Ensure-SupervisedBlenderMCP.ps1").read_text(encoding="utf-8")
         self.assertIn("[int]$StartupTimeoutSeconds = 60", ensure)
+        # The probe's own read timeout is the second number the bound covers.
+        probe = (lifecycle_root / "probe_mcp.py").read_text(encoding="utf-8")
+        self.assertIn("read_timeout_seconds=timedelta(seconds=75)", probe)
 
-    def test_ensure_refuses_to_launch_while_its_own_stdio_could_be_inherited(self):
+    def test_ensure_refuses_to_launch_only_when_its_own_stdio_is_a_pipe(self):
         ensure = (
             ROOT / "skills/studio-blender/scripts/lifecycle/Ensure-SupervisedBlenderMCP.ps1"
         ).read_text(encoding="utf-8")
-        self.assertIn("function Assert-ParentStdioIsFileBacked", ensure)
-        self.assertIn("ensure_stdio_not_file_backed", ensure)
+        self.assertIn("function Assert-ParentStdioIsNotAPipe", ensure)
+        self.assertIn("ensure_stdio_is_pipe", ensure)
+        # The handle type comes from Win32, not from a .NET stream property:
+        # Windows PowerShell 5.1 reports CanSeek false even for a stdout
+        # redirected to a file, so a CanSeek guard would refuse the packaged
+        # entrypoint this check exists to permit.
+        self.assertIn("GetStdHandle", ensure)
+        self.assertIn("GetFileType", ensure)
+        self.assertNotIn("OpenStandardOutput", ensure)
+        self.assertNotIn("CanSeek", ensure)
+        # Both standard handles are read, only FILE_TYPE_PIPE is refused, and
+        # a null or invalid handle -- no stdio at all -- is skipped.
+        self.assertIn("Id=-11", ensure)
+        self.assertIn("Id=-12", ensure)
+        self.assertIn("GetFileType($handle) -eq 3", ensure)
+        self.assertIn("$handle.ToInt64() -eq -1", ensure)
+        self.assertIn("[IntPtr]::Zero", ensure)
         # The guard runs before the working copy and the launch, not after.
         self.assertLess(
-            ensure.index("Assert-ParentStdioIsFileBacked\n"), ensure.index("Copy-Item")
+            ensure.index("Assert-ParentStdioIsNotAPipe\n"), ensure.index("Copy-Item")
         )
 
 
