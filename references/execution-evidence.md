@@ -590,8 +590,14 @@ verdict `identity_mismatch`, `ok: false`, `launched: false` and no engine is
 started. Three placeholders are substituted in the passthrough and the feature
 flags — `{label}` (this run's label, resolved before the run directory is made,
 so it names the directory the receipts are in), `{project}` (the absolute
-project root) and `{content_digest}` (from `artifacts/candidate.json`, refused
-when the placeholder is used and no candidate record exists). Both receipts
+project root) and `{content_digest}` (from `artifacts/candidate.json`). A stored
+digest is a claim about files, and the files move, so the project inventory is
+re-hashed the same way `candidate new` hashes it whenever the placeholder is
+used: a record that no longer describes the project returns verdict
+`candidate_stale`, `launched: false`, with both digests named, and a record
+carrying no 64-character lowercase hexadecimal `content_digest` at all is
+refused outright. Without a candidate record there is nothing to substitute and
+the command refuses rather than handing the engine the word itself. Both receipts
 record `launch_profile`: the profile's project-relative path, its SHA-256, the
 command it declared, the identity verdict and the project-relative identity
 receipt. They never record a passthrough value, and neither does `--check`,
@@ -604,7 +610,14 @@ resolved from one.
 
 **Batch experiments (`experiment`, `verdict: invalid_experiment`).** A batch plan
 may declare `invariants` (`[{"field": <JSON pointer>, "equals": <value>}]`) and
-`must_vary` (a list of JSON pointers). After every run has finished, the batch
+`must_vary` (a list of JSON pointers). Declaring either makes every run's
+declared result files have to be distinct: two runs sharing one path do not
+produce two results, because the second overwrites the first and the comparison
+would read one document twice and call it two identical values. That is refused
+with the rest of the plan, before any engine starts, as is a non-finite number
+(`NaN`, `Infinity`) anywhere inside an invariant's `equals` -- one would reach a
+rollup that this kit's own JSON writer refuses to serialize, after the runs had
+already been spent. After every run has finished, the batch
 reads each run's *first* declared result file and checks that every invariant
 holds in every result and that every must-vary pointer took at least two
 distinct values across the runs. A batch whose rows are all green but which
@@ -639,18 +652,29 @@ is a host fact, declared once as `blender_mcp.server.env.BLENDER_PORT` (any
 integer 1024–65535, default 9876) beside the loopback host the validator still
 requires to be exactly `127.0.0.1`. The Python entrypoint resolves it and passes
 it to every packaged script as an explicit `-Port` argument; the scripts use it
-for every listener check, for the lifecycle mutex name
-(`Global\GameStudioKit-BlenderMCP-127_0_0_1-<port>`), for the bootstrap that
-binds the add-on socket, and for the ownership receipt's `listener` and `port`.
+for every listener check, for the bootstrap that binds the add-on socket, and
+for the ownership receipt's `listener` and `port`. The endpoint-wide lifecycle
+mutex is deliberately *not* among them: `Global\GameStudioKit-BlenderMCP` stays
+host-wide and portless, because this lifecycle supervises one session per host
+and refuses to run beside a second Blender at all, so a per-port lock name
+would let two starts race and only discover each other halfway through.
 A port inside a Windows excluded TCP range, or one already occupied, is refused
 before any Blender is launched, with `port_excluded` or `port_occupied` as the
 named cause and no owned process left behind; a stop or a reuse whose receipt
 names a different port is refused rather than applied to whatever is listening.
 `ensure` returns: the entrypoint redirects PowerShell's own stdout and stderr to
 files in a per-call directory under the configured working root and waits a
-bounded 90 seconds (the scripts' own 60-second startup window plus 30), because
-a captured *pipe* is inherited by the Blender the script starts and never
-reaches end-of-file while the GUI is open. A parent that outlives that bound is
+bounded 180 seconds, because a captured *pipe* is inherited by the Blender the
+script starts and never reaches end-of-file while the GUI is open. The bound is
+the arithmetic of a successful cold start, not a round number: 60 seconds for
+the script's own wait on the bootstrap receipt, 75 for the read timeout of the
+initial protocol probe that runs afterwards, and 45 for the working-copy hash,
+the listener assertions, the receipts and process startup. `Ensure` also refuses
+to launch while either of its own standard handles is a pipe, naming
+`ensure_stdio_is_pipe`; only a pipe is refused, and the handle type is read
+through `GetStdHandle`/`GetFileType` rather than from a .NET stream property, so
+a file, a console nobody is reading and a process with no standard handle at all
+are all fine to inherit. A parent that outlives that bound is
 stopped and the call returns a terminal receipt with `status:
 ensure_did_not_return`, `ok: false` and `owned_process_action: "none"` — a
 Blender an ownership receipt already names is never killed by a timeout, only by
