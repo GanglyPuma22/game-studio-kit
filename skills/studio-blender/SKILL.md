@@ -30,7 +30,19 @@ It runs `blender --background --factory-startup <source> --python-exit-code 1 --
 
 ## `run` or the interactive MCP
 
+The kind of question decides the route before any command runs. A perceptual question — silhouette, proportion, construction language, reference match, composition, material response, camera readability — starts in a persistent live scene, where a change is made and looked at in the same minute. A background job may answer a perceptual question only as a time-boxed blockout, labelled one, entering a visual loop immediately; it is never the finished asset. A deterministic operation — import, export, bake, reduction, measurement, qualification, replay of a settled edit — runs as an owned background job, because it has to leave a receipt and produce the same result tomorrow. A reviewed session had read this rule and still answered a silhouette, proportion and material question with one monolithic background generator: the first result was technically clean and visually rejected, and nothing in it could be adjusted without writing the generator again.
+
+**The hybrid.** When an exploratory edit has become stable and has to be replayed, save the live source, extract the transformation into a guarded project script — one that checks what it is about to operate on and refuses a scene it does not recognize — then run export and qualification in the background against that script. That is how a live decision stops being transcript-only: the edit exists twice, once as the saved scene a person judged and once as a script a later run can execute.
+
 Use `run` when the work is a script: baking, exporting, repairing, measuring or batch-editing a file that already exists, in an unattended process that must leave evidence and be repeatable tomorrow. Use the optional native-Windows [MCP lifecycle](references/mcp.md) only when the decision needs an interactive session on an open scene — looking at a viewport, trying something and judging it. The MCP route needs a matched addon/server pair, a supervised host and a connected app client; `run` needs a Blender executable in the host config.
+
+## Live sessions: journal, then save, announce, stop
+
+A live session has two connection layers: the listener the Blender add-on runs inside the visible app, and the Codex connector that sends to it. They fail separately, so a listener restart requires a Codex-side reconnect before the next call means anything.
+
+Every meaningful live checkpoint writes an entry in the [edit journal](../../templates/edit-journal.json) and saves a versioned scene, because a live edit otherwise exists only in a transcript and in a `.blend` nobody can replay. A checkpoint is reproducible only when it names a project script with that script's hash; otherwise it carries the transcript-only limitation, and no report may call it reproducible. Reopening from a checkpoint to apply a guarded script refuses a source whose hash differs from that checkpoint's `sha256_after`, because the journal then describes a scene that no longer exists and the script would be applied to something else. Keep secrets and user prompts out of the journal: it records paths, hashes, authority and evidence.
+
+Before stopping or restarting a live session, save a checkpoint, tell the human the visible window will close, run the receipt-bound stop (`blender-mcp stop --receipt`), and report `CLOSED` before starting or reusing a session. A human watched a window disappear during a listener restart and read it as a crash, because nothing had said it would close. A window that disappears during an interrupted stop is never reported as a crash without the receipt; it is an unconfirmed stop, named with its receipt, until the receipt-bound stop confirms it.
 
 ## Qualify before collision or rig
 
