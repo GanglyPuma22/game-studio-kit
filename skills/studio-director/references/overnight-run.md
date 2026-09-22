@@ -47,6 +47,17 @@ express, and when each launch needs its own `bench cleanroom` window: stage 4
 wants one capture per rung, each with its own snapshot pair, and a batch inside
 one wrapper produces a single attribution window instead. The batch rollup is a
 crash record, never a file to read for progress.
+
+A diagnostic batch declares what it is testing. A plan built to reproduce or
+isolate a cause carries `must_vary`, the fields that have to differ across its
+runs, and `invariants`, the fields that have to stay fixed; a plan that repeats
+one condition under a new label is refused rather than run, because the refusal
+is cheap and the four green verdicts it would have produced are not. A green
+batch that did not vary its cause is `invalid_experiment`, not evidence: it
+establishes that the build still starts, which was already known. Validate the
+reproduction condition in the cheapest place it can be observed before paying
+for long native runs — a defect seen at twilight is not reproduced by four
+daylight runs, however green they come back.
 `STATE.md`, `RETURN.md` and `<run>/artifacts/run/feature-manifest.json` are the
 only hand-maintained run records: `RETURN.md` is write-once, at the
 end (Section 5). `STATE.md` is rewritten atomically from its template only at
@@ -229,6 +240,16 @@ returns the JSON record plus a summary under 400 words and terminates; it
 takes no follow-up task. The root spawns a new worker that reads state from
 files and never re-reads a source a previous worker already summarized.
 
+A worker report is not integration. When the root reads one, it records the
+lane's `maturity` in `<run>/artifacts/run/feature-manifest.json` at the step the
+report's own evidence supports: assertion counts, a clean export and a green
+launch reach `source-ready`, and the root having read the deliverable and its
+receipts reaches `root-reviewed`. Neither reaches the route. A completed worker
+task leaves the active-worker list; its deliverable stays in the manifest at its
+maturity until something wires it in, because three lanes were once reported
+complete while nothing had been integrated into the game and the active-worker
+list was the only place that said so.
+
 ## 4. Benchmarks
 
 ```text
@@ -304,6 +325,20 @@ were never wired into the route and nobody noticed until a person played the
 game; the manifest exists to make that visible before handback. If the route was
 derived rather than supplied (`route_source: derived`), say so on the same line:
 the user is confirming the route as well as the features.
+
+**Lanes by maturity.** Every manifest row also carries `maturity`:
+`source-ready`, `root-reviewed`, `integrated`, `native-reviewed`,
+`user-accepted`. A lane advances only on the evidence for that step. Assertion
+counts, clean exports and green launches set at most `source-ready`;
+`root-reviewed` means the root read the deliverable and its receipts;
+`integrated` needs the feature wired on the canonical route, with `installed_by`
+naming a scene the route enters; `native-reviewed` needs a native launch receipt
+on that route; `user-accepted` needs `human_verdict: accepted` with its identity
+receipt. `RETURN.md` carries a Lanes by maturity line under the scorecard
+counting the rows at each step, so a deliverable that was finished and never
+reached the player is visible at handback instead of after it. Never report a
+lane at a maturity its evidence does not reach, and never drop a row because its
+worker finished.
 
 **Snapshot commit (only when authorized).** A run commits nothing by default.
 When the production contract carries the authorization line
