@@ -25,7 +25,7 @@ function Set-ReceiptContentAtomic {
     Move-Item -LiteralPath $tempPath -Destination $Path -Force
 }
 
-$lifecycleMutex = [System.Threading.Mutex]::new($false, "Global\GameStudioKit-BlenderMCP-127_0_0_1-$Port")
+$lifecycleMutex = [System.Threading.Mutex]::new($false, 'Global\GameStudioKit-BlenderMCP')
 $mutexAcquired = $false
 try {
     try {

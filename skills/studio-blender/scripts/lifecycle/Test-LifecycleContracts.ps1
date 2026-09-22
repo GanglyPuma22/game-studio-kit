@@ -39,7 +39,7 @@ $contracts = @(
     @{Name='ensure supports plan only'; Text=$ensure; Pattern='PlanOnly'},
     @{Name='ensure requires session identity'; Text=$ensure; Pattern='Parameter\(Mandatory=\$true\)\]\[string\]\$SessionId'},
     @{Name='ensure serializes startup'; Text=$ensure; Pattern='System\.Threading\.Mutex'},
-    @{Name='ensure serializes across Windows sessions'; Text=$ensure; Pattern="Global\\GameStudioKit-BlenderMCP-"},
+    @{Name='ensure serializes across Windows sessions'; Text=$ensure; Pattern="'Global\\GameStudioKit-BlenderMCP'"},
     @{Name='ensure requires explicit working root'; Text=$ensure; Pattern='Parameter\(Mandatory=\$true\)\]\[string\]\$WorkingRoot'},
     @{Name='ensure requires explicit Blender executable'; Text=$ensure; Pattern='Parameter\(Mandatory=\$true\)\]\[string\]\$BlenderExe'},
     @{Name='ensure requires explicit probe Python'; Text=$ensure; Pattern='Parameter\(Mandatory=\$true\)\]\[string\]\$ProbePython'},
@@ -64,12 +64,13 @@ $contracts = @(
     @{Name='ensure uses active receipt'; Text=$ensure; Pattern='active-receipt\.json'},
     @{Name='ensure takes the listener port as an explicit argument'; Text=$ensure; Pattern='\[int\]\$Port = 9876'},
     @{Name='ensure checks every listener on the configured port'; Text=$ensure; Pattern='-LocalPort \$Port'},
-    @{Name='ensure names the configured port in the lifecycle mutex'; Text=$ensure; Pattern='GameStudioKit-BlenderMCP-127_0_0_1-\$Port'},
+    @{Name='stop takes the same host-wide lifecycle lock'; Text=$stop; Pattern="'Global\\GameStudioKit-BlenderMCP'"},
     @{Name='ensure records the configured port in the ownership receipt'; Text=$ensure; Pattern='port = \$Port'},
     @{Name='ensure refuses a Windows-excluded port before any launch'; Text=$ensure; Pattern='port_excluded'},
     @{Name='ensure refuses an occupied port before any launch'; Text=$ensure; Pattern='port_occupied'},
     @{Name='ensure refuses to reuse a session whose receipt names another port'; Text=$ensure; Pattern='\[int\]\$existing\.port -ne \$Port'},
-    @{Name='ensure refuses to launch while its own stdio could be inherited as a pipe'; Text=$ensure; Pattern='Assert-ParentStdioIsFileBacked'},
+    @{Name='ensure refuses to launch while its own stdio is an inheritable pipe'; Text=$ensure; Pattern='Assert-ParentStdioIsNotAPipe'},
+    @{Name='ensure reads the handle type from Win32 rather than a .NET stream property'; Text=$ensure; Pattern='GetFileType'},
     @{Name='ensure resolves reparse points before the outside-kit check'; Text=$ensure; Pattern='function Resolve-ReparseTarget'},
     @{Name='ensure compares the reparse-resolved kit root, not a lexical GetFullPath form'; Text=$ensure; Pattern='\$kitRoot = Resolve-ReparseTarget'},
     @{Name='ensure compares the reparse-resolved working root, not a lexical GetFullPath form'; Text=$ensure; Pattern='\$workingRootFull = Resolve-ReparseTarget'},
@@ -117,6 +118,13 @@ $forbidden = @(
     # back to comparing raw GetFullPath results.
     @{Name='ensure never compares the kit root using a lexical-only GetFullPath form'; Text=$ensure; Pattern='\$kitRoot = \[IO\.Path\]::GetFullPath'},
     @{Name='ensure never compares the working root using a lexical-only GetFullPath form'; Text=$ensure; Pattern='\$workingRootFull = \[IO\.Path\]::GetFullPath'},
+    # One supervised session per host: a per-port lock name would let two
+    # Ensure runs start concurrently and only discover each other halfway.
+    @{Name='ensure never makes the lifecycle lock per-port'; Text=$ensure; Pattern='GameStudioKit-BlenderMCP-127_0_0_1-\$Port'},
+    @{Name='stop never makes the lifecycle lock per-port'; Text=$stop; Pattern='GameStudioKit-BlenderMCP-127_0_0_1-\$Port'},
+    # CanSeek is false for file-redirected stdio on Windows PowerShell 5.1,
+    # so a stream-property check would refuse the packaged entrypoint.
+    @{Name='ensure never judges inheritable stdio by a .NET stream property'; Text=$ensure; Pattern='OpenStandardOutput'},
     # A Windows host that reserved the historical default port could not run
     # this lifecycle at all while the number was written into the listener
     # checks; it must never be hard-coded back into any of the three scripts.

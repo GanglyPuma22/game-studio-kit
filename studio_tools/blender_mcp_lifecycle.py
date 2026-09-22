@@ -20,12 +20,18 @@ LIFECYCLE_ROOT = (
     / "lifecycle"
 )
 
-# The startup window `Ensure-SupervisedBlenderMCP.ps1` already applies to the
-# Blender it launches, plus room for the health probe and the script's own
-# work. A PowerShell parent still running after that has not been slow; it has
-# stopped returning, which is the failure this bound exists to name.
+# A successful `ensure` has two bounded phases, not one. First the script waits
+# up to its own `-StartupTimeoutSeconds` (60) for Blender to write the
+# bootstrap receipt; only then does it run the initial protocol probe, whose
+# MCP client session reads with a 75-second timeout (`probe_mcp.py`). 60 + 75
+# is 135 seconds of work this kit has already authorized, so the bound is 180:
+# both phases plus 45 seconds for the working-copy hash, the listener
+# assertions, the receipts and process startup. A PowerShell parent still
+# running after that has not been slow; it has stopped returning, which is the
+# failure this bound exists to name.
 STARTUP_TIMEOUT_SECONDS = 60
-RUN_TIMEOUT_SECONDS = STARTUP_TIMEOUT_SECONDS + 30
+PROBE_READ_TIMEOUT_SECONDS = 75
+RUN_TIMEOUT_SECONDS = 180
 DID_NOT_RETURN = "ensure_did_not_return"
 
 
