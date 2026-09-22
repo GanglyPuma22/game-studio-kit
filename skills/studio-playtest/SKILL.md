@@ -59,6 +59,14 @@ An `attended` session is completed by exactly one `playtest collect --label <lab
 
 Isolation is the default and throws away saves and settings between runs, which is right for a clean first look and wrong for anything about progression, settings or a save file. `--use-host-profile` plays on the real user profile and records `"profile": "host"`, so the receipt is never ambiguous about which one ran.
 
+A session that will be started again, by an agent or by the person, belongs in a
+`launch-profile.json` (copy `templates/launch-profile.json` from the kit)
+and starts with `playtest start --profile <file>`: scene, session, renderer,
+resolution, cap, passthrough and feature flags live in one project-owned file, an
+identity manifest is verified before the engine starts, and `--check` verifies
+without launching. Write the profile instead of a script that builds the
+command; the receipt records the profile's path and hash, never the passthrough.
+
 ## What to look at on a first route
 
 Watch for the things a screenshot cannot hold and a log will not mention.
