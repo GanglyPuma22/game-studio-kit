@@ -20,9 +20,10 @@ import subprocess
 import uuid
 from .adapters.godot import classify_log, self_contained
 from .common import (
-    StudioError, file_record, kit_identity, outside_package, read_json, relative, safe_id,
-    sha256, write_json,
+    StudioError, digest, file_record, kit_identity, outside_package, read_json, relative,
+    safe_id, sha256, write_json,
 )
+from .evidence import inventory
 from .config import app_path, executable, require_executable
 from .launch import (
     IS_WINDOWS, MAX_TIMEOUT, PROFILE_KEYS, _readable_digest, _scrubbed, mode_flags,
@@ -242,7 +243,7 @@ def execute(
     config, project, *, sha256_expected, session="handoff", scene=None, script=None,
     label=None, max_minutes=None, cutoff_utc=None, results=(), scrub=(),
     passthrough=(), use_host_profile=False, emit_launcher=True,
-    rendering_method=None, resolution=None,
+    rendering_method=None, resolution=None, launch_profile=None,
 ):
     """Verify identity, start the game once, and record the session."""
     if session not in SESSIONS:
@@ -383,6 +384,11 @@ def execute(
         else:
             effective = remaining if limit is None else max(0.001, min(effective, remaining))
     commit, dirty = _revision(root)
+    # After the engine identity checks above and before the engine is started:
+    # what this session is about to be played on, named the way a candidate
+    # record names it, so a human verdict can be bound to a build rather than
+    # to a date.
+    content = content_digest(root)
     playtest = {
         "schema_version": 1,
         "kind": "playtest",
@@ -391,10 +397,15 @@ def execute(
         "session": session,
         "scene": scene,
         "scene_sha256": _scene_digest(root, scene),
+        "content_digest": content,
         "script": script,
         "engine": {"name": engine_path.name, "sha256": actual, "sha256_after_exit": None},
         "project": str(root),
         "profile": "host" if use_host_profile else "isolated",
+        # The project-owned profile this session was resolved from, if any.
+        # Never its passthrough. Spelled `launch_profile` because `profile`
+        # above already names which user profile the game was played on.
+        "launch_profile": launch_profile,
         "passthrough_count": len(passthrough) - (1 if list(passthrough)[:1] == ["--"] else 0),
         "commit": commit,
         "dirty": dirty,
@@ -566,6 +577,24 @@ def execute(
     return result
 
 
+def content_digest(root):
+    """The project's content identity, the same one a candidate record carries.
+
+    `evidence.inventory` over the project, hashed the way `new_candidate`
+    hashes it, so a playtest receipt and a candidate record name the same
+    build with the same number. Receipts under `artifacts/` are excluded by
+    that inventory, so this session's own files never move it.
+
+    A project this host cannot inventory portably reports `None` rather than
+    failing the session: the digest is evidence about the build, not a gate on
+    playing it.
+    """
+    try:
+        return digest(inventory(root))
+    except (StudioError, OSError):
+        return None
+
+
 def _scene_digest(root, scene):
     """Hash the scene file when the res:// path resolves to one inside the project."""
     if scene is None:
@@ -639,6 +668,15 @@ def _harness(root, run_dir, playtest):
 
 def _finish(root, run_dir, playtest, record, text, verdict, failure, survivors=None):
     diagnostics = classify_log(text)
+    after = content_digest(root)
+    # A session played on content that changed under it was not a session on
+    # the build its own receipt names. Said in the diagnostics, where a reader
+    # already looks for what to distrust about the run.
+    diagnostics["content_changed_during_session"] = (
+        playtest.get("content_digest") is not None
+        and after is not None
+        and after != playtest["content_digest"]
+    )
     write_json(run_dir / "diagnostics.json", diagnostics)
     result_files = _result_files(root, playtest)
     harness_record, harness_fault = _harness(root, run_dir, playtest)
@@ -662,6 +700,7 @@ def _finish(root, run_dir, playtest, record, text, verdict, failure, survivors=N
         "kit": kit_identity(),
         "label": playtest["label"],
         "session": playtest["session"],
+        "launch_profile": playtest.get("launch_profile"),
         "verdict": verdict,
         # Run health only. No program can decide that a playtest went well, so
         # nothing here ever promotes a clean exit into an accepted session.
@@ -676,6 +715,8 @@ def _finish(root, run_dir, playtest, record, text, verdict, failure, survivors=N
         "cleanup": (record or {}).get("cleanup"),
         "survivors": survivors,
         "combined_log_bytes": log_path.stat().st_size if log_path.is_file() else 0,
+        "content_digest": playtest.get("content_digest"),
+        "content_digest_after_exit": after,
         "diagnostics": diagnostics,
         "result_files": result_files,
         "harness_report": harness_record,
@@ -765,6 +806,12 @@ def _collected(config, root, run_dir, record_path, playtest):
     playtest["engine_running_at_collect"] = running
     write_json(record_path, playtest)
     diagnostics = classify_log(text)
+    after_content = content_digest(root)
+    diagnostics["content_changed_during_session"] = (
+        playtest.get("content_digest") is not None
+        and after_content is not None
+        and after_content != playtest["content_digest"]
+    )
     write_json(run_dir / "diagnostics.json", diagnostics)
     result_files = _result_files(root, playtest)
     failure = None
@@ -791,6 +838,7 @@ def _collected(config, root, run_dir, record_path, playtest):
         "kit": kit_identity(),
         "label": playtest["label"],
         "session": "attended",
+        "launch_profile": playtest.get("launch_profile"),
         "verdict": verdict,
         "ok": verdict == "collected",
         "acceptance": "not_established",
@@ -809,6 +857,8 @@ def _collected(config, root, run_dir, record_path, playtest):
         "cleanup": None,
         "survivors": None,
         "combined_log_bytes": log_path.stat().st_size if log_path.is_file() else 0,
+        "content_digest": playtest.get("content_digest"),
+        "content_digest_after_exit": after_content,
         "diagnostics": diagnostics,
         "result_files": result_files,
         "failure": failure,
