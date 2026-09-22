@@ -589,8 +589,10 @@ writes an identity receipt; unless every item is `match` the command returns
 verdict `identity_mismatch`, `ok: false`, `launched: false` and no engine is
 started. Three placeholders are substituted in the passthrough and the feature
 flags — `{label}` (this run's label, resolved before the run directory is made,
-so it names the directory the receipts are in), `{project}` (the absolute
-project root) and `{content_digest}` (from `artifacts/candidate.json`). A stored
+so it names the directory the receipts are in), `{project}` (the project root in the host spelling the launcher
+itself hands the engine through `--path`, so a Windows engine driven from WSL
+gets `C:\Work\...` in the passthrough rather than a `/home/...` path it cannot
+open) and `{content_digest}` (from `artifacts/candidate.json`). A stored
 digest is a claim about files, and the files move, so the project inventory is
 re-hashed the same way `candidate new` hashes it whenever the placeholder is
 used: a record that no longer describes the project returns verdict
@@ -609,8 +611,16 @@ anything: the verdict a launch or session returns is unchanged by having been
 resolved from one.
 
 **Batch experiments (`experiment`, `verdict: invalid_experiment`).** A batch plan
+carries exactly five top-level fields — `schema_version`, `kind`, `runs`,
+`invariants` and `must_vary` — and any other is refused by name before a run
+starts. That refusal is the point: a misspelled `must_vary` would otherwise be
+ignored, every launch would run, and the rollup would report ok with the
+comparison the plan was written to make simply not made. A plan
 may declare `invariants` (`[{"field": <JSON pointer>, "equals": <value>}]`) and
-`must_vary` (a list of JSON pointers). Declaring either makes every run's
+`must_vary` (a list of JSON pointers), whose `~` escapes are validated at plan
+time: `~` is only ever followed by `0` or `1`, and a bare `~2` or a trailing
+`~` is a typo that would otherwise resolve to "not found" and be reported as a
+field every run failed to carry. Declaring either makes every run's
 declared result files have to be distinct: two runs sharing one path do not
 produce two results, because the second overwrites the first and the comparison
 would read one document twice and call it two identical values. That is refused
@@ -618,16 +628,26 @@ with the rest of the plan, before any engine starts, as is a non-finite number
 (`NaN`, `Infinity`) anywhere inside an invariant's `equals` -- one would reach a
 rollup that this kit's own JSON writer refuses to serialize, after the runs had
 already been spent. After every run has finished, the batch
-reads each run's *first* declared result file and checks that every invariant
-holds in every result and that every must-vary pointer took at least two
-distinct values across the runs. A batch whose rows are all green but which
+reads the *first* declared result file of each run its own receipts already
+call successful, and checks that every invariant holds in every result and that
+every must-vary pointer took at least two distinct values across the runs. A
+result beside a run that was skipped, refused, failed, or produced nothing
+newer than the bytes already on disk is never read: the launcher has already
+decided that file is not this run's output, and reading it would let a run that
+never happened contribute a value to the comparison. Values are compared by
+value and never by spelling — `1` and `1.0` are one number that did not vary,
+two objects written in a different key order are one value, and `true` is never
+the number `1`. A batch whose rows are all green but which
 fails either check ends with `verdict: invalid_experiment`, `ok: false` and an
 `experiment` block naming the pointers that failed and the value each run
 produced for them. A pointer that names nothing in a result is not a value: it
-is counted as a violation, never as a match. A result file that is absent or is
-not JSON makes the whole check `unverified` rather than passing, and an
-unverified experiment is not ok either — an experiment nobody could read did not
-happen. The block says which comparison the plan asked for and what came back;
+is counted as a violation, never as a match. A result file that is absent, is not JSON, or carries `NaN` or an
+infinity — which this kit's own writer refuses to serialize, so a rollup
+holding one could not be written at all — makes the whole check `unverified`
+rather than passing, as does every unsuccessful run. An unverified experiment is
+not ok either: an experiment nobody could read did not happen. The
+`unusable_results` list names each run that could not contribute and why, and
+the terminal receipt is always writable. The block says which comparison the plan asked for and what came back;
 it does not say the comparison was the right one to ask for, and a varying
 number is not a result a person has accepted.
 

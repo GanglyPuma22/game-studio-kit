@@ -286,7 +286,9 @@ returning verdict `identity_mismatch` with nothing launched and the identity
 receipt named project-relative; a matching manifest reaching both receipts as a
 verdict; a profile declaring no manifest saying `not_declared` rather than
 claiming a match; `{label}`, `{project}` and `{content_digest}` substituted in
-both the passthrough and the feature flags, a generated label naming the run
+both the passthrough and the feature flags, `{project}` taking the host-mapped
+spelling the launcher gives the engine for `--path` under a `path_mappings`
+host config and the plain project root without one, a generated label naming the run
 directory the receipts are in, the content-digest placeholder refused without
 `artifacts/candidate.json`, a candidate record whose stored digest no longer
 describes the project refused with verdict `candidate_stale` and both digests
@@ -364,12 +366,21 @@ whole check `unverified` rather than passing; a pointer that names nothing
 counted as a violation rather than a match; pointers walking nested objects and
 array indexes, including the whole-document pointer `""` and `//value`, whose
 first token is the empty string and names a key that is literally `""`; every
-malformed declaration refused before any run starts, including a non-finite
+malformed declaration refused before any run starts, including an unknown
+top-level field named back to the reader (a misspelled `must_vary` among them),
+a malformed `~` escape in either kind of pointer, and a non-finite
 number (`NaN`, `Infinity`, `-Infinity`) nested anywhere inside an invariant's
-`equals`; two runs declaring the same result file refused before anything
+`equals`; a well-formed `~0`/`~1` escape still resolving the key it names; a
+`NaN` or infinity in a *result* file making that file unreadable and the
+experiment `unverified` while the terminal receipt is still written; a result
+beside a run the launcher refused never read, so a file that predates the batch
+cannot contribute a value; numbers compared by value rather than by spelling
+(`1` and `1.0` identical, objects in a different key order one value) while
+`true` stays distinct from `1`; two runs declaring the same result file refused before anything
 launches while the same plan without an experiment still runs; a path spelled
 two ways caught as one file; and the shipped `templates/batch-plan.json`
-declaring both fields by example with a distinct result file per run. Each run
+declaring both fields by example, with a distinct result file per run and no
+field a plan does not actually carry. Each run
 declares its own result file, which is what makes the set comparable at all.
 
 ## Cleanroom and host preflight tests
