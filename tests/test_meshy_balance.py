@@ -157,8 +157,9 @@ class BalanceDiscoverabilityTests(unittest.TestCase):
         self.assertIn("A balance is not a price list", text)
 
     def test_balance_is_documented_where_a_host_configures_the_provider(self):
-        self.assertIn("`meshy balance` is the one read-only call",
-                      (ROOT / "docs/provider-setup.md").read_text(encoding="utf-8"))
+        setup = (ROOT / "docs/provider-setup.md").read_text(encoding="utf-8")
+        self.assertIn("`meshy balance` reports the remaining account balance", setup)
+        self.assertIn("read-only", setup)
         self.assertIn("meshy", read_json(ROOT / "studio-kit.json")["commands"])
 
 

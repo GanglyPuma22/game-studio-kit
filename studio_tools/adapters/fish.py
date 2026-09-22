@@ -33,3 +33,16 @@ def generate(config, operation, body, record_path, output, budget, provenance, t
     return archive_audio(record_path, output, record, "https://api.fish.audio/v1/tts",
                          {"Authorization": "Bearer " + key, "Content-Type": "application/json",
                           "model": body["model_id"]}, wire, key, transport)
+
+
+def balance(config, transport=None):
+    """Fish has no account endpoint this adapter knows, and will not guess one.
+
+    The narrow file-speech profile above is everything this adapter was written
+    against. Inventing a subscription URL would mean sending this host's Fish
+    credential to an endpoint nobody here has read the contract for.
+    """
+    return {
+        "provider": "fish", "error_type": "unsupported", "read_only": True,
+        "network_probed": False, "ok": False,
+    }

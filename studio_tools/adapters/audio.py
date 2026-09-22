@@ -153,6 +153,17 @@ def imported_loop(imported, start=0.0, end=None):
     }
 
 
+def balance(config, provider, transport=None):
+    """Read-only account standing for a hosted provider; writes nothing."""
+    if provider == "elevenlabs":
+        from .elevenlabs import balance as read
+    elif provider == "fish":
+        from .fish import balance as read
+    else:
+        raise StudioError("Unknown audio provider")
+    return read(config, transport)
+
+
 def generate(config, provider, operation, body, record_path, output, budget, provenance, transport=None):
     if provider == "elevenlabs":
         from .elevenlabs import generate as submit
