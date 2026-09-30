@@ -78,6 +78,9 @@
     "studio_tools/__init__.py",
     "studio_tools/__main__.py",
     "studio_tools/adapters/__init__.py",
+    "docs/unimate-experimental.md",
+    "studio_tools/adapters/unimate.py",
+    "studio_tools/adapters/unimate_motion.py",
     "studio_tools/adapters/audio.py",
     "studio_tools/adapters/blender.py",
     "studio_tools/adapters/elevenlabs.py",
@@ -153,6 +156,7 @@
     "meshy",
     "gaea",
     "godot",
+    "unimate",
     "candidate",
     "review"
   ]

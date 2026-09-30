@@ -18,3 +18,5 @@ The original `blender fixture` creates a nonhumanoid harbor bell with `Root`/`Fr
 Reimport the GLB into a fresh Blender process and inspect skin, bones, clips, duration and dimensions. In Godot, explicitly set the loop policy and idle→response→idle transition/blend. Observe at least two loops and a response via ordinary input. Pose-change assertions are useful technical evidence but cannot establish appealing motion or contact.
 
 Identify face/lip-sync, retargeting or root-motion integration as separate scoped requirements when needed; do not add a full talking-character system by default. Hand clip/event metadata to [Godot](../studio-godot/SKILL.md) and timed cues to [audio](../studio-audio/SKILL.md), then use [review](../studio-review/SKILL.md).
+
+For an explicitly scoped UniMate experiment, the [optional worker foundation](../../docs/unimate-experimental.md) validates local requests and receipts. It bundles no inference bridge and establishes no production or offline-execution claim. Preserve the original rig, author/bake through the existing Blender route, and retain the comparison/human-review gate before packaging or game adoption.

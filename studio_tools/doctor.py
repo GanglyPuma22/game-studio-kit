@@ -116,6 +116,13 @@ def inspect(config):
             else "No explicit blender_mcp host block was supplied"
         ),
     }
+    capabilities["unimate"] = {
+        "status": "unverified" if isinstance(config.get("unimate"), dict) else "needs_setup",
+        "configured": isinstance(config.get("unimate"), dict),
+        "operations": "unverified",
+        "support": "experimental_foundation",
+        "next_step": "Optional experimental worker only: configure pinned local assets; use unimate inspect. No model/bridge is bundled; pilot and offline execution remain unverified.",
+    }
     return {
         "schema_version": 1,
         "kit": kit_identity(),
