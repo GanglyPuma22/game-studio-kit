@@ -271,11 +271,14 @@ def generate(config, project, request, record):
         fail("RUN_EXISTS", "Run already exists; inspect its receipts instead of resubmitting")
     if datetime.now(timezone.utc) >= cutoff:
         fail("CUTOFF_PASSED", "Generation cutoff has passed; nothing started")
+    physical_device = request["execution"]["device"]
+    worker_device = "cpu" if physical_device == "cpu" else "cuda:0"
     folder.mkdir(parents=True, exist_ok=False)
     receipt = {"schema_version": 1, "provider": "unimate", "support": "experimental_foundation",
                "request_digest": digest(request), "request": request, "kit": kit_identity(),
                "provenance": host["provenance"], "inventory": [{k: f[k] for k in ("id", "sha256")} for f in files.values()],
                "capabilities": host["capabilities"], "capability_validation": "declared_only",
+               "device_mapping": {"requested_physical_device": physical_device, "worker_device": worker_device},
                "status": "starting", "ok": False, "production_acceptance": "pending",
                "offline_execution": "unverified", "condition_values": "unverified", "outputs": []}
     claim(destination, receipt)
@@ -293,11 +296,11 @@ def generate(config, project, request, record):
                                "rig": rig, "project": str(root), "assets": list(files.values()),
                                "provenance": host["provenance"], "output": str(folder / "output"),
                                "capabilities": host["capabilities"],
+                               "worker_device": worker_device,
                                "offline_policy": {"local_files_only": True, "downloads": False}})
         env = {key: os.environ[key] for key in ("PATH", "SystemRoot", "WINDIR", "TEMP", "TMP") if key in os.environ}
-        device = request["execution"]["device"]
         env.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", PYTHONNOUSERSITE="1",
-                   CUDA_VISIBLE_DEVICES="" if device == "cpu" else device.split(":")[1])
+                   CUDA_VISIBLE_DEVICES="" if physical_device == "cpu" else physical_device.split(":")[1])
         run([host["python"]["path"], host["worker"]["path"], "--input", str(input_path), "--output", str(result_path)],
             cwd=root, timeout=min(request["limits"]["timeout_seconds"], remaining), env=env,
             hide_window=True, job_dir=folder / "process", baseline=baseline)

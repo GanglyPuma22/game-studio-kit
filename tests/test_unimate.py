@@ -26,6 +26,7 @@ p=argparse.ArgumentParser();p.add_argument('--input');p.add_argument('--output')
 data=json.loads(Path(a.input).read_text());root=Path(data['project']);out=Path(data['output']);out.mkdir()
 assert os.environ['HF_HUB_OFFLINE']=='1' and os.environ['TRANSFORMERS_OFFLINE']=='1'
 assert os.environ['CUDA_VISIBLE_DEVICES']==''
+assert data['worker_device']=='cpu'
 assert 'UNIMATE_TEST_SECRET' not in os.environ
 assert data['offline_policy']=={'local_files_only':True,'downloads':False}
 clips=[]
@@ -207,6 +208,38 @@ class UnimateTests(unittest.TestCase):
         result = self.generate()
         self.assertTrue(result["ok"], result)
         self.assertEqual(len(result["outputs"]), 4)
+
+    def test_nonzero_physical_gpu_is_worker_local_zero_with_reservation_identity_preserved(self):
+        self.request["execution"]["device"] = "cuda:3"
+        reservation = self.root / "reservation.json"
+        write_json(reservation, {"owner":"fixture", "device":"cuda:3", "exclusive":True,
+                                 "expires_utc":self.request["execution"]["cutoff_utc"]})
+        self.request["execution"]["reservation"] = file_record(self.root, reservation);self.save()
+        fake = self.fake_runner("valid")
+        def worker(args, **kwargs):
+            data = read_json(Path(args[-3]))
+            self.assertEqual(kwargs["env"]["CUDA_VISIBLE_DEVICES"], "3")
+            self.assertEqual(data["worker_device"], "cuda:0")
+            self.assertEqual(data["request"]["execution"]["device"], "cuda:3")
+            fake(args, **kwargs)
+        with patch.object(unimate, "prelaunch_baseline", return_value={"status":"ok"}), patch.object(unimate, "run", side_effect=worker), patch.object(unimate, "stop_survivors", return_value={"status":"ok","pids":[],"stopped":True,"unverified":[]}):
+            result = self.generate()
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["device_mapping"], {"requested_physical_device":"cuda:3", "worker_device":"cuda:0"})
+        self.assertEqual(result["request"]["execution"]["device"], "cuda:3")
+        self.assertEqual(read_json(reservation)["device"], "cuda:3")
+
+    def test_extreme_hashed_rig_matrices_refuse_inspect_and_generate_without_launch(self):
+        for label, matrix in (("large", [[1e308,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]),
+                              ("norm", [[1.7e308,0,0,0],[1.7e308,1,0,0],[1.7e308,0,1,0],[0,0,0,1]]),
+                              ("integer", [[10**400,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]])):
+            self.rig["canonical_from_source"] = matrix;self.save()
+            for operation in ("inspect", "generate"):
+                with self.subTest(matrix=label, operation=operation), patch.object(unimate, "run", side_effect=AssertionError("worker")):
+                    result = unimate.execute(self.config, self.root, operation, "request.json", f"artifacts/unimate/{label}/task.json")
+                self.assertFalse(result["ok"])
+                self.assertEqual(result["provider_error"]["code"], "REQUEST_INVALID")
+        self.assertFalse((self.root / "artifacts").exists())
 
     def test_invalid_paths_modes_duplicate_samples_and_cleanup_cannot_succeed(self):
         for mutation in (lambda r: r.update(mode="motion_edit"),

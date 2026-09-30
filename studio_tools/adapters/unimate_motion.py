@@ -4,28 +4,49 @@ import math
 from ..common import StudioError
 
 
+def _finite(values, message="Motion arithmetic must remain finite"):
+    try:
+        valid = all(type(value) in (int, float) and math.isfinite(value) for value in values)
+    except OverflowError as exc:
+        raise StudioError(message) from exc
+    if not valid:
+        raise StudioError(message)
+
+
 def multiply(a, b):
-    return [[sum(a[i][k] * b[k][j] for k in range(4)) for j in range(4)] for i in range(4)]
+    try:
+        result = [[sum(a[i][k] * b[k][j] for k in range(4)) for j in range(4)] for i in range(4)]
+    except OverflowError as exc:
+        raise StudioError("Motion matrix multiplication overflowed") from exc
+    _finite(value for row in result for value in row)
+    return result
 
 
 def rigid(rotation=None, position=(0, 0, 0)):
     rotation = rotation or [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
-    return [list(rotation[i]) + [position[i]] for i in range(3)] + [[0, 0, 0, 1]]
+    result = [list(rotation[i]) + [position[i]] for i in range(3)] + [[0, 0, 0, 1]]
+    _finite(value for row in result for value in row)
+    return result
 
 
 def _similarity(matrix):
     if (not isinstance(matrix, list) or len(matrix) != 4
-            or any(not isinstance(row, list) or len(row) != 4 for row in matrix)
-            or any(type(x) not in (int, float) or not math.isfinite(x) for row in matrix for x in row)
-            or any(abs(matrix[3][j] - (1 if j == 3 else 0)) > 1e-8 for j in range(4))):
+            or any(not isinstance(row, list) or len(row) != 4 for row in matrix)):
         raise StudioError("Motion frame needs a finite homogeneous 4x4 matrix")
-    scale = math.sqrt(sum(matrix[i][0] ** 2 for i in range(3)))
+    _finite((x for row in matrix for x in row), "Motion frame needs finite numeric values")
+    if any(abs(matrix[3][j] - (1 if j == 3 else 0)) > 1e-8 for j in range(4)):
+        raise StudioError("Motion frame needs a homogeneous 4x4 matrix")
+    scale = math.hypot(*(matrix[i][0] for i in range(3)))
+    _finite([scale], "Motion scale overflowed")
     if scale <= 1e-12:
         raise StudioError("Motion frame has zero scale")
     r = [[matrix[i][j] / scale for j in range(3)] for i in range(3)]
+    _finite(value for row in r for value in row)
     for i in range(3):
         for j in range(3):
-            if abs(sum(r[k][i] * r[k][j] for k in range(3)) - (i == j)) > 1e-6:
+            product = sum(r[k][i] * r[k][j] for k in range(3))
+            _finite([product])
+            if abs(product - (i == j)) > 1e-6:
                 raise StudioError("Motion frame must have uniform scale and orthogonal axes")
     determinant = (r[0][0] * (r[1][1]*r[2][2] - r[1][2]*r[2][1])
                    - r[0][1] * (r[1][0]*r[2][2] - r[1][2]*r[2][0])
@@ -54,8 +75,7 @@ def remove_trajectory(frame, anchor, *, kind, reference_height):
     root = frame["Root"]
     inverse_rigid(root)
     if kind == "mite":
-        if type(reference_height) not in (int, float) or not math.isfinite(reference_height):
-            raise StudioError("Mite reference height must be finite")
+        _finite([reference_height], "Mite reference height must be finite")
         x, z = root[0][2], root[2][2]
         if math.hypot(x, z) <= 1e-8:
             raise StudioError("Root forward axis has no defined planar heading")
@@ -82,10 +102,13 @@ def to_source(frame, canonical_from_source):
     result = {}
     for name, pose in frame.items():
         inverse_rigid(pose)
-        rotation = [[sum(rt[i][k] * pose[k][j] for k in range(3))
-                     for j in range(3)] for i in range(3)]
-        position = [sum(rt[i][k] * (pose[k][3] - canonical_from_source[k][3])
-                        for k in range(3)) / scale for i in range(3)]
+        try:
+            rotation = [[sum(rt[i][k] * pose[k][j] for k in range(3))
+                         for j in range(3)] for i in range(3)]
+            position = [sum(rt[i][k] * (pose[k][3] - canonical_from_source[k][3])
+                            for k in range(3)) / scale for i in range(3)]
+        except OverflowError as exc:
+            raise StudioError("Source frame conversion overflowed") from exc
         result[name] = rigid(rotation, position)
     return result
 

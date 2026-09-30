@@ -2,7 +2,7 @@
 
 import math
 import unittest
-from studio_tools.adapters.unimate_motion import multiply, rigid, inverse_rigid, remove_trajectory, to_source, source_locals
+from studio_tools.adapters.unimate_motion import multiply, rigid, inverse_rigid, remove_trajectory, to_source, source_locals, _similarity
 from studio_tools.common import StudioError
 
 
@@ -78,6 +78,20 @@ class TrajectoryTests(unittest.TestCase):
             source_locals({"Root":rigid(),"Foot":rigid()}, {"Root":"Foot","Foot":"Root"})
         with self.assertRaises(StudioError):
             remove_trajectory({"Root":pitch(math.pi/2)}, rigid(), kind="mite", reference_height=0)
+
+    def test_stable_large_scale_and_nonfinite_arithmetic_results(self):
+        matrix = [[1e308,0,0,0],[0,1e308,0,0],[0,0,1e308,0],[0,0,0,1]]
+        scale, rotation = _similarity(matrix)
+        self.assertEqual(scale, 1e308)
+        self.assertEqual(rotation, [[1,0,0],[0,1,0],[0,0,1]])
+        mapped = to_source({"Root":rigid(position=(1,2,3))}, matrix)
+        self.assertTrue(all(math.isfinite(x) for row in mapped["Root"] for x in row))
+        with self.assertRaises(StudioError):multiply(matrix, matrix)
+        with self.assertRaises(StudioError):
+            to_source({"Root":rigid(position=(1e308,0,0))}, rigid(position=(-1e308,0,0)))
+        with self.assertRaises(StudioError):
+            to_source({"Root":rigid(position=(10**308,0,0))}, rigid(position=(-10**308,0,0)))
+        with self.assertRaises(StudioError):rigid(position=(10**400,0,0))
 
 
 if __name__ == "__main__":

@@ -23,6 +23,12 @@ bounded again by an explicit UTC cutoff. There is no retry, model/seed fallback
 or cache download. CPU uses no visible CUDA device. GPU requires a hashed external
 reservation naming the owner/device and valid through the cutoff; this is a
 declaration from the coordinator, not GPU arbitration or proof of a quiet host.
+The request's `execution.device` names the physical device for reservation and
+provenance. For `cuda:3`, the child receives `CUDA_VISIBLE_DEVICES=3` and must
+address its single visible GPU as `worker_device: cuda:0` from input.json.
+Never pass the physical ordinal to an ML device constructor after masking.
+CPU receives `worker_device: cpu` and an empty CUDA visibility mask. The task
+receipt retains both names in `device_mapping`; request identity stays physical.
 
 ## Request and rig contracts
 
@@ -98,6 +104,8 @@ Run the configured interpreter/worker with `--input <input.json> --output
 <result.json>` once. Input carries schema 1, request, request_digest, rig,
 project root, resolved hashed local assets, provenance, new output directory,
 capabilities, and offline_policy. It is a private local artifact with host paths.
+Input also carries the explicit worker-local `worker_device`; use this field
+for text/model/tensor placement, while retaining the physical request unchanged.
 
 The worker result carries schema 1, matching `request_digest`, `rig_sha256`
 (request's rig-manifest hash), `provenance_digest` (Kit canonical JSON digest of
@@ -178,6 +186,9 @@ review; Kite leaves root fixed and retains descendant articulation. Reconstruct
 and solve original parents before Blender rest/bind authoring. Root-channel
 zeroing by itself is insufficient. Tests exercise trajectory invariance,
 nonidentity source axes/scale and parent-relative reconstruction.
+Stable norm computation and finite arithmetic-result checks reject invalid or
+overflowing transforms with structured errors, including correctly hashed
+extreme-value manifests; no worker starts for a refused transform.
 
 Packaging/promotion needs user-reviewed generated motion on the same original
 31-joint Mite, original-source bake/export/fresh-process round trip, at least one
@@ -187,3 +198,16 @@ sampling does not close this gate. Native runtime adoption is separate: preserve
 controller-owned contact/flight, use the pinned double-precision engine, ordinary
 route motion review and attributable cleanroom performance. No push/PR follows
 automatically from these foundation tests.
+
+### PR-base compatibility gate
+
+This isolated branch starts at installed 0.1.6
+`c9fbe5b55ca9a6dfebed8d2b18d6ebdcbd56d917`; it is not an upgrade of the active
+development checkout that declares 0.1.1. Read-only history review found
+divergence at `93e88ae` and 96 unrelated files on the installed side. An eventual
+PR must choose a compatible target or deliberately cherry-pick/rebase these
+bounded commits into a separately planned isolated migration, with the required
+ownership runner APIs and package/version checks repeated. Do not wholesale
+merge the installed tree into development or reconcile the active checkout as
+part of this experiment. This gate is separate from comparison review and
+provider packaging acceptance.
