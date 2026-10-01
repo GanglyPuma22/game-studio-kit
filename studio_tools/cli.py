@@ -28,6 +28,16 @@ def parser():
 
     c = command("check-package")
     c.add_argument("--root", required=True)
+    c = command("qualify-animation", True)
+    c.add_argument("operation", choices=["prepare", "run", "attach"])
+    c.add_argument("--url", required=True, help="Existing fieldbook API; no second catalog")
+    c.add_argument("--plan")
+    c.add_argument("--phase", choices=["import", "cpu", "native"])
+    c.add_argument("--label")
+    c.add_argument("--cutoff-utc")
+    c.add_argument("--reservation", help="Parent-coordinated native resource window JSON")
+    c.add_argument("--receipt", help="Project-relative qualification receipt")
+    c.add_argument("--actor")
     c = command("doctor")
     c.add_argument("--output")
     c = command("setup")
@@ -345,6 +355,16 @@ def _profile_fields(config, root, command, a, overrides):
 
 def dispatch(a):
     config = load(a.config)
+    if a.command == "qualify-animation":
+        from . import qualification
+        if a.operation == "prepare" and a.plan:
+            return qualification.prepare(a.project, a.plan, a.url)
+        if a.operation == "run" and a.phase and a.label and a.cutoff_utc:
+            return qualification.run(config, a.project, a.url, a.phase, a.label,
+                                     a.cutoff_utc, a.reservation)
+        if a.operation == "attach" and a.receipt and a.actor:
+            return qualification.attach(a.project, a.url, a.receipt, a.actor)
+        raise StudioError("Qualification operation is missing its required arguments")
     if a.command == "check-package":
         from .package import check
 
