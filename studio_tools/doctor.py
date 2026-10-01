@@ -116,6 +116,13 @@ def inspect(config):
             else "No explicit blender_mcp host block was supplied"
         ),
     }
+    capabilities["unimate"] = {
+        "status": "unverified" if isinstance(config.get("unimate"), dict) else "needs_setup",
+        "configured": isinstance(config.get("unimate"), dict),
+        "operations": "unverified",
+        "support": "experimental_foundation",
+        "next_step": "Optional animated-reference worker: configure pinned local assets and a supported rig profile; use unimate inspect. No model/environment is bundled; Kit end-to-end, rest-only inference and enforced offline execution remain unverified.",
+    }
     return {
         "schema_version": 1,
         "kit": kit_identity(),
