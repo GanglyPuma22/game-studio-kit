@@ -101,6 +101,20 @@ class QualificationTests(unittest.TestCase):
                       "2029-01-01T00:00:00Z", self.root / "window.json")
             launch.assert_not_called()
 
+    def test_diagnostic_exception_requires_explicit_instruction(self):
+        write_json(self.root / "host.json", {"ready": False})
+        window = {"plan_digest": self.record["plan_digest"], "coordinator": "parent",
+                  "start_utc": "2000-01-01T00:00:00Z", "end_utc": "2030-01-01T00:00:00Z",
+                  "host_preflight": str(self.root / "host.json"),
+                  "host_preflight_sha256": sha256(self.root / "host.json"),
+                  "bounded_diagnostic_authorization": {"source_thread_id": "parent"}}
+        write_json(self.root / "window.json", window)
+        with patch.object(q, "request", return_value=self.catalog), patch.object(q, "launch") as launch:
+            with self.assertRaisesRegex(StudioError, "explicit coordinating instruction"):
+                q.run({"executables": {"godot": sys.executable}}, self.root, "http://local", "native", "native",
+                      "2029-01-01T00:00:00Z", self.root / "window.json")
+            launch.assert_not_called()
+
     def test_attach_same_attempt_only_preserves_decisions(self):
         receipt = {"kind": "animation-qualification-run", "plan_digest": self.record["plan_digest"],
                    "attempt_id": "selected", "glb_sha256": self.attempt["sha256"], "files": [],
@@ -123,6 +137,12 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(body["targets"], self.attempt["targets"])
         self.assertNotIn("ready_for_game", body)
         self.assertNotIn("status", body)
+        initial_audit = (self.root / "receipt.json.publication.json").read_bytes()
+        self.catalog["cursor"] = 11
+        with patch.object(q, "request", side_effect=api):
+            q.attach(self.root, "http://local", "receipt.json", "kit")
+        self.assertEqual((self.root / "receipt.json.publication.json").read_bytes(), initial_audit)
+        self.assertTrue((self.root / "receipt.json.publication-11-11.json").is_file())
 
     def test_attach_changed_evidence_refused_before_api(self):
         receipt = {"kind": "animation-qualification-run", "plan_digest": self.record["plan_digest"],

@@ -73,6 +73,14 @@ process are required. Unknown processes are left untouched. The coordinator
 must check other heavy jobs; this is a reservation receipt, not an OS resource
 lock. Do not launch another GPU job during the reserved window.
 
+An explicitly authorized bounded native diagnostic may retain a failed host
+readiness preflight without changing host settings. Its reservation must add
+`bounded_diagnostic_authorization` with the coordinating `instruction` and
+`source_thread_id`. Process/heavy-job checks, hashes and deadlines still apply.
+Such a run captures actual native evidence but keeps performance qualification
+unverified, even when numerical budgets pass. This exception never grants
+unattended operation or production acceptance.
+
 Each native role uses its own existing `bench cleanroom` attribution window.
 Only both attributable completed windows can apply performance budgets:
 `frame_p95_ms`, `gpu_p95_ms`, `controller_cpu_p95_ms`, and

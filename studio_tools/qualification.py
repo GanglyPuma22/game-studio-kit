@@ -170,8 +170,13 @@ def run(config, project, url, phase, label, cutoff, reservation=None):
             raise StudioError("Native cutoff must stay within the reservation")
         if phase == "native":
             preflight = read_json(reservation_record["host_preflight"])
-            if not preflight.get("ready") or sha256(reservation_record["host_preflight"]) != reservation_record["host_preflight_sha256"]:
+            diagnostic_authorization = reservation_record.get("bounded_diagnostic_authorization")
+            if (sha256(reservation_record["host_preflight"]) != reservation_record["host_preflight_sha256"] or
+                    (not preflight.get("ready") and not diagnostic_authorization)):
                 raise StudioError("Native reservation requires a passing pinned host preflight")
+            if diagnostic_authorization and (not isinstance(diagnostic_authorization, dict)
+                    or not diagnostic_authorization.get("instruction") or not diagnostic_authorization.get("source_thread_id")):
+                raise StudioError("Diagnostic exception requires the explicit coordinating instruction and its source")
             window = preflight.get("window") or {}
             if (not window.get("start_utc") or not window.get("end_utc") or
                     parse_utc(window["start_utc"]) > parse_utc(reservation_record["start_utc"]) or
@@ -255,7 +260,10 @@ def run(config, project, url, phase, label, cutoff, reservation=None):
     receipt["automated_checks"] = "passed" if passed else "failed"
     if phase == "native" and len(results) == 2 and all(r["cleanroom"].get("ok") for r in results):
         receipt["performance"] = compare_timing(observations, plan["thresholds"])
-        receipt["performance_qualification"] = receipt["performance"]["verdict"]
+        if reservation_record.get("bounded_diagnostic_authorization"):
+            receipt["performance_qualification"] = "unverified-host-preflight-diagnostic"
+        else:
+            receipt["performance_qualification"] = receipt["performance"]["verdict"]
     receipt["ok"] = passed
     receipt["limitations"] = ["Bounded isolated fixture, not whole-game acceptance",
                                "CPU mode has no rendering or GPU performance evidence",
@@ -335,5 +343,10 @@ def attach(project, url, receipt_path, actor):
               "before_cursor": before["cursor"], "after_cursor": after["cursor"],
               "decisions_comments_gamepins_preserved": unchanged, "history": history,
               "receipt": file_record(root, path)}
-    write_json(root / (receipt_path + ".publication.json"), result)
+    publication = relative(root, receipt_path + ".publication.json")
+    if publication.exists():
+        # Keep the first audit when the same stable provenance is retried.
+        publication = relative(root, receipt_path + f".publication-{before['cursor']}-{after['cursor']}.json")
+    if not publication.exists():
+        write_json(publication, result)
     return result

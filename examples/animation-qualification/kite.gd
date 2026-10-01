@@ -148,10 +148,19 @@ func _run() -> void:
 	camera.current = true
 	camera.fov = float(plan.camera.fov)
 	var native := DisplayServer.get_name() != "headless"
-	if native: Engine.max_fps = 60
+	if native:
+		Engine.max_fps = 60
+		# A decorated Windows window can be clamped to the work area.
+		# Set only this owned fixture's window; never change host display settings.
+		root.borderless = true
+		root.position = Vector2i.ZERO
+		root.size = Vector2i(1920,1080)
+		await process_frame
 	observations["settings"] = {"renderer": RenderingServer.get_current_rendering_method(),
 		"viewport": [root.size.x,root.size.y], "physics_hz": Engine.physics_ticks_per_second,
 		"native_frame_cap": 60 if native else 0}
+	if native:
+		checks["native_render_settings"] = RenderingServer.get_current_rendering_method() == "forward_plus" and root.size == Vector2i(1920,1080) and Engine.physics_ticks_per_second == 60
 	if native: RenderingServer.viewport_set_measure_render_time(root.get_viewport_rid(), true)
 	var phases: Dictionary = {}
 	var finite := true
@@ -207,7 +216,10 @@ func _run() -> void:
 			frame_times.append(float(now-last_tick)/1000.0)
 			if native: gpu_times.append(RenderingServer.viewport_get_measured_render_time_gpu(root.get_viewport_rid()))
 		last_tick = now
-		if native and frame in plan.replay.capture_frames:
+		var capture_requested := false
+		for requested_frame in plan.replay.capture_frames:
+			if frame == int(requested_frame): capture_requested = true
+		if native and capture_requested:
 			await RenderingServer.frame_post_draw
 			root.get_texture().get_image().save_png("res://" + output + "/frame-%04d.png" % frame)
 	replay.close()
