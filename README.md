@@ -21,6 +21,7 @@ python "$Kit\scripts\studio.py" godot smoke --project "$Game" --config "C:\Studi
 - [Windows setup and registration](docs/setup-windows.md), [Linux setup](docs/setup-linux.md)
 - [Optional provider setup](docs/provider-setup.md), [commands and records](references/production-contracts.md)
 - [Testing and exact native smoke](docs/testing.md), [compatibility and remaining checks](docs/compatibility.md)
+- [Selected animation qualification and fieldbook evidence](docs/animation-qualification.md)
 - [Contribution and archive recipe](docs/contributing.md), [third-party notices](THIRD_PARTY_NOTICES.md)
 
 There is a skills-based plugin manifest in [.codex-plugin/plugin.json](.codex-plugin/plugin.json). Registration is opt-in and host-specific; it does not manufacture computer use or install Blender. A direct read of a skill is useful but does not prove plugin discovery. Follow the installed-coordinator test from a separate project directory.
