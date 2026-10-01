@@ -1,6 +1,7 @@
 """Identity, stale selection, native admission and publication boundaries."""
 import copy
 import tempfile
+import sys
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -24,7 +25,7 @@ class QualificationTests(unittest.TestCase):
                         "baselines": {"kite:glide": "selected"},
                         "models": [{"id": "kite", "current_game_sha256": "b" * 64}],
                         "notes": [{"text": "preserve"}], "model_aliases": [], "cursor": 10}
-        self.plan = {"id": "test", "attempt": self.identity, "engine": {"sha256": sha256(self.asset)}}
+        self.plan = {"id": "test", "attempt": self.identity, "engine": {"sha256": sha256(sys.executable)}}
         self.record = {"plan": self.plan, "plan_digest": digest(self.plan), "attempt": self.attempt,
                        "review": self.review, "baseline": {"sha256": "b" * 64},
                        "files": [{"path": "candidate.glb", "sha256": sha256(self.asset)}]}
@@ -60,7 +61,7 @@ class QualificationTests(unittest.TestCase):
     def test_native_requires_reservation_and_never_launches(self):
         with patch.object(q, "request", return_value=self.catalog), patch.object(q, "launch") as launch:
             with self.assertRaisesRegex(StudioError, "reservation"):
-                q.run({"executables": {"godot": str(self.asset)}}, self.root, "http://local", "native", "native", "2030-01-01T00:00:00Z")
+                q.run({"executables": {"godot": sys.executable}}, self.root, "http://local", "native", "native", "2030-01-01T00:00:00Z")
             launch.assert_not_called()
 
     def test_changed_review_and_game_pin_prevent_launch(self):
@@ -82,7 +83,7 @@ class QualificationTests(unittest.TestCase):
         write_json(self.root / "window.json", window)
         with patch.object(q, "request", return_value=self.catalog), patch.object(q, "launch") as launch:
             with self.assertRaisesRegex(StudioError, "passing pinned host preflight"):
-                q.run({"executables": {"godot": str(self.asset)}}, self.root, "http://local", "native", "native",
+                q.run({"executables": {"godot": sys.executable}}, self.root, "http://local", "native", "native",
                       "2029-01-01T00:00:00Z", self.root / "window.json")
             launch.assert_not_called()
 
@@ -96,7 +97,7 @@ class QualificationTests(unittest.TestCase):
         write_json(self.root / "window.json", window)
         with patch.object(q, "request", return_value=self.catalog), patch.object(q, "launch") as launch:
             with self.assertRaisesRegex(StudioError, "reserved window"):
-                q.run({"executables": {"godot": str(self.asset)}}, self.root, "http://local", "native", "native",
+                q.run({"executables": {"godot": sys.executable}}, self.root, "http://local", "native", "native",
                       "2029-01-01T00:00:00Z", self.root / "window.json")
             launch.assert_not_called()
 
