@@ -319,7 +319,9 @@ def generate(config, project, request, record):
             payload["worker_profile"] = host["worker_profile"]
             payload["host_entries"] = {key: host[key]["id"] for key in ("python", "worker")}
         write_json(input_path, payload)
-        env = {key: os.environ[key] for key in ("PATH", "SystemRoot", "WINDIR", "TEMP", "TMP") if key in os.environ}
+        # NVML needs ProgramFiles on Windows; retain that platform path without
+        # inheriting credentials or arbitrary provider/cache settings.
+        env = {key: os.environ[key] for key in ("PATH", "SystemRoot", "WINDIR", "TEMP", "TMP", "ProgramFiles") if key in os.environ}
         env.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", PYTHONNOUSERSITE="1",
                    CUDA_VISIBLE_DEVICES="" if physical_device == "cpu" else physical_device.split(":")[1])
         run([host["python"]["path"], host["worker"]["path"], "--input", str(input_path), "--output", str(result_path)],

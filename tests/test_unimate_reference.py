@@ -318,6 +318,21 @@ class ReferenceTests(unittest.TestCase):
                                 capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_owned_worker_retains_nvml_platform_path_without_credentials(self):
+        runner = self.runner()
+        def inspect_environment(args, **kwargs):
+            self.assertEqual(kwargs["env"].get("ProgramFiles"), "C:\\Program Files")
+            self.assertNotIn("HF_TOKEN", kwargs["env"])
+            self.assertNotIn("NVIDIA_NGC_API_KEY", kwargs["env"])
+            self.assertNotIn("HF_HOME", kwargs["env"])
+            return runner(args, **kwargs)
+        with patch.dict(os.environ, {"ProgramFiles": "C:\\Program Files", "HF_TOKEN": "fixture-secret",
+                                    "NVIDIA_NGC_API_KEY": "fixture-secret", "HF_HOME": "fixture-cache"}), \
+             patch.object(unimate, "prelaunch_baseline", return_value={"status": "ok"}), \
+             patch.object(unimate, "run", side_effect=inspect_environment), \
+             patch.object(unimate, "stop_survivors", return_value={"status": "ok", "pids": [], "stopped": True, "unverified": []}):
+            self.assertTrue(self.fx.generate("nvml-environment")["ok"])
+
     def test_unexpected_worker_failure_retains_traceback_and_structured_receipt(self):
         data = self.payload()
         input_path = self.root / "diagnostic-input.json"
