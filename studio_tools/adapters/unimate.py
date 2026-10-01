@@ -58,19 +58,20 @@ def instant(value):
         fail("REQUEST_INVALID", "Cutoff/reservation time must have an explicit UTC offset")
 
 
-def baseline_joints(path):
+def baseline_joints(path, names_required=None):
     from .blender import glb_info
     glb_info(path)  # Existing structural GLB validation; does not start Blender.
     data = path.read_bytes()
     doc = json.loads(data[20:20 + struct.unpack_from("<I", data, 12)[0]])
+    names_required = MITE_NAMES if names_required is None else names_required
     if len(doc.get("skins", [])) != 1:
-        fail("RIG_UNSUPPORTED", "Mite baseline must contain exactly one skin")
+        fail("RIG_UNSUPPORTED", "Baseline must contain exactly one skin")
     nodes = doc["nodes"]
     joints = doc["skins"][0]["joints"]
-    if (not isinstance(nodes, list) or not isinstance(joints, list) or len(joints) != 31
+    if (not isinstance(nodes, list) or not isinstance(joints, list) or len(joints) != len(names_required)
             or any(type(index) is not int or not 0 <= index < len(nodes) for index in joints)
-            or len(set(joints)) != 31 or any(not isinstance(node, dict) for node in nodes)):
-        fail("RIG_UNSUPPORTED", "Mite baseline must preserve exactly 31 joints")
+            or len(set(joints)) != len(names_required) or any(not isinstance(node, dict) for node in nodes)):
+        fail("RIG_UNSUPPORTED", "Baseline joint count differs from the pinned rig profile")
     parent = {}
     for index, node in enumerate(nodes):
         for child in node.get("children", []):
@@ -80,8 +81,8 @@ def baseline_joints(path):
                 fail("RIG_UNSUPPORTED", "Baseline node has ambiguous parents")
             parent[child] = index
     names = [nodes[index].get("name") for index in joints]
-    if set(names) != MITE_NAMES:
-        fail("RIG_UNSUPPORTED", "Mite baseline names differ from the original 31-joint contract")
+    if set(names) != names_required:
+        fail("RIG_UNSUPPORTED", "Baseline names differ from the pinned rig profile")
     result = {}
     for index in joints:
         ancestor, seen = parent.get(index), {index}
@@ -105,28 +106,35 @@ def preflight(config, project, request):
         fail("CONDITION_INCOMPATIBLE", "Only explicit experimental text_tpos requests are supported")
     rig_path = artifact(root, request.get("rig_manifest"))
     rig = read_json(rig_path)
-    if (not isinstance(rig, dict) or rig.get("schema_version") != 1 or rig.get("subject") != "chalk_mite"
-            or rig.get("preparation") != "rest_only" or rig.get("reference_motion_clips") != []):
+    reference_mode = "conditioning" in request
+    if reference_mode:
+        from .unimate_reference import validate_rig
+        if not isinstance(rig, dict):
+            fail("RIG_UNSUPPORTED", "Rig manifest must be an object")
+        rig_names, expected = validate_rig(root, request, rig)
+    elif (not isinstance(rig, dict) or rig.get("schema_version") != 1 or rig.get("subject") != "chalk_mite"
+          or rig.get("preparation") != "rest_only" or rig.get("reference_motion_clips") != []):
         fail("RIG_UNSUPPORTED", "Prepare a disposable rest-only Chalk Mite condition; preserve the animated baseline")
     source = artifact(root, rig.get("source"))
     baseline = artifact(root, rig.get("baseline"))
     condition = artifact(root, rig.get("condition"))
     if source.suffix != ".blend" or baseline.suffix != ".glb" or condition.suffix != ".npy":
         fail("RIG_UNSUPPORTED", "Rig needs hashed .blend source, baseline .glb and prepared .npy condition")
-    expected = baseline_joints(baseline)
-    joints = rig.get("joints", [])
-    if (not isinstance(joints, list) or len(joints) != 31
-            or any(not isinstance(j, dict) or set(j) != {"name", "parent"} for j in joints)
-            or len({j["name"] for j in joints}) != 31
-            or {j["name"]: j["parent"] for j in joints} != expected):
-        fail("RIG_UNSUPPORTED", "Rest-only condition must retain every baseline joint name and parent")
+    if not reference_mode:
+        rig_names, expected = MITE_NAMES, baseline_joints(baseline)
+        joints = rig.get("joints", [])
+        if (not isinstance(joints, list) or len(joints) != 31
+                or any(not isinstance(j, dict) or set(j) != {"name", "parent"} for j in joints)
+                or len({j["name"] for j in joints}) != 31
+                or {j["name"]: j["parent"] for j in joints} != expected):
+            fail("RIG_UNSUPPORTED", "Rest-only condition must retain every baseline joint name and parent")
     if expected.get("Root") is not None or any(name != "Root" and parent is None for name, parent in expected.items()):
-        fail("RIG_UNSUPPORTED", "Mite needs one Root and a connected hierarchy")
+        fail("RIG_UNSUPPORTED", "Rig needs one Root and a connected hierarchy")
     for name in expected:
         seen, parent = {name}, expected[name]
         while parent is not None:
             if parent in seen or parent not in expected:
-                fail("RIG_UNSUPPORTED", "Mite hierarchy contains a cycle or missing parent")
+                fail("RIG_UNSUPPORTED", "Rig hierarchy contains a cycle or missing parent")
             seen.add(parent)
             parent = expected[parent]
     _similarity(rig.get("canonical_from_source"))
@@ -141,13 +149,13 @@ def preflight(config, project, request):
             fail("REQUEST_INVALID", "Clip must be an object")
         name = clip.get("name")
         identity = sample_id(clip)
-        if name not in ROLES or identity in names:
-            fail("REQUEST_INVALID", "Use idle/walk/graze/startle roles and distinct sample IDs")
+        if (not reference_mode and name not in ROLES) or identity in names:
+            fail("REQUEST_INVALID", "Use supported roles and distinct sample IDs")
         names.add(identity)
         if (not isinstance(clip.get("prompt"), str) or not clip["prompt"].strip()
                 or type(clip.get("seed")) is not int or not 0 <= clip["seed"] < 2**32
-                or clip.get("loop") is not ROLES[name] or clip.get("root_motion") != "in_place"):
-            fail("REQUEST_INVALID", "Clip needs text, uint32 seed and its in-place loop policy")
+                or (not reference_mode and (clip.get("loop") is not ROLES[name] or clip.get("root_motion") != "in_place"))):
+            fail("REQUEST_INVALID", "Clip needs text, uint32 seed and its declared motion policy")
     limits = request.get("limits", {})
     if not isinstance(limits, dict):
         fail("REQUEST_INVALID", "Limits must be an object")
@@ -174,7 +182,7 @@ def preflight(config, project, request):
             fail("RESOURCE_BUSY", "GPU work needs a matching externally owned reservation through the cutoff")
     host = config.get("unimate")
     if not isinstance(host, dict) or host.get("protocol_version") != 1:
-        fail("DEPENDENCY_MISSING", "Configure an isolated protocol-1 worker; no inference bridge is bundled")
+        fail("DEPENDENCY_MISSING", "Configure an explicit isolated protocol-1 worker and pinned local assets")
     provenance = host.get("provenance", {})
     if not isinstance(provenance, dict):
         fail("IDENTITY_MISMATCH", "Provenance must be an object")
@@ -195,12 +203,14 @@ def preflight(config, project, request):
         if (not isinstance(values, list) or any(not isinstance(name, str) for name in values)
                 or len(set(values)) != len(values)):
             fail("CONDITION_INCOMPATIBLE", "Rotation capability lists need distinct joint names")
-    if (set(generated) & set(unsupported) or set(generated) | set(unsupported) != MITE_NAMES
-            or not STOCK_UNSUPPORTED_ROTATIONS <= set(unsupported)):
-        fail("CONDITION_INCOMPATIBLE", "Disclose all 31 rotation capabilities, including unsupported independent jaw and lower-leg proposals")
+    if (set(generated) & set(unsupported) or set(generated) | set(unsupported) != rig_names
+            or (not reference_mode and not STOCK_UNSUPPORTED_ROTATIONS <= set(unsupported))):
+        fail("CONDITION_INCOMPATIBLE", "Disclose every rig rotation capability and its unsupported independent proposals")
     files = {}
     assets = host.get("assets", [])
-    if not isinstance(assets, list) or {a.get("role") for a in assets if isinstance(a, dict)} != ASSET_ROLES:
+    roles = {a.get("role") for a in assets if isinstance(a, dict)} if isinstance(assets, list) else set()
+    allowed = ASSET_ROLES | ({"provider_source", "motion_source", "text_asset", "dependency_lock"} if reference_mode else set())
+    if not ASSET_ROLES <= roles or not roles <= allowed:
         fail("OFFLINE_ASSET_MISSING", "Inventory checkpoint, config, stats, encoder, tokenizer and normalizer files locally")
     for item in [host.get("python"), host.get("worker"), *assets]:
         if not isinstance(item, dict):
@@ -214,6 +224,9 @@ def preflight(config, project, request):
         if sha256(path) != item["sha256"]:
             fail("IDENTITY_MISMATCH", "Local asset changed: " + item_id)
         files[item_id] = dict(item)
+    if reference_mode:
+        from .unimate_reference import validate_host
+        validate_host(root, request, rig, host, files)
     return root, rig, host, files, cutoff
 
 
@@ -243,7 +256,7 @@ def _outputs(root, folder, request, host, result):
         if name not in expected or name in seen:
             fail("OUTPUT_INVALID", "Worker returned duplicate or unexpected clips")
         seen.add(name)
-        for key in ("name", "seed", "loop", "root_motion"):
+        for key in ("name", "prompt", "seed", "loop", "root_motion"):
             if type(clip.get(key)) is not type(expected[name][key]) or clip[key] != expected[name][key]:
                 fail("OUTPUT_INVALID", "Worker changed clip seed or motion policy")
         for key in ("duration_seconds", "sample_rate"):
@@ -256,6 +269,9 @@ def _outputs(root, folder, request, host, result):
                 fail("OUTPUT_INVALID", "Worker outputs must be distinct new raw/decoded files under this run's output")
             paths.add(path)
             outputs.append(file_record(root, path))
+    if "conditioning" in request:
+        from .unimate_reference import validate_result
+        outputs.extend(validate_result(root, folder, request, host, result))
     return outputs
 
 
@@ -292,12 +308,17 @@ def generate(config, project, request, record):
         if remaining <= 0:
             fail("CUTOFF_PASSED", "Cutoff passed during preflight; no worker started")
         input_path, result_path = folder / "input.json", folder / "result.json"
-        write_json(input_path, {"schema_version": 1, "request": request, "request_digest": digest(request),
+        payload = {"schema_version": 1, "request": request, "request_digest": digest(request),
                                "rig": rig, "project": str(root), "assets": list(files.values()),
                                "provenance": host["provenance"], "output": str(folder / "output"),
                                "capabilities": host["capabilities"],
                                "worker_device": worker_device,
-                               "offline_policy": {"local_files_only": True, "downloads": False}})
+                               "offline_policy": {"local_files_only": True, "downloads": False}}
+        if "conditioning" in request:
+            payload["runtime"] = host["runtime"]
+            payload["worker_profile"] = host["worker_profile"]
+            payload["host_entries"] = {key: host[key]["id"] for key in ("python", "worker")}
+        write_json(input_path, payload)
         env = {key: os.environ[key] for key in ("PATH", "SystemRoot", "WINDIR", "TEMP", "TMP") if key in os.environ}
         env.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", PYTHONNOUSERSITE="1",
                    CUDA_VISIBLE_DEVICES="" if physical_device == "cpu" else physical_device.split(":")[1])
@@ -334,11 +355,26 @@ def generate(config, project, request, record):
                 fail("CLEANUP_UNVERIFIED", "Worker process receipt is missing")
         except (StudioError, OSError, KeyError, TypeError, ValueError):
             receipt.update(status="cleanup_unverified", error="Worker process or cleanup evidence is unavailable; inspect local receipts")
+        if receipt["status"] == "worker_failed" and (folder / "result.json").is_file():
+            try:
+                failure = read_json(folder / "result.json")
+                error = failure.get("provider_error", {})
+                if (failure.get("request_digest") == digest(request) and failure.get("status") == "failed"
+                        and error.get("code") in {"CONDITION_INCOMPATIBLE", "RIG_UNSUPPORTED", "IDENTITY_MISMATCH",
+                            "OFFLINE_ASSET_MISSING", "OFFLINE_NETWORK_REFUSED", "DEPENDENCY_MISSING", "RESOURCE_BUSY",
+                            "CUTOFF_PASSED", "INTERRUPTED", "REQUEST_INVALID", "OUTPUT_INVALID", "WORKER_FAILED"}
+                        and error.get("retryable") is False):
+                    receipt["provider_error"] = {"code": error["code"], "retryable": False}
+                    receipt["worker_failure"] = file_record(root, folder / "result.json")
+            except (StudioError, OSError, KeyError, TypeError, ValueError, AttributeError):
+                pass  # Unbound failure detail cannot replace the process evidence.
         if receipt["status"] == "worker_completed":
             try:
                 preflight(config, project, request)
                 receipt["outputs"] = _outputs(root, folder, request, host, read_json(folder / "result.json"))
                 receipt.update(status="completed", ok=True, result=file_record(root, folder / "result.json"), artifact_validation="manifest_only")
+                if "conditioning" in request:
+                    receipt.update(condition_values="worker_checked", raw_motion="preserved")
             except (StudioError, OSError, KeyError, TypeError, ValueError) as exc:
                 receipt.update(status="output_invalid", error=str(exc) if isinstance(exc, StudioError) else "Worker result is invalid")
         if not receipt["ok"] and "provider_error" not in receipt:

@@ -81,6 +81,8 @@
     "docs/unimate-experimental.md",
     "studio_tools/adapters/unimate.py",
     "studio_tools/adapters/unimate_motion.py",
+    "studio_tools/adapters/unimate_reference.py",
+    "studio_tools/unimate_worker.py",
     "studio_tools/adapters/audio.py",
     "studio_tools/adapters/blender.py",
     "studio_tools/adapters/elevenlabs.py",

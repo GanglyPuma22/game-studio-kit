@@ -121,7 +121,7 @@ def inspect(config):
         "configured": isinstance(config.get("unimate"), dict),
         "operations": "unverified",
         "support": "experimental_foundation",
-        "next_step": "Optional experimental worker only: configure pinned local assets; use unimate inspect. No model/bridge is bundled; pilot and offline execution remain unverified.",
+        "next_step": "Optional animated-reference worker: configure pinned local assets and a supported rig profile; use unimate inspect. No model/environment is bundled; Kit end-to-end, rest-only inference and enforced offline execution remain unverified.",
     }
     return {
         "schema_version": 1,
