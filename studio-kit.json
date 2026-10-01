@@ -50,6 +50,7 @@
   ],
   "resources": [
     "docs/animation-qualification.md",
+    "docs/source-context-baselines.md",
     "examples/animation-qualification/kite.gd",
     "examples/animation-qualification/plan.example.json",
     "examples/animation-qualification/project.godot",
@@ -118,6 +119,7 @@
     "studio_tools/playtest.py",
     "studio_tools/profile.py",
     "studio_tools/qualification.py",
+    "studio_tools/context_baseline.py",
     "studio_tools/manifest.py",
     "studio_tools/fixture.py",
     "studio_tools/godot_template/main.gd",
@@ -167,6 +169,7 @@
     "godot",
     "unimate",
     "qualify-animation",
+    "baseline-context",
     "candidate",
     "review"
   ]

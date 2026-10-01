@@ -1,0 +1,209 @@
+"""Source-slot identity and native evidence must fail closed without selection writes."""
+import hashlib
+import json
+from pathlib import Path
+import struct
+import tempfile
+import unittest
+from unittest.mock import patch
+import zlib
+
+from studio_tools import context_baseline as baseline
+from studio_tools.common import StudioError, file_record, sha256, write_json
+
+
+def png(width=1920, height=1080, fill=0):
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    raster = (b"\x00" + bytes([fill]) * (width * 3)) * height
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(raster)) + chunk(b"IEND", b"")
+
+
+class ContextBaselineTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def test_lfs_asset_and_committed_crlf_source_are_bound_to_registered_slot(self):
+        asset = self.root / "assets/a.glb"
+        asset.parent.mkdir()
+        asset.write_bytes(b"registered baseline")
+        identity = sha256(asset)
+        source = (f'const ASSET_PATH := "res://assets/a.glb"\n'
+                  f'const ASSET_SHA256 := "{identity}"\n').encode()
+        copied = self.root / "scripts/context.gd"
+        copied.parent.mkdir()
+        copied.write_bytes(source.replace(b"\n", b"\r\n"))
+        slot = {"name": "one-runtime-slot", "model_id": "mite", "attempt_id": "one", "sha256": identity,
+                "asset": "assets/a.glb", "source": "scripts/context.gd",
+                "git_path": "game/scripts/context.gd", "sha_constant": "ASSET_SHA256",
+                "path_constant": "ASSET_PATH"}
+        pointer = f"version https://git-lfs.github.com/spec/v1\noid sha256:{identity}\nsize {asset.stat().st_size}\n".encode()
+        with patch.object(baseline, "_committed", side_effect=lambda _repo, _commit, path: pointer if path.endswith(".glb") else source):
+            result = baseline._source_slot(self.root, self.root, "a" * 40, slot,
+                                           {"one": {"id": "one", "model_id": "mite", "sha256": identity}})
+            self.assertEqual(result["committed_asset_proof"], "lfs-oid")
+            self.assertTrue(result["source"]["line_endings_normalized"])
+            copied.write_bytes(copied.read_bytes().replace(b"ASSET_PATH", b"OTHER_PATH"))
+            with self.assertRaisesRegex(StudioError, "differs from pinned commit"):
+                baseline._source_slot(self.root, self.root, "a" * 40, slot,
+                                      {"one": {"id": "one", "model_id": "mite", "sha256": identity}})
+
+    def test_owned_launch_report_state_and_complete_png_are_required(self):
+        name = "native-one"
+        output = self.root / "reports/one.json"
+        output.parent.mkdir()
+        write_json(output, {"passed": True, "states": [{"phase": "feed"}, {"phase": "shelter"}],
+                            "captures": [{"path": "res://captures/one.png", "save_error": 0}]})
+        picture = self.root / "captures/one.png"
+        picture.parent.mkdir()
+        picture.write_bytes(png())
+        script = self.root / "tests/one.gd"
+        script.parent.mkdir()
+        script.write_bytes(b"extends SceneTree\n")
+        reservation = self.root / "resource.json"
+        write_json(reservation, {"checked_utc": "2026-10-01T15:00:00Z",
+                                 "window_end_utc": "2026-10-01T15:20:00Z",
+                                 "process_status": "ok", "competing_godot_blender_ffmpeg": [],
+                                 "competing_heavy_jobs_verified": True, "host_ready": False})
+        folder = self.root / "artifacts/launches" / name
+        folder.mkdir(parents=True)
+        engine_hash = hashlib.sha256(b"engine").hexdigest()
+        kit = {"version": "test", "source_digest": "a" * 64}
+        survivors = {"status": "ok", "stopped": True, "pids": [],
+                     "unstopped_pids": [], "unverified": []}
+        write_json(folder / "exit.json", {"ok": True, "label": name, "scope": "mite",
+                                          "schema_version": 1, "kind": "launch-exit", "kit": kit,
+                                          "verdict": "completed", "status": "completed", "returncode": 0,
+                                          "timed_out": False, "elapsed_seconds": 60.0,
+                                          "finished_utc": "2026-10-01T15:01:13Z", "survivors": survivors,
+                                          "result_files": [{"path": "reports/one.json", "sha256": sha256(output),
+                                                            "present": True, "stale": False,
+                                                            "unreadable": False, "escaped": False}]})
+        write_json(folder / "owned-launch.json", {"label": name, "scope": "mite",
+                                                  "schema_version": 1, "kind": "owned-launch", "kit": kit,
+                                                  "status": "launched", "pid": 42,
+                                                  "process_record": "process/process.json",
+                                                  "expected_results": ["reports/one.json"],
+                                                  "survivors": survivors,
+                                                  "project": str(self.root),
+                                                  "started_utc": "2026-10-01T15:00:10Z",
+                                                  "cutoff_utc": "2026-10-01T15:05:00Z",
+                                                  "timeout_seconds_effective": 120.0,
+                                                  "mode": "native", "script": "res://tests/one.gd",
+                                                  "engine": {"name": "godot.exe", "sha256": engine_hash,
+                                                             "sha256_after_exit": engine_hash}})
+        process_path = folder / "process/process.json"
+        process_path.parent.mkdir()
+        write_json(process_path, {"schema_version": 1, "status": "completed", "returncode": 0,
+                                  "pid": 42, "elapsed_seconds": 60.0,
+                                  "started_utc": "2026-10-01T15:00:11Z",
+                                  "finished_utc": "2026-10-01T15:01:11Z",
+                                  "windows_ownership": {"status": "ok", "identity": {
+                                      "pid": 42, "name": "godot.exe", "created_filetime": "123",
+                                      "exited_filetime": "456"}}})
+        run = {"name": "mite", "label": name, "scope": "mite", "mode": "native",
+               "script": "res://tests/one.gd", "report": "reports/one.json",
+               "checks": {"equal": {"passed": True}, "coverage": [{"path": "states", "field": "phase",
+                                                               "required": ["feed", "shelter"]}]},
+               "captures": ["captures/one.png"], "capture_report": "captures",
+               "reservation": {"path": str(reservation), "sha256": sha256(reservation)},
+               "owned_launch_sha256": sha256(folder / "owned-launch.json"),
+               "process_sha256": sha256(process_path)}
+        retained = {"scope": "mite", "launch": file_record(self.root, folder / "exit.json"),
+                    "fixture_source_sha256": sha256(script),
+                    "report": file_record(self.root, output),
+                    "captures": [file_record(self.root, picture)]}
+        with patch.object(baseline, "_committed", return_value=script.read_bytes()):
+            verify = lambda: baseline._run(self.root, self.root, "a" * 40, run, engine_hash, kit, retained)
+            result = verify()
+            self.assertEqual(result["functional_checks"], "passed")
+            self.assertEqual(result["selected_animation_qualification"], "not_attempted")
+            process_bytes = process_path.read_bytes()
+            process_path.unlink()
+            with self.assertRaisesRegex(StudioError, "process receipt bytes changed"):
+                verify()
+            process_path.write_bytes(process_bytes)
+            process = json.loads(process_bytes)
+            process["pid"] = 43
+            write_json(process_path, process)
+            run["process_sha256"] = sha256(process_path)
+            with self.assertRaisesRegex(StudioError, "does not pair with launch"):
+                verify()
+            process_path.write_bytes(process_bytes)
+            run["process_sha256"] = sha256(process_path)
+            exit_bytes = (folder / "exit.json").read_bytes()
+            late_exit = json.loads(exit_bytes)
+            late_exit["finished_utc"] = "2026-10-01T15:25:00Z"
+            write_json(folder / "exit.json", late_exit)
+            with self.assertRaisesRegex(StudioError, "exceeded its bounded launch"):
+                verify()
+            (folder / "exit.json").write_bytes(exit_bytes)
+            launch_path = folder / "owned-launch.json"
+            launch_bytes = launch_path.read_bytes()
+            launch = json.loads(launch_bytes)
+            launch["cutoff_utc"] = "2026-10-01T15:30:00Z"
+            launch["timeout_seconds_effective"] = 1800.0
+            write_json(launch_path, launch)
+            run["owned_launch_sha256"] = sha256(launch_path)
+            late_process = json.loads(process_bytes)
+            late_process["finished_utc"] = "2026-10-01T15:24:00Z"
+            late_process["elapsed_seconds"] = 1429.0
+            write_json(process_path, late_process)
+            run["process_sha256"] = sha256(process_path)
+            late_exit["elapsed_seconds"] = 1429.0
+            write_json(folder / "exit.json", late_exit)
+            with self.assertRaisesRegex(StudioError, "reservation did not cover"):
+                verify()
+            launch_path.write_bytes(launch_bytes)
+            run["owned_launch_sha256"] = sha256(launch_path)
+            process_path.write_bytes(process_bytes)
+            run["process_sha256"] = sha256(process_path)
+            (folder / "exit.json").write_bytes(exit_bytes)
+            picture.write_bytes(png(fill=1))
+            with self.assertRaisesRegex(StudioError, "capture bytes differ from historical evidence"):
+                verify()
+            picture.write_bytes(png())
+            picture.write_bytes(picture.read_bytes()[:-1] + bytes([picture.read_bytes()[-1] ^ 1]))
+            with self.assertRaisesRegex(StudioError, "capture is missing or invalid"):
+                verify()
+            picture.write_bytes(png())
+            changed = json.loads(output.read_text())
+            changed["states"].pop()
+            write_json(output, changed)
+            exit_record = json.loads((folder / "exit.json").read_text())
+            exit_record["result_files"][0]["sha256"] = sha256(output)
+            write_json(folder / "exit.json", exit_record)
+            with self.assertRaisesRegex(StudioError, "state coverage is incomplete"):
+                verify()
+            write_json(reservation, {"checked_utc": "2026-10-01T14:00:00Z",
+                                     "window_end_utc": "2026-10-01T15:20:00Z",
+                                     "process_status": "ok", "competing_godot_blender_ffmpeg": [],
+                                     "competing_heavy_jobs_verified": True})
+            with self.assertRaisesRegex(StudioError, "reservation changed"):
+                verify()
+
+    def test_catalog_only_role_cannot_claim_runtime_source(self):
+        asset = self.root / "assets/a.glb"
+        asset.parent.mkdir()
+        asset.write_bytes(b"catalog")
+        identity = sha256(asset)
+        slot = {"name": "catalog", "model_id": "slug", "attempt_id": "a", "sha256": identity,
+                "asset": "assets/a.glb", "runtime_slot": False, "source": "scripts/pocket.gd"}
+        with patch.object(baseline, "_committed", return_value=b"catalog"):
+            with self.assertRaisesRegex(StudioError, "cannot impersonate"):
+                baseline._source_slot(self.root, self.root, "a" * 40, slot,
+                                      {"a": {"id": "a", "model_id": "slug", "sha256": identity}})
+            slot.pop("source")
+            slot["catalog_current"] = True
+            with self.assertRaisesRegex(StudioError, "differs from the fieldbook pin"):
+                baseline._source_slot(self.root, self.root, "a" * 40, slot,
+                                      {"a": {"id": "a", "model_id": "slug", "sha256": identity}},
+                                      {"slug": {"current_game_sha256": identity,
+                                                "current_game_path": "res://assets/other.glb"}})
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -38,6 +38,10 @@ def parser():
     c.add_argument("--reservation", help="Parent-coordinated native resource window JSON")
     c.add_argument("--receipt", help="Project-relative qualification receipt")
     c.add_argument("--actor")
+    c = command("baseline-context", True)
+    c.add_argument("operation", choices=["verify"])
+    c.add_argument("--manifest", required=True, help="Pinned registered source-slot and owned-run manifest")
+    c.add_argument("--receipt", required=True, help="New project-relative baseline-only evidence receipt")
     c = command("doctor")
     c.add_argument("--output")
     c = command("setup")
@@ -355,6 +359,9 @@ def _profile_fields(config, root, command, a, overrides):
 
 def dispatch(a):
     config = load(a.config)
+    if a.command == "baseline-context":
+        from .context_baseline import verify
+        return verify(a.project, a.manifest, a.receipt)
     if a.command == "qualify-animation":
         from . import qualification
         if a.operation == "prepare" and a.plan:
