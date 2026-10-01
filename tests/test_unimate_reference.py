@@ -1,11 +1,15 @@
 """Reference-worker protocol fixtures; fake sampling is never art evidence."""
 
 from copy import deepcopy
+from contextlib import redirect_stderr
 from datetime import datetime, timedelta, timezone
+import io
 import json
 import os
 from pathlib import Path
 import struct
+import subprocess
+import sys
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -295,6 +299,40 @@ class ReferenceTests(unittest.TestCase):
         result = self.generate(mutate, label="changed-prompt")
         self.assertEqual(result["status"], "output_invalid")
         self.assertEqual(result["provider_error"]["code"], "OUTPUT_INVALID")
+
+    def test_direct_script_bootstrap_cannot_shadow_stdlib_profile(self):
+        code = "\n".join((
+            "import pathlib, runpy, sys",
+            "worker = pathlib.Path(sys.argv[1])",
+            "sys.path.insert(0, str(worker.parent))",
+            "sys.argv = [str(worker), '--help']",
+            "try:",
+            "    runpy.run_path(str(worker), run_name='__main__')",
+            "except SystemExit as exc:",
+            "    assert exc.code == 0",
+            "import cProfile, profile",
+            "assert hasattr(cProfile, 'Profile')",
+            "assert pathlib.Path(profile.__file__).resolve().parent != worker.parent",
+        ))
+        result = subprocess.run([sys.executable, "-c", code, str(Path(worker.__file__).resolve())],
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_unexpected_worker_failure_retains_traceback_and_structured_receipt(self):
+        data = self.payload()
+        input_path = self.root / "diagnostic-input.json"
+        output_path = Path(data["output"]).parent / "result.json"
+        write_json(input_path, data)
+        errors = io.StringIO()
+        with patch.object(worker, "execute", side_effect=RuntimeError("diagnostic fixture error")), redirect_stderr(errors):
+            code = worker.main(["--input", str(input_path), "--output", str(output_path)])
+        self.assertEqual(code, 1)
+        self.assertIn("Traceback", errors.getvalue())
+        self.assertIn("RuntimeError: diagnostic fixture error", errors.getvalue())
+        failure = read_json(output_path)
+        self.assertEqual(failure["request_digest"], data["request_digest"])
+        self.assertEqual(failure["provider_error"]["code"], "WORKER_FAILED")
+        self.assertNotIn("diagnostic fixture error", failure["provider_error"]["message"])
 
     def test_incomplete_snapshot_and_uninventoried_source_fail_before_worker(self):
         text = Path(self.config["unimate"]["runtime"]["text_root"])

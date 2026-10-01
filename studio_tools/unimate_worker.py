@@ -16,9 +16,14 @@ import socket
 import subprocess
 import sys
 import time
+import traceback
 
 if __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    worker_directory = Path(__file__).resolve().parent
+    # Direct script launch otherwise shadows stdlib profile with Kit profile.py
+    # when optional Torch/Transformers imports cProfile.
+    sys.path[:] = [entry for entry in sys.path if Path(entry).resolve() != worker_directory]
+    sys.path.insert(0, str(worker_directory.parent))
 
 from studio_tools.common import digest, file_record, read_json, sha256, write_json
 from studio_tools.adapters.unimate import ProviderError, artifact, fail, instant, preflight, sample_id
@@ -448,6 +453,8 @@ def main(argv=None):
         execute(data, result_path)
         return 0
     except (Exception, KeyboardInterrupt) as exc:
+        if not isinstance(exc, (ProviderError, KeyboardInterrupt)):
+            traceback.print_exc()  # Owned local log; structured receipt stays bounded.
         error = {"code": exc.code if isinstance(exc, ProviderError) else
                  "INTERRUPTED" if isinstance(exc, KeyboardInterrupt) else "WORKER_FAILED",
                  "retryable": False, "message": str(exc) if isinstance(exc, ProviderError) else
