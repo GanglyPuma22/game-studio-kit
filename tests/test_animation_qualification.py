@@ -37,6 +37,17 @@ class QualificationTests(unittest.TestCase):
         with self.assertRaisesRegex(StudioError, "currently selected"):
             q.resolve(state, self.identity)
 
+    def test_multiclip_target_resolves_generated_flap_instead_of_authored_glide(self):
+        attempt = {"targets": ["glide", "powered-flap"],
+                   "clips": [{"name": "glide"}, {"name": "derived_selected_flap_original14"}]}
+        self.assertEqual(q.clip_name(attempt, "powered-flap"), "derived_selected_flap_original14")
+        self.assertEqual(q.clip_name(attempt, "glide"), "glide")
+
+    def test_ambiguous_or_missing_embedded_clip_mapping_is_refused(self):
+        for clips in (None, [], [{"name": ""}], [{"name": "glide"}, {"name": "glide"}]):
+            with self.subTest(clips=clips), self.assertRaises(StudioError):
+                q.clip_name({"targets": ["glide"], "clips": clips}, "glide")
+
     def test_wrong_hash_model_target_and_missing_attempt_refused(self):
         for field, value in (("sha256", "c" * 64), ("model_id", "slug"), ("target", "flap"), ("attempt_id", "missing")):
             identity = {**self.identity, field: value}

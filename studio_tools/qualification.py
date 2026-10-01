@@ -57,6 +57,21 @@ def _hash(value):
     return value
 
 
+def clip_name(attempt, target):
+    """Use the fieldbook's verified embedded clip/target order, never a name guess."""
+    clips = attempt.get("clips")
+    targets = attempt["targets"]
+    if (not isinstance(clips, list) or len(clips) != len(targets)
+            or len(set(targets)) != len(targets)
+            or any(not isinstance(c, dict) or not isinstance(c.get("name"), str)
+                   or not c["name"] for c in clips)
+            or len({c["name"] for c in clips}) != len(clips)):
+        raise StudioError("Qualification requires unambiguous embedded clip/target identities")
+    if target not in targets:
+        raise StudioError("Qualification target is absent")
+    return clips[targets.index(target)]["name"]
+
+
 def verify(root):
     record = read_json(root / "qualification.json")
     for item in record["files"]:
@@ -85,6 +100,11 @@ def prepare(project, plan_path, url):
     catalog = request(url, "/api/catalog")
     attempt, review = resolve(catalog, plan["attempt"])
     baseline, _ = resolve(catalog, plan["baseline"], selected=False)
+    resolved_clips = {"candidate": clip_name(attempt, plan["attempt"]["target"]),
+                      "baseline": clip_name(baseline, plan["baseline"]["target"])}
+    if "clip_names" in plan and plan["clip_names"] != resolved_clips:
+        raise StudioError("Requested clips differ from the immutable fieldbook target mapping")
+    plan["clip_names"] = resolved_clips
     model = next(m for m in catalog["models"] if m["id"] == attempt["model_id"])
     if model["current_game_sha256"] != baseline["sha256"]:
         raise StudioError("Matched baseline must be the current game pin")

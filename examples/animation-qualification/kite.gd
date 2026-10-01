@@ -124,9 +124,11 @@ func _run() -> void:
 	observations["baseline_bones"] = baseline_rig.size()
 	observations["imported_scale"] = [bird.visual.scale.x,bird.visual.scale.y,bird.visual.scale.z]
 	checks["import_scale"] = bird.visual.scale.is_equal_approx(Vector3.ONE)
-	var clip := String(player.get_animation_list()[0])
-	for name in player.get_animation_list():
-		if String(name).contains("glide"): clip = name; break
+	var clip := String(plan.clip_names[role])
+	if not player.has_animation(clip):
+		push_error("Pinned target clip missing from imported asset: " + clip)
+		quit(1)
+		return
 	observations["loop"] = _seam(clip)
 	checks["loop_endpoint_translation"] = observations.loop.max_bone_endpoint_translation_m <= plan.thresholds.loop_translation_m
 	checks["loop_endpoint_rotation"] = observations.loop.max_bone_endpoint_rotation_rad <= plan.thresholds.loop_rotation_rad

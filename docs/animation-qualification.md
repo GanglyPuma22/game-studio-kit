@@ -37,6 +37,13 @@ The destination must not exist and must be outside Kit. A plan contains:
 - `camera`, `replay`, `thresholds` and explicit `limits`: hashed within the
   immutable plan. Thresholds must be finite and nonnegative.
 
+Prepare resolves `clip_names` for baseline and candidate from the fieldbook's
+verified embedded clip/target order and includes them in the plan hash. An
+explicit mapping must match exactly. The adapter plays that named target,
+including a generated flap in an asset that also retains authored glide.
+Ambiguous or missing mappings refuse preparation rather than choosing a clip
+by substring or list order.
+
 The Kite example is under `examples/animation-qualification/`. It expects
 unchanged `kite_approach.gd`, `kite_reach.gd`, `kite_flight_cues.gd` and
 `kite_perch_controller.gd` at `features/living_colony/`. Optional
