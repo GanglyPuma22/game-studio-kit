@@ -30,6 +30,8 @@ var mite_states: Dictionary = {}
 var mite_max_playback := 0.0
 var mite_max_flee_speed := 0.0
 var mite_max_flee_playback := 0.0
+var identity: Dictionary
+var captures: Array = []
 
 func _initialize() -> void:
 	for arg in OS.get_cmdline_user_args():
@@ -81,7 +83,11 @@ func _seam(clip: String) -> Dictionary:
 		"max_bone_endpoint_translation_m": translation, "max_bone_endpoint_rotation_rad": rotation}
 
 func _run() -> void:
-	plan = JSON.parse_string(FileAccess.get_file_as_string("res://qualification.json"))["plan"]
+	var qualification: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://qualification.json"))
+	plan = qualification.plan
+	var attempt: Dictionary = plan.attempt if role == "candidate" else plan.baseline
+	identity = {"role": role, "attempt_id": attempt.attempt_id, "glb_sha256": attempt.sha256,
+		"plan_digest": qualification.plan_digest}
 	DirAccess.make_dir_recursive_absolute("res://" + output)
 	replay = FileAccess.open("res://" + output + "/replay.jsonl", FileAccess.WRITE)
 	world = Node3D.new()
@@ -208,7 +214,7 @@ func _run() -> void:
 			var p := skeleton.get_bone_pose_position(bone)
 			var r := skeleton.get_bone_pose_rotation(bone)
 			bone_replay.append([p.x,p.y,p.z,r.x,r.y,r.z,r.w])
-		replay.store_line(JSON.stringify({"frame": frame,"time": frame/60.0,"phase": bird.phase,
+		replay.store_line(JSON.stringify({"frame": frame,"time": frame/60.0,"phase": bird.phase,"identity": identity,
 			"position": [bird.position.x,bird.position.y,bird.position.z], "clip": player.current_animation,
 			"clip_time": player.current_animation_position,"flap_weight": modifier.flap_weight,"reach": modifier.reach,
 			"bones_local": bone_replay,"mite_actors": actor_replay}))
@@ -223,7 +229,14 @@ func _run() -> void:
 			if frame == int(requested_frame): capture_requested = true
 		if native and capture_requested:
 			await RenderingServer.frame_post_draw
-			root.get_texture().get_image().save_png("res://" + output + "/frame-%04d.png" % frame)
+			var capture_path := output + "/frame-%04d.png" % frame
+			var image := root.get_texture().get_image()
+			if image.save_png("res://" + capture_path) != OK:
+				push_error("Failed planned capture")
+				quit(1)
+				return
+			captures.append({"frame": frame,"path": capture_path,
+				"sha256": FileAccess.get_sha256("res://" + capture_path),"dimensions": [image.get_width(),image.get_height()]})
 	replay.close()
 	checks["controller_finite"] = finite
 	checks["approach_depart_orbit"] = phases.has("approach") and phases.has("depart") and phases.has("orbit")
@@ -247,6 +260,8 @@ func _run() -> void:
 	var passed := true
 	for value in checks.values(): passed = passed and bool(value)
 	var result := {"automated_checks": "passed" if passed else "failed", "checks": checks,
+		"identity": identity,"captures": captures,
+		"replay": {"path": output + "/replay.jsonl","sha256": FileAccess.get_sha256("res://" + output + "/replay.jsonl"),"frames": int(plan.replay.frames)},
 		"observations": observations, "engine": Engine.get_version_info(),
 		"native_rendered": native, "human_visual_review": "pending", "performance_qualification": "unverified",
 		"timing": {"frame_ms": frame_times,"controller_cpu_ms": cpu_times,"viewport_gpu_ms": gpu_times,

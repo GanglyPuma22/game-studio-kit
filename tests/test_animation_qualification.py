@@ -1,7 +1,10 @@
 """Identity, stale selection, native admission and publication boundaries."""
 import copy
+import json
+import struct
 import tempfile
 import sys
+import zlib
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -173,6 +176,75 @@ class QualificationTests(unittest.TestCase):
             self.assertEqual(q.compare_timing([row, bad], thresholds)["verdict"], "unverified")
         slow = {**row, "timing": {**row["timing"], "frame_ms": [18] * 120}}
         self.assertEqual(q.compare_timing([row, slow], thresholds)["verdict"], "failed")
+
+    def complete_evidence(self, native=True):
+        plan = {"attempt": self.identity, "baseline": {**self.identity, "attempt_id": "baseline"},
+                "replay": {"frames": 3, "capture_frames": [1]}, "settings": {"resolution": [1920, 1080]}}
+        identity = {"role": "candidate", "attempt_id": "selected", "glb_sha256": self.identity["sha256"], "plan_digest": "d"*64}
+        folder = self.root / "evidence"
+        folder.mkdir()
+        replay = folder / "replay.jsonl"
+        replay.write_text("".join(json.dumps({"frame": i, "identity": identity})+'\n' for i in range(3)))
+        observed = {"identity": identity, "native_rendered": native,
+                    "replay": {"path": "evidence/replay.jsonl", "sha256": sha256(replay), "frames": 3}, "captures": []}
+        if native:
+            def chunk(kind, data):
+                return struct.pack(">I", len(data))+kind+data+struct.pack(">I", zlib.crc32(kind+data)&0xffffffff)
+            png = folder / "frame-0001.png"
+            png.write_bytes(b"\x89PNG\r\n\x1a\n"+chunk(b"IHDR", struct.pack(">IIBBBBB",1920,1080,8,2,0,0,0))
+                            +chunk(b"IDAT", zlib.compress(bytes(1080*(1+1920*3))))+chunk(b"IEND",b""))
+            observed["captures"] = [{"frame":1,"path":"evidence/frame-0001.png","sha256":sha256(png),"dimensions":[1920,1080]}]
+        return plan, identity, folder, observed
+
+    def test_complete_identity_bound_evidence_is_required(self):
+        plan,identity,folder,observed = self.complete_evidence()
+        self.assertTrue(q.validate_evidence(self.root,plan,"d"*64,"candidate",observed,folder,True)["ok"])
+        for case in ("missing_capture", "wrong_dimensions", "truncated_png", "wrong_hash", "missing_frame", "duplicate_frame", "wrong_identity"):
+            with self.subTest(case=case):
+                damaged = copy.deepcopy(observed)
+                replay = folder / "replay.jsonl"
+                original = replay.read_bytes()
+                png = folder / "frame-0001.png"
+                original_png = png.read_bytes()
+                if case == "missing_capture": damaged["captures"] = []
+                elif case == "wrong_dimensions": damaged["captures"][0]["dimensions"] = [1,1]
+                elif case == "truncated_png":
+                    png.write_bytes(original_png[:-12]); damaged["captures"][0]["sha256"] = sha256(png)
+                elif case == "wrong_hash": damaged["replay"]["sha256"] = "a"*64
+                elif case == "wrong_identity": damaged["identity"]["attempt_id"] = "other"
+                else:
+                    frames = [json.loads(line) for line in replay.read_text().splitlines()]
+                    if case == "missing_frame": frames.pop()
+                    else: frames[1]["frame"] = 0
+                    replay.write_text("".join(json.dumps(frame)+'\n' for frame in frames))
+                    damaged["replay"]["sha256"] = sha256(replay)
+                self.assertFalse(q.validate_evidence(self.root,plan,"d"*64,"candidate",damaged,folder,True)["ok"])
+                replay.write_bytes(original); png.write_bytes(original_png)
+
+    def test_adapter_pass_without_replay_cannot_qualify(self):
+        self.plan.update({"baseline": {**self.identity,"attempt_id":"baseline"},"script":"adapter.gd",
+                          "replay":{"frames":3,"capture_frames":[1]},"settings":{"resolution":[1920,1080]}})
+        self.record["plan_digest"] = digest(self.plan)
+        write_json(self.root / "qualification.json",self.record)
+        def fake_launch(config, root, **kwargs):
+            write_json(root / kwargs["results"][0], {"automated_checks":"passed","native_rendered":False,
+                       "performance_qualification":"passed","captures":[]})
+            return {"ok":True}
+        with patch.object(q,"request",return_value=self.catalog), patch.object(q,"launch",side_effect=fake_launch):
+            result = q.run({"executables":{"godot":sys.executable}},self.root,"http://local","cpu","no-evidence","2030-01-01T00:00:00Z")
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["evidence_complete"])
+        self.assertEqual(result["automated_checks"],"failed")
+        self.assertEqual(result["performance_qualification"],"unverified")
+
+    def test_attach_cannot_publish_a_pass_with_no_capture_or_replay(self):
+        receipt = {"kind":"animation-qualification-run","plan_digest":self.record["plan_digest"],
+                   "attempt_id":"selected","glb_sha256":self.attempt["sha256"],"files":[],"phase":"native",
+                   "automated_checks":"passed","performance_qualification":"passed","evidence_complete":True}
+        write_json(self.root / "forged-pass.json",receipt)
+        with patch.object(q,"request") as api, self.assertRaisesRegex(StudioError,"complete capture/replay"):
+            q.attach(self.root,"http://local","forged-pass.json","kit")
+        api.assert_not_called()
 
 
 if __name__ == "__main__":

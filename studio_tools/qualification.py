@@ -9,9 +9,11 @@ import json
 import math
 from pathlib import Path
 import re
+import struct
 import subprocess
 import sys
 import urllib.request
+import zlib
 
 from .common import (StudioError, digest, file_record, kit_identity,
                      outside_package, read_json, relative, safe_id, sha256, write_json)
@@ -72,6 +74,81 @@ def clip_name(attempt, target):
     return clips[targets.index(target)]["name"]
 
 
+def png_dimensions(path):
+    """Check a complete PNG container and CRCs before trusting its dimensions."""
+    raw = path.read_bytes()
+    if raw[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("PNG signature missing")
+    offset, dimensions, image_data = 8, None, False
+    while offset + 12 <= len(raw):
+        size = struct.unpack_from(">I", raw, offset)[0]
+        end = offset + 12 + size
+        if end > len(raw):
+            raise ValueError("PNG chunk truncated")
+        kind = raw[offset + 4:offset + 8]
+        data = raw[offset + 8:offset + 8 + size]
+        if zlib.crc32(kind + data) & 0xffffffff != struct.unpack_from(">I", raw, end - 4)[0]:
+            raise ValueError("PNG CRC mismatch")
+        if offset == 8:
+            if kind != b"IHDR" or size != 13:
+                raise ValueError("PNG header missing")
+            dimensions = list(struct.unpack_from(">II", data))
+        if kind == b"IDAT":
+            image_data = True
+        if kind == b"IEND":
+            if size or end != len(raw) or not image_data:
+                raise ValueError("PNG image incomplete")
+            return dimensions
+        offset = end
+    raise ValueError("PNG terminator missing")
+
+
+def validate_evidence(root, plan, plan_digest, role, observed, folder, native):
+    """A result verdict cannot replace actual complete identity-bound evidence."""
+    failures = []
+    identity = {"role": role, "attempt_id": plan["attempt" if role == "candidate" else "baseline"]["attempt_id"],
+                "glb_sha256": plan["attempt" if role == "candidate" else "baseline"]["sha256"],
+                "plan_digest": plan_digest}
+    if observed.get("identity") != identity or observed.get("native_rendered") is not native:
+        failures.append("result identity/render phase mismatch")
+    expected_frames = plan["replay"]["frames"]
+    replay_path = folder / "replay.jsonl"
+    replay_record = observed.get("replay") or {}
+    replay_frames = 0
+    try:
+        if replay_record != {"path": replay_path.relative_to(root).as_posix(),
+                             "sha256": sha256(replay_path), "frames": expected_frames}:
+            raise ValueError("replay manifest mismatch")
+        with replay_path.open(encoding="utf-8") as stream:
+            for index, line in enumerate(stream):
+                frame = json.loads(line, parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
+                if type(frame.get("frame")) is not int or frame["frame"] != index or frame.get("identity") != identity:
+                    raise ValueError("replay frame identity/order mismatch")
+                replay_frames += 1
+        if replay_frames != expected_frames:
+            raise ValueError("replay frame count mismatch")
+    except (OSError, ValueError, TypeError, AttributeError):
+        failures.append("missing, changed, incomplete or incorrectly identified replay")
+    captures = observed.get("captures")
+    expected_capture_frames = sorted(plan["replay"]["capture_frames"]) if native else []
+    if native and not expected_capture_frames:
+        failures.append("native capture plan is empty")
+    if not isinstance(captures, list) or len(captures) != len(expected_capture_frames):
+        failures.append("planned capture count mismatch")
+    else:
+        for frame, item in zip(expected_capture_frames, captures):
+            path = folder / f"frame-{frame:04d}.png"
+            try:
+                if (item != {"frame": frame, "path": path.relative_to(root).as_posix(),
+                             "sha256": sha256(path), "dimensions": plan["settings"]["resolution"]}
+                        or png_dimensions(path) != plan["settings"]["resolution"]):
+                    raise ValueError("capture manifest/dimensions mismatch")
+            except (OSError, ValueError, TypeError):
+                failures.append(f"missing, changed or invalid planned capture at frame {frame}")
+    return {"ok": not failures, "reasons": failures, "replay_frames": replay_frames,
+            "planned_capture_frames": expected_capture_frames, "identity": identity}
+
+
 def verify(root):
     record = read_json(root / "qualification.json")
     for item in record["files"]:
@@ -95,6 +172,13 @@ def prepare(project, plan_path, url):
     for name, value in plan["thresholds"].items():
         if type(value) not in (float, int) or not math.isfinite(value) or value < 0:
             raise StudioError("Thresholds must be finite nonnegative numbers: " + name)
+    replay = plan["replay"]
+    if (type(replay["frames"]) is not int or not 1 <= replay["frames"] <= 3600
+            or type(replay["warmup_frames"]) is not int or not 0 <= replay["warmup_frames"] < replay["frames"]
+            or not isinstance(replay["capture_frames"], list) or not replay["capture_frames"]
+            or any(type(frame) is not int or not 0 <= frame < replay["frames"] for frame in replay["capture_frames"])
+            or len(set(replay["capture_frames"])) != len(replay["capture_frames"])):
+        raise StudioError("Replay requires bounded integer frames and distinct planned captures")
     if plan["settings"] != {"resolution": [1920, 1080], "renderer": "forward_plus", "physics_hz": 60}:
         raise StudioError("Qualification requires the matched native launch settings")
     catalog = request(url, "/api/catalog")
@@ -268,17 +352,32 @@ def run(config, project, url, phase, label, cutoff, reservation=None):
         passed = False
         receipt["import_build_changed"] = True
     observations = []
+    evidence = []
     for role_result in results:
         result_path = relative(root, f"artifacts/qualification/{label}-{role_result['role']}/result.json")
         if result_path.is_file():
-            observed = read_json(result_path)
+            try:
+                observed = read_json(result_path)
+                if not isinstance(observed, dict):
+                    raise StudioError("Adapter result must be an object")
+            except StudioError:
+                evidence.append({"ok": False, "reasons": ["invalid adapter result"], "role": role_result["role"]})
+                passed = False
+                continue
             observations.append(observed)
             passed = passed and observed.get("automated_checks") == "passed"
+            verified = validate_evidence(root, plan, record["plan_digest"], role_result["role"], observed,
+                                         result_path.parent, phase == "native")
+            evidence.append(verified)
+            passed = passed and verified["ok"]
         else:
             passed = False
     receipt["observations"] = observations
+    receipt["evidence_verification"] = evidence
+    receipt["evidence_complete"] = len(evidence) == 2 and all(item["ok"] for item in evidence)
     receipt["automated_checks"] = "passed" if passed else "failed"
-    if phase == "native" and len(results) == 2 and all(r["cleanroom"].get("ok") for r in results):
+    if (phase == "native" and receipt["evidence_complete"] and len(results) == 2
+            and all(r["cleanroom"].get("ok") for r in results)):
         receipt["performance"] = compare_timing(observations, plan["thresholds"])
         if reservation_record.get("bounded_diagnostic_authorization"):
             receipt["performance_qualification"] = "unverified-host-preflight-diagnostic"
@@ -340,6 +439,25 @@ def attach(project, url, receipt_path, actor):
             raise StudioError("Qualification evidence changed")
     if receipt.get("input_record") and sha256(relative(root, receipt["input_record"]["path"])) != receipt["input_record"]["sha256"]:
         raise StudioError("Tested input record changed")
+    if receipt.get("automated_checks") == "passed" or receipt.get("performance_qualification") == "passed":
+        results = [relative(root, item["path"]) for item in receipt["files"] if item["path"].endswith("/result.json")]
+        roles = set()
+        for result in results:
+            observed = read_json(result)
+            role = observed.get("identity", {}).get("role")
+            if role not in ("baseline", "candidate") or role in roles:
+                raise StudioError("Passing evidence requires distinct role identities")
+            verified = validate_evidence(root, record["plan"], record["plan_digest"], role,
+                                         observed, result.parent, receipt["phase"] == "native")
+            if not verified["ok"]:
+                raise StudioError("Passing evidence is incomplete or invalid")
+            required = [observed["replay"], *observed["captures"]]
+            if any(not any(item["path"] == artifact["path"] and item["sha256"] == artifact["sha256"]
+                           for item in receipt["files"]) for artifact in required):
+                raise StudioError("Passing evidence artifacts missing from receipt hashes")
+            roles.add(role)
+        if roles != {"baseline", "candidate"} or not receipt.get("evidence_complete"):
+            raise StudioError("Passing evidence requires complete capture/replay verification for both roles")
     before = request(url, "/api/catalog")
     attempt, _ = resolve(before, record["plan"]["attempt"])
     if not isinstance(actor, str) or not actor.strip():
@@ -352,6 +470,7 @@ def attach(project, url, receipt_path, actor):
                     "attempt_id": attempt["id"], "phase": receipt["phase"],
                     "automated_checks": receipt["automated_checks"], "human_visual_review": "pending",
                     "performance_qualification": receipt["performance_qualification"], "acceptance": "pending"}}}
+    metadata["provenance"]["native_qualification"]["evidence_complete"] = bool(receipt.get("evidence_complete"))
     token = request(url, "/api/session")["token"]
     registered = request(url, "/api/register", metadata, token)
     if not registered.get("existing") or registered["attempt"]["id"] != attempt["id"]:
