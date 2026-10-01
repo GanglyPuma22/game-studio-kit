@@ -199,7 +199,7 @@ class QualificationTests(unittest.TestCase):
     def test_complete_identity_bound_evidence_is_required(self):
         plan,identity,folder,observed = self.complete_evidence()
         self.assertTrue(q.validate_evidence(self.root,plan,"d"*64,"candidate",observed,folder,True)["ok"])
-        for case in ("missing_capture", "wrong_dimensions", "truncated_png", "wrong_hash", "missing_frame", "duplicate_frame", "wrong_identity"):
+        for case in ("missing_capture", "wrong_dimensions", "truncated_png", "invalid_idat", "wrong_hash", "missing_frame", "duplicate_frame", "wrong_identity"):
             with self.subTest(case=case):
                 damaged = copy.deepcopy(observed)
                 replay = folder / "replay.jsonl"
@@ -210,6 +210,11 @@ class QualificationTests(unittest.TestCase):
                 elif case == "wrong_dimensions": damaged["captures"][0]["dimensions"] = [1,1]
                 elif case == "truncated_png":
                     png.write_bytes(original_png[:-12]); damaged["captures"][0]["sha256"] = sha256(png)
+                elif case == "invalid_idat":
+                    def chunk(kind, data):
+                        return struct.pack(">I",len(data))+kind+data+struct.pack(">I",zlib.crc32(kind+data)&0xffffffff)
+                    png.write_bytes(original_png[:33]+chunk(b"IDAT",b"not a compressed image")+chunk(b"IEND",b""))
+                    damaged["captures"][0]["sha256"] = sha256(png)
                 elif case == "wrong_hash": damaged["replay"]["sha256"] = "a"*64
                 elif case == "wrong_identity": damaged["identity"]["attempt_id"] = "other"
                 else:

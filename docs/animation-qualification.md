@@ -109,7 +109,8 @@ Adapter results must identify their role, immutable attempt/GLB and plan hash,
 and provide `replay` and `captures` manifests with project-relative paths and
 SHA-256 hashes. Every replay line carries the same identity and consecutive
 integer frame IDs from zero through the exact planned frame count. Every
-planned native capture must exist as a complete PNG with valid chunk CRCs and
+planned native capture must exist as a complete PNG with valid chunk CRCs,
+bounded decompressed raster and valid scanline filters, and with
 the configured dimensions. A result JSON alone, missing evidence, a wrong
 identity/hash, or incomplete frame/capture coverage fails qualification and
 prevents performance qualification even if the adapter claims a pass.

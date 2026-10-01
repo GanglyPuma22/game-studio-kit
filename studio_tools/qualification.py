@@ -75,11 +75,14 @@ def clip_name(attempt, target):
 
 
 def png_dimensions(path):
-    """Check a complete PNG container and CRCs before trusting its dimensions."""
+    """Bounded PNG container, decompression and scanline validation."""
+    if path.stat().st_size > 32 * 1024 * 1024:
+        raise ValueError("PNG file exceeds the bounded fixture profile")
     raw = path.read_bytes()
     if raw[:8] != b"\x89PNG\r\n\x1a\n":
         raise ValueError("PNG signature missing")
     offset, dimensions, image_data = 8, None, False
+    decoder, raster, raster_size, row_size = zlib.decompressobj(), bytearray(), None, None
     while offset + 12 <= len(raw):
         size = struct.unpack_from(">I", raw, offset)[0]
         end = offset + 12 + size
@@ -93,10 +96,24 @@ def png_dimensions(path):
             if kind != b"IHDR" or size != 13:
                 raise ValueError("PNG header missing")
             dimensions = list(struct.unpack_from(">II", data))
+            width, height, bit_depth, color_type, compression, filtering, interlace = struct.unpack(">IIBBBBB", data)
+            bytes_per_pixel = {0: 1, 2: 3, 4: 2, 6: 4}.get(color_type)
+            if (not width or not height or bit_depth != 8 or bytes_per_pixel is None
+                    or compression != 0 or filtering != 0 or interlace != 0):
+                raise ValueError("Unsupported PNG raster format")
+            row_size = 1 + width * bytes_per_pixel
+            raster_size = row_size * height
+            if raster_size > 32 * 1024 * 1024:
+                raise ValueError("PNG raster exceeds the bounded fixture profile")
         if kind == b"IDAT":
             image_data = True
+            raster.extend(decoder.decompress(data, raster_size + 1 - len(raster)))
+            if len(raster) > raster_size or decoder.unused_data or decoder.unconsumed_tail:
+                raise ValueError("PNG raster exceeds its declared size")
         if kind == b"IEND":
-            if size or end != len(raw) or not image_data:
+            if (size or end != len(raw) or not image_data or not decoder.eof
+                    or len(raster) != raster_size or decoder.unused_data
+                    or any(raster[row * row_size] > 4 for row in range(dimensions[1]))):
                 raise ValueError("PNG image incomplete")
             return dimensions
         offset = end
@@ -143,7 +160,7 @@ def validate_evidence(root, plan, plan_digest, role, observed, folder, native):
                              "sha256": sha256(path), "dimensions": plan["settings"]["resolution"]}
                         or png_dimensions(path) != plan["settings"]["resolution"]):
                     raise ValueError("capture manifest/dimensions mismatch")
-            except (OSError, ValueError, TypeError):
+            except (OSError, ValueError, TypeError, zlib.error):
                 failures.append(f"missing, changed or invalid planned capture at frame {frame}")
     return {"ok": not failures, "reasons": failures, "replay_frames": replay_frames,
             "planned_capture_frames": expected_capture_frames, "identity": identity}
