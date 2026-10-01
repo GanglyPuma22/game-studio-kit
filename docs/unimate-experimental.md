@@ -191,12 +191,71 @@ rig and helper mapping, capabilities, conditioning, generation, clips and eviden
 It defaults raw_playback_primary:true, states the full-root presentation contract
 and keeps production_acceptance:pending. It contains no host roots/credentials.
 The viewer consumes/copies hashed artifacts through its existing catalog; Kit
-creates no second catalog/server. A later existing Blender bake can emit a
+creates no second catalog/server. The optional source bake below emits a
 separate derivative receipt binding this export's hash to raw GLB/source/fresh-
 import evidence. Never edit the original export or attach runtime acceptance
 merely because a file plays.
 
-Completed pilot results are historical evidence, not a Kit end-to-end run.
+## Optional source bake through the existing runner
+
+The packaged `studio_tools/blender_scripts/unimate_bake.py` and
+`unimate_verify.py` are invoked by a project-owned wrapper through
+`studio blender run`; no bake CLI branch, launcher or catalog is added. The
+wrapper imports the explicitly resolved Kit package and runs the packaged
+module. Declare the isolated output `.blend`, GLB, expectations and JSON receipts
+as runner results. A recipe binds the completed worker record/export by SHA-256,
+sample ID, an actual full-DOF authored control capture, both implementation
+hashes, a new output directory and unique generated clip name. It carries
+`schema_version:1`, `kind:unimate_source_bake`; runtime acceptance stays pending.
+Inputs/outputs belong outside Kit; never overwrite the original source or worker
+export. The control capture is separate evidence, never a generated channel source.
+
+This bounded profile requires one weighted mesh/primitive, one original armature,
+unit source basis, at most four positive influences, no constraints/drivers,
+no shape keys or extra modifiers, and full bone inheritance with local location.
+Other profiles refuse rather than silently change authoring or export policy.
+Slug shape-key/contact work remains in its authored Blender route.
+
+Recover every decoded joint first. Identity-delta rest uses canonical T-pose
+joint positions and identity rotations; stored T-pose bone quaternions are basis
+provenance, not an extra decoder rotation. Invert `C=[sR,t]` once for positions
+and orientations, calibrate each original bone with
+`H_j=inverse(Phi(D0_j))*B0_j`, then apply `Phi(D_j(t))*H_j`. Only after full
+recovery/conversion retain originals by NAME. Captured rest order may differ
+from decoded projection order. Float32 source bases are retained unchanged at
+their declared1e-5 capture tolerance; canonical/trajectory checks stay strict.
+Blender `Bone.convert_local_to_pose(...,invert=True)` solves the actual rest and
+parent bases. Preserve raw Root translation/rotation; auxiliary facing is not
+composed twice. No authored leaf animation or controller transform is injected.
+
+Create a distinct action with the original rotation modes, authored actions/NLA,
+scene timing, geometry, materials, hierarchy, rest and weight fingerprints intact.
+Generated key times express30Hz in the source's original frame rate. Export-only
+action copies move clip origins to zero and sample at30Hz, preserving seconds;
+the saved source retains its original authored curves and frame rate. Fresh-process
+verification checks that saved source, unchanged baseline GLB geometry/skin/rest/
+materials and authored clips, then imported skin motion and mesh deformation
+against independent decoded/source-space expectations. Runtime LBS uses the
+actual preserved baseline GLB buffers: existing exporter pruning of tiny source
+influences must be disclosed separately, not mistaken for a source edit or hidden
+by relaxed weight matching. Keep every original weight in the editable `.blend`.
+
+Publish only a successful, independently reviewed GLB derivative through the
+existing fieldbook CLI/API, using the real embedded clip order. Retain exact
+worker/source/bake/verification receipts in provenance. Preserve selected takes,
+comments and game pins; new candidates remain unselected with readiness unset.
+Successful bake/import is technical evidence, not quality, seamless looping,
+native offline containment or pinned Godot/controller qualification.
+
+The reviewed optional worker completed one bounded Kite18 animated-reference run
+on the existing host: 76.688 seconds owned-process wall time, with 43.242 seconds
+sampling. Its 441.208MiB allocated / 516MiB reserved peaks are sampling-phase
+PyTorch allocator values only; they exclude other applications and CPU/text work.
+This is one host/profile result, not a clean benchmark or universal 8GB claim.
+The source-bake proposal has separate reconstruction/import receipts and remains
+subject to independent review before fieldbook registration. Native network
+containment, rest-only inference and pinned Godot/controller qualification remain
+unproven. Historical pilot results below are separate from this Kit worker run.
 User selected OLD14 glide42 and NEW18 powered-flap42; rejected NEW18 glide42 for
 wing distortion. Four helpers reduced authored-control raw-to12D mesh RMS
 7.304->0.490mm (93.3%) with unchanged geometry/weights. This is representation
