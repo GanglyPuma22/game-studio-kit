@@ -137,6 +137,30 @@ provenance, and verifies the returned attempt ID and preserved decisions,
 comments and game pins. It never calls review, amendments or notes endpoints.
 The API stores receipt references/hashes; it does not execute or validate
 native receipt semantics. No new viewer endpoint is needed for this milestone.
+Attaching a performance pass requires native phase, passed adapter evidence,
+and recomputed matched timing from the retained role result files. Stored observations
+and the performance summary must match those files. Both cleanroom receipts and
+their owned launches must be hash-pinned, attributable, completed, and bound to
+the plan scope, engine, fixture script and exact result outputs. CPU functional
+passes and failed diagnostic evidence remain distinct from performance qualification.
+The run pins the original reservation in `reservation_record` (absolute path and
+SHA-256); attachment requires the same reservation bytes and embedded record,
+its plan identity and verified competing-job check, and the passing hash-pinned
+host preflight covering the reservation. Both launch/process timelines and bench
+windows must fit that reservation. Diagnostic authorization cannot be removed
+from the attachment to turn a diagnostic run into a performance pass.
+Attachment also loads each declared process receipt, verifies its PID pairing,
+completed lifecycle and descendant cleanup (including Windows creation/exit
+identity), and replays `cleanroom.compare` against the actual hash-pinned
+`before.json`, `after.json` and `during.json`. The sampler PID supplies the
+original observer identity. Recorded comparison thresholds and any agent log
+are reused; the recomputed comparison must match the stored attribution.
+`engine_record` pins the original executable path and SHA-256. Attachment reads
+those bytes once to verify the hash and select the existing Windows or POSIX
+ownership proof; removing Windows identity cannot select the POSIX route.
+Historical receipts missing these original pins, snapshots or lifecycle records
+cannot establish a performance pass. Keep them as functional or diagnostic
+evidence; do not reconstruct old reservations or cleanup receipts.
 Media serving for remote review remains a coordinated future extension:
 provenance can reference local evidence now but does not upload PNG/JSONL bytes
 to the viewer. Do not add a second catalog or edit the viewer concurrently.

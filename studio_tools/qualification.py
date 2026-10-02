@@ -272,14 +272,19 @@ def run(config, project, url, phase, label, cutoff, reservation=None):
     model = next(m for m in current["models"] if m["id"] == attempt["model_id"])
     if model["current_game_sha256"] != record["baseline"]["sha256"]:
         raise StudioError("Game baseline pin changed since preparation")
-    if sha256(require_executable(config, "godot")) != plan["engine"]["sha256"]:
+    engine_path = Path(require_executable(config, "godot")).resolve()
+    if sha256(engine_path) != plan["engine"]["sha256"]:
         raise StudioError("Pinned engine mismatch")
     label = safe_id(label)
     if phase == "native" and not reservation:
         raise StudioError("Native qualification needs a parent-coordinated resource reservation receipt")
     reservation_record = None
+    reservation_pin = None
     if reservation:
-        reservation_record = read_json(reservation)
+        from .launch import _receipt
+        reservation_path = Path(reservation).resolve()
+        reservation_record, reservation_pin = _receipt(reservation_path.parent, reservation_path)
+        reservation_pin["path"] = str(reservation_path)
         from .launch import parse_utc
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc)
@@ -290,9 +295,10 @@ def run(config, project, url, phase, label, cutoff, reservation=None):
         if not cutoff or parse_utc(cutoff) > parse_utc(reservation_record["end_utc"]):
             raise StudioError("Native cutoff must stay within the reservation")
         if phase == "native":
-            preflight = read_json(reservation_record["host_preflight"])
+            preflight_path = Path(reservation_record["host_preflight"]).resolve()
+            preflight, preflight_pin = _receipt(preflight_path.parent, preflight_path)
             diagnostic_authorization = reservation_record.get("bounded_diagnostic_authorization")
-            if (sha256(reservation_record["host_preflight"]) != reservation_record["host_preflight_sha256"] or
+            if (preflight_pin["sha256"] != reservation_record["host_preflight_sha256"] or
                     (not preflight.get("ready") and not diagnostic_authorization)):
                 raise StudioError("Native reservation requires a passing pinned host preflight")
             if diagnostic_authorization and (not isinstance(diagnostic_authorization, dict)
@@ -350,7 +356,8 @@ def run(config, project, url, phase, label, cutoff, reservation=None):
     receipt = {"schema_version": 1, "kind": "animation-qualification-run", "kit": kit_identity(),
                "plan_digest": record["plan_digest"], "attempt_id": attempt["id"],
                "glb_sha256": attempt["sha256"], "phase": phase,
-               "reservation": reservation_record, "runs": results,
+               "reservation": reservation_record, "reservation_record": reservation_pin, "runs": results,
+               "engine_record": {"path": str(engine_path), "sha256": plan["engine"]["sha256"]},
                "input_record": file_record(root, root / "qualification.json"),
                "import_build": imported, "import_build_digest": digest(imported),
                "files": [], "automated_checks": "failed", "human_visual_review": "pending",
@@ -393,7 +400,7 @@ def run(config, project, url, phase, label, cutoff, reservation=None):
     receipt["evidence_verification"] = evidence
     receipt["evidence_complete"] = len(evidence) == 2 and all(item["ok"] for item in evidence)
     receipt["automated_checks"] = "passed" if passed else "failed"
-    if (phase == "native" and receipt["evidence_complete"] and len(results) == 2
+    if (phase == "native" and passed and receipt["evidence_complete"] and len(results) == 2
             and all(r["cleanroom"].get("ok") for r in results)):
         receipt["performance"] = compare_timing(observations, plan["thresholds"])
         if reservation_record.get("bounded_diagnostic_authorization"):
@@ -456,11 +463,14 @@ def attach(project, url, receipt_path, actor):
             raise StudioError("Qualification evidence changed")
     if receipt.get("input_record") and sha256(relative(root, receipt["input_record"]["path"])) != receipt["input_record"]["sha256"]:
         raise StudioError("Tested input record changed")
+    observations = {}
     if receipt.get("automated_checks") == "passed" or receipt.get("performance_qualification") == "passed":
         results = [relative(root, item["path"]) for item in receipt["files"] if item["path"].endswith("/result.json")]
         roles = set()
         for result in results:
             observed = read_json(result)
+            if observed.get("automated_checks") != "passed":
+                raise StudioError("Passing evidence requires passed adapter checks for both roles")
             role = observed.get("identity", {}).get("role")
             if role not in ("baseline", "candidate") or role in roles:
                 raise StudioError("Passing evidence requires distinct role identities")
@@ -473,8 +483,11 @@ def attach(project, url, receipt_path, actor):
                            for item in receipt["files"]) for artifact in required):
                 raise StudioError("Passing evidence artifacts missing from receipt hashes")
             roles.add(role)
+            observations[role] = (observed, result)
         if roles != {"baseline", "candidate"} or not receipt.get("evidence_complete"):
             raise StudioError("Passing evidence requires complete capture/replay verification for both roles")
+    if receipt.get("performance_qualification") == "passed":
+        _performance_attachment(root, record, receipt, observations)
     before = request(url, "/api/catalog")
     attempt, _ = resolve(before, record["plan"]["attempt"])
     if not isinstance(actor, str) or not actor.strip():
@@ -506,3 +519,177 @@ def attach(project, url, receipt_path, actor):
     if not publication.exists():
         write_json(publication, result)
     return result
+
+
+def _performance_attachment(root, record, receipt, observations):
+    """Recheck native timings and the retained, attributable pair before publication."""
+    plan = record["plan"]
+    if (receipt.get("phase") != "native" or receipt.get("automated_checks") != "passed"
+            or (receipt.get("reservation") or {}).get("bounded_diagnostic_authorization")):
+        raise StudioError("Performance pass requires a passing native qualification")
+    from .launch import _pairing, _receipt, parse_utc
+    # The same executable bytes choose the ownership proof; missing Windows
+    # identity never implies a POSIX process-group receipt.
+    from .context_baseline import _engine_platform
+    import hashlib
+    engine_pin = receipt.get("engine_record")
+    if not isinstance(engine_pin, dict) or not isinstance(engine_pin.get("path"), str):
+        raise StudioError("Performance pass requires the original pinned engine record")
+    engine_path = Path(engine_pin["path"]).resolve()
+    try:
+        engine_bytes = engine_path.read_bytes()
+    except OSError as exc:
+        raise StudioError("Performance engine bytes are unavailable") from exc
+    if (hashlib.sha256(engine_bytes).hexdigest() != plan["engine"]["sha256"]
+            or engine_pin.get("sha256") != plan["engine"]["sha256"]):
+        raise StudioError("Performance engine record differs from the pinned executable")
+    process_platform = _engine_platform(engine_bytes)
+    pin = receipt.get("reservation_record")
+    if not isinstance(pin, dict) or not isinstance(pin.get("path"), str):
+        raise StudioError("Performance pass requires the original pinned native reservation")
+    reservation_path = Path(pin["path"]).resolve()
+    reservation, reservation_pin = _receipt(reservation_path.parent, reservation_path)
+    if (reservation_pin["sha256"] != pin.get("sha256") or reservation != receipt.get("reservation")
+            or reservation.get("plan_digest") != record["plan_digest"]
+            or not reservation.get("coordinator") or reservation.get("competing_heavy_jobs_verified") is not True
+            or reservation.get("bounded_diagnostic_authorization")):
+        raise StudioError("Performance pass requires the original passing native reservation")
+    try:
+        start, end = parse_utc(reservation["start_utc"]), parse_utc(reservation["end_utc"])
+        preflight_path = Path(reservation["host_preflight"]).resolve()
+        preflight, preflight_pin = _receipt(preflight_path.parent, preflight_path)
+        window = preflight.get("window") or {}
+        if (not start < end or preflight_pin["sha256"] != reservation["host_preflight_sha256"]
+                or preflight.get("ready") is not True
+                or parse_utc(window["start_utc"]) > start or parse_utc(window["end_utc"]) < end):
+            raise StudioError("Performance pass requires a passing pinned host preflight")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StudioError("Performance reservation/preflight window is incomplete") from exc
+    actual = [observations[role][0] for role in ("baseline", "candidate")]
+    timing = compare_timing(actual, plan["thresholds"])
+    if (timing["verdict"] != "passed" or receipt.get("performance") != timing
+            or receipt.get("observations") != actual):
+        raise StudioError("Performance pass differs from actual native timing evidence")
+    runs = receipt.get("runs")
+    if (not isinstance(runs, list) or len(runs) != 2
+            or [item.get("role") for item in runs if isinstance(item, dict)] != ["baseline", "candidate"]):
+        raise StudioError("Performance pass requires both cleanroom runs in baseline/candidate order")
+    # _receipt binds parsed content and its hash to the same read. The cleanroom
+    # and launch return values have convenience paths absent from saved receipts.
+    from .cleanroom import compare as compare_cleanroom
+    for run in runs:
+        role = run["role"]
+        result = observations[role][1]
+        label = safe_id(result.parent.name)
+        bench_path = relative(root, f"artifacts/bench/{label}/cleanroom.json")
+        launch_path = relative(root, f"artifacts/launches/{label}/exit.json")
+        try:
+            bench, bench_pin = _receipt(root, bench_path)
+            launched, launch_pin = _receipt(root, launch_path)
+            owned, owned_pin = _receipt(root, launch_path.parent / "owned-launch.json")
+            declared = owned.get("process_record")
+            process_path = relative(root, f"artifacts/launches/{label}/process/process.json")
+            process, process_pin = _receipt(root, process_path)
+        except (OSError, StudioError) as exc:
+            raise StudioError("Performance pass requires retained cleanroom and launch receipts") from exc
+        if any(pin not in receipt["files"] for pin in (bench_pin, launch_pin, owned_pin, process_pin)):
+            raise StudioError("Performance cleanroom/launch receipts missing from evidence hashes")
+        process_owned = (declared == "process/process.json" and process.get("schema_version") == 1
+                         and type(process.get("pid")) is int and process["pid"] > 0
+                         and type(owned.get("pid")) is int and process["pid"] == owned["pid"]
+                         and process.get("status") == "completed"
+                         and type(process.get("returncode")) is int and process["returncode"] == 0
+                         and process.get("cleanup") is None
+                         and process.get("elapsed_seconds") == launched.get("elapsed_seconds"))
+        survivors = launched.get("survivors")
+        engine_name = owned.get("engine", {}).get("name")
+        if (engine_name != engine_path.name or not isinstance(survivors, dict)
+                or survivors != owned.get("survivors") or survivors.get("status") != "ok"
+                or survivors.get("pids") != [] or survivors.get("unverified") != []
+                or survivors.get("stopped") is not True):
+            process_owned = False
+        if process_platform == "windows":
+            ownership = process.get("windows_ownership") or {}
+            identity = (ownership.get("identity") or {}) if isinstance(ownership, dict) else {}
+            if (not isinstance(ownership, dict) or not isinstance(identity, dict)
+                    or ownership.get("status") != "ok" or identity.get("pid") != owned.get("pid")
+                    or identity.get("name") != engine_name or not identity.get("created_filetime")
+                    or not identity.get("exited_filetime") or not isinstance(survivors, dict)
+                    or survivors.get("unstopped_pids") != []):
+                process_owned = False
+        elif "windows_ownership" in process:
+            process_owned = False
+        if (_pairing(owned, launched, process_owned=process_owned,
+                     process_missing=not bool(declared))[0] != "paired" or owned.get("kit") != receipt.get("kit")
+                or owned.get("mode") != "native" or owned.get("script") != "res://" + plan["script"]
+                or Path(owned.get("project", "")).resolve() != root
+                or owned.get("engine", {}).get("sha256") != plan["engine"]["sha256"]
+                or owned.get("engine", {}).get("sha256_after_exit") != plan["engine"]["sha256"]
+                or owned.get("expected_results") != [result.relative_to(root).as_posix()]):
+            raise StudioError("Performance owned launch differs from the native plan")
+        try:
+            if not (start <= parse_utc(owned["started_utc"]) <= parse_utc(process["started_utc"])
+                    <= parse_utc(process["finished_utc"]) <= parse_utc(launched["finished_utc"])
+                    <= parse_utc(owned["cutoff_utc"]) <= end):
+                raise StudioError("Performance launch does not fit its original reservation")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise StudioError("Performance launch/process timing is incomplete") from exc
+        embedded_bench = run.get("cleanroom")
+        embedded_launch = run.get("launch")
+        if (not isinstance(embedded_bench, dict) or not isinstance(embedded_launch, dict)
+                or {k: v for k, v in embedded_bench.items() if k not in ("bench_dir", "record")} != bench
+                or {k: v for k, v in embedded_launch.items() if k not in
+                    ("run_dir", "launch_record", "exit_record", "diagnostics_record", "process_record", "log")} != launched
+                or bench.get("schema_version") != 1 or bench.get("kind") != "cleanroom-bench"
+                or bench.get("ok") is not True or bench.get("attributable") is not True
+                or bench.get("performance_class") != "clean_qualification"
+                or bench.get("label") != label or bench.get("scope") != plan["id"]
+                or bench.get("scope_check") != "match" or bench.get("reasons") != []
+                or bench.get("kit") != receipt.get("kit") or launched.get("kit") != receipt.get("kit")
+                or launched.get("kind") != "launch-exit" or launched.get("label") != label
+                or launched.get("scope") != plan["id"] or launched.get("ok") is not True
+                or launched.get("verdict") != "completed" or launched.get("status") != "completed"
+                or launched.get("returncode") != 0 or launched.get("timed_out") is not False
+                or launched.get("cleanup") is not None):
+            raise StudioError("Performance cleanroom/launch identity or attribution is invalid")
+        try:
+            before, before_pin = _receipt(root, relative(root, f"artifacts/bench/{label}/before.json"))
+            after, after_pin = _receipt(root, relative(root, f"artifacts/bench/{label}/after.json"))
+            during, during_pin = _receipt(root, relative(root, f"artifacts/bench/{label}/during.json"))
+            if (bench["before"]["record"] != before_pin or bench["after"]["record"] != after_pin
+                    or bench["during"]["record"] != during_pin
+                    or any(pin not in receipt["files"] for pin in (before_pin, after_pin, during_pin))):
+                raise StudioError("Performance snapshots are not the retained hash-pinned artifacts")
+            owner = during["sampler"]["pid"]
+            thresholds = bench["thresholds"]
+            if (type(owner) is not int or owner <= 0
+                    or any(type(thresholds[key]) not in (int, float) or not math.isfinite(thresholds[key])
+                           or thresholds[key] <= 0 for key in ("busy_cpu_seconds", "heavy_working_set_bytes"))
+                    or any(side.get("process_status") != "ok" or not isinstance(side.get("processes"), list)
+                           for side in (before, after))
+                    or not start <= parse_utc(bench["window"]["started_utc"])
+                    <= parse_utc(owned["started_utc"]) <= parse_utc(launched["finished_utc"])
+                    <= parse_utc(bench["window"]["finished_utc"]) <= end):
+                raise StudioError("Performance snapshots or cleanroom window are incomplete")
+            agent = bench["contamination"].get("agent_log")
+            comparison = compare_cleanroom(before, after, bench["window"],
+                busy_cpu_seconds=thresholds["busy_cpu_seconds"],
+                heavy_working_set_bytes=thresholds["heavy_working_set_bytes"],
+                self_pid=owner, during=during, agent_log=agent["path"] if agent is not None else None,
+                project_root=root)
+            comparison["during"]["record"] = during_pin
+            if comparison["attributable"] is not True or any(bench.get(key) != value for key, value in comparison.items()):
+                raise StudioError("Performance cleanroom attribution differs from retained snapshots")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise StudioError("Performance pass requires complete retained cleanroom snapshots") from exc
+        capture = bench.get("capture") or {}
+        if (capture.get("verdict") != embedded_launch or capture.get("status") != "completed"
+                or capture.get("returncode") != 0 or capture.get("cleanup") is not None
+                or capture.get("failure") is not None):
+            raise StudioError("Performance cleanroom capture does not pair with its launch")
+        result_pin = file_record(root, result)
+        if not any(item.get("path") == result_pin["path"] and item.get("sha256") == result_pin["sha256"]
+                   and item.get("present") is True and item.get("stale") is False
+                   and item.get("unreadable") is False and item.get("escaped") is False
+                   for item in launched.get("result_files", [])):
+            raise StudioError("Performance timing result is not this cleanroom launch output")
