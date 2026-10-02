@@ -39,9 +39,13 @@ def _source_slot(root: Path, repo: Path, commit: str, slot: dict, attempts: dict
     if not asset_path.is_file() or sha256(asset_path) != slot["sha256"]:
         raise StudioError("Source-slot asset bytes changed: " + slot["name"])
     committed_asset = _committed(repo, commit, "game/" + slot["asset"])
-    lfs_oid = re.search(rb"(?m)^oid sha256:([0-9a-f]{64})$", committed_asset)
+    lfs_oid = re.fullmatch(
+        rb"version https://git-lfs.github.com/spec/v1\n"
+        rb"oid sha256:([0-9a-f]{64})\nsize (0|[1-9][0-9]*)\n?", committed_asset
+    )
     if lfs_oid:
-        if lfs_oid.group(1).decode() != slot["sha256"]:
+        if (lfs_oid.group(1).decode() != slot["sha256"]
+                or int(lfs_oid.group(2)) != asset_path.stat().st_size):
             raise StudioError("Committed LFS pointer differs from source-slot bytes: " + slot["name"])
         committed_proof = "lfs-oid"
     elif hashlib.sha256(committed_asset).hexdigest() == slot["sha256"]:
@@ -97,6 +101,10 @@ def _value(data: dict, path: str):
 
 
 def _checks(report: dict, rules: dict) -> None:
+    if (not isinstance(rules, dict) or not (
+            any(rules.get(kind) for kind in ("equal", "minimum", "maximum"))
+            or any(item.get("required") for item in rules.get("coverage", [])))):
+        raise StudioError("Baseline requires at least one functional assertion")
     for path, expected in rules.get("equal", {}).items():
         if _value(report, path) != expected:
             raise StudioError("Baseline report equality check failed: " + path)
@@ -128,6 +136,8 @@ def _time(value, label):
 
 def _run(root: Path, repo: Path, commit: str, run: dict, engine_sha256: str,
          producer_kit: dict, retained: dict) -> dict:
+    if run.get("mode") not in ("test", "native"):
+        raise StudioError("Baseline fixture mode must be test or native")
     folder = "artifacts/launches/" + run["label"] + "/"
     exit_path = relative(root, "artifacts/launches/" + run["label"] + "/exit.json")
     exit_record = read_json(exit_path)
@@ -206,7 +216,8 @@ def _run(root: Path, repo: Path, commit: str, run: dict, engine_sha256: str,
         if (not 0 <= age <= 300 or finished > ending
                 or reservation.get("process_status") != "ok"
                 or reservation.get("competing_godot_blender_ffmpeg") != []
-                or reservation.get("competing_heavy_jobs_verified") is not True):
+                or reservation.get("competing_heavy_jobs_verified") is not True
+                or reservation.get("host_ready") is not True):
             raise StudioError("Native resource reservation did not cover this launch")
     report_path = relative(root, run["report"])
     report = read_json(report_path)
@@ -260,7 +271,7 @@ def _run(root: Path, repo: Path, commit: str, run: dict, engine_sha256: str,
             "functional_checks": "passed", "human_visual_review": "pending",
             "performance_qualification": "unverified", "selected_animation_qualification": "not_attempted"}
     if any(result[key] != retained.get(key) for key in
-           ("scope", "launch", "fixture_source_sha256", "report", "captures")):
+           ("scope", "launch", "owned_launch", "process", "fixture_source_sha256", "report", "captures")):
         raise StudioError("Retained run or capture bytes differ from historical evidence: " + run["label"])
     return result
 

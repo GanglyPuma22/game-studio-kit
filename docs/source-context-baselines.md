@@ -11,9 +11,9 @@ checkout or download missing LFS files. Use `studio launch --mode import`, then
 run each project-owned source fixture with `studio launch --mode test|native` and
 a distinct `--label`, `--scope`, bounded `--timeout`, `--cutoff-utc` and
 `--result`. The native process must have a parent-coordinated window and a
-fresh competing-job check. Run one instance at a time. A failed host preflight
-can support a specifically authorized diagnostic run, but its timing remains
-unqualified.
+fresh competing-job check. Run one instance at a time. This verifier requires
+a ready native host. Failed-preflight diagnostic evidence remains unverified;
+an authorization schema for that exception is not implemented.
 
 After the runs, record a JSON manifest with `schema_version:1`,
 `kind:"source-context-baseline"`, `source_commit`, `source_repository`, the
@@ -38,6 +38,7 @@ fieldbook model's current-game pin. Every slot records the catalog relationship
 separately, so a matching SHA at a different path is visible rather than
 silently treated as the same runtime role.
 
+Each run uses mode `test` or `native` and at least one functional assertion.
 Each run names its Kit launch `label`, `scope`, `mode`, `script`, project-relative
 JSON `report`, explicit `captures`, and checks. Checks support dotted-path
 `equal`, finite numeric `minimum`/`maximum`, and array-of-record `coverage`
@@ -56,7 +57,7 @@ For a native run, include `reservation:{"path":"<READ-ONLY-RECORD>",
 "sha256":"<HASH>"}` in that run's manifest entry. The record must contain
 `checked_utc`, `window_end_utc`, `process_status:"ok"`,
 `competing_godot_blender_ffmpeg:[]`, and
-`competing_heavy_jobs_verified:true`. The verifier requires the snapshot within
+`competing_heavy_jobs_verified:true`, and `host_ready:true`. The verifier requires the snapshot within
 five minutes before that exact owned launch, and the Kit exit receipt must
 finish by the reservation end. This proves a recorded check, not
 an OS-level lock or performance attribution.

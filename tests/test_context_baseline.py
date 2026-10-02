@@ -46,6 +46,18 @@ class ContextBaselineTests(unittest.TestCase):
                                            {"one": {"id": "one", "model_id": "mite", "sha256": identity}})
             self.assertEqual(result["committed_asset_proof"], "lfs-oid")
             self.assertTrue(result["source"]["line_endings_normalized"])
+            malformed = [
+                f"oid sha256:{identity}\n".encode(),
+                pointer.replace(b"version https://git-lfs.github.com/spec/v1", b"version wrong"),
+                pointer.replace(b"size " + str(asset.stat().st_size).encode(), b"size 999"),
+                pointer.replace(b"size ", b"size -"),
+                pointer + b"unexpected content\n",
+            ]
+            for bad in malformed:
+                with self.subTest(pointer=bad), patch.object(baseline, "_committed", return_value=bad):
+                    with self.assertRaisesRegex(StudioError, "Committed .* differs"):
+                        baseline._source_slot(self.root, self.root, "a" * 40, slot,
+                                              {"one": {"id": "one", "model_id": "mite", "sha256": identity}})
             copied.write_bytes(copied.read_bytes().replace(b"ASSET_PATH", b"OTHER_PATH"))
             with self.assertRaisesRegex(StudioError, "differs from pinned commit"):
                 baseline._source_slot(self.root, self.root, "a" * 40, slot,
@@ -67,7 +79,7 @@ class ContextBaselineTests(unittest.TestCase):
         write_json(reservation, {"checked_utc": "2026-10-01T15:00:00Z",
                                  "window_end_utc": "2026-10-01T15:20:00Z",
                                  "process_status": "ok", "competing_godot_blender_ffmpeg": [],
-                                 "competing_heavy_jobs_verified": True, "host_ready": False})
+                                 "competing_heavy_jobs_verified": True, "host_ready": True})
         folder = self.root / "artifacts/launches" / name
         folder.mkdir(parents=True)
         engine_hash = hashlib.sha256(b"engine").hexdigest()
@@ -113,6 +125,8 @@ class ContextBaselineTests(unittest.TestCase):
                "owned_launch_sha256": sha256(folder / "owned-launch.json"),
                "process_sha256": sha256(process_path)}
         retained = {"scope": "mite", "launch": file_record(self.root, folder / "exit.json"),
+                    "owned_launch": file_record(self.root, folder / "owned-launch.json"),
+                    "process": file_record(self.root, process_path),
                     "fixture_source_sha256": sha256(script),
                     "report": file_record(self.root, output),
                     "captures": [file_record(self.root, picture)]}
@@ -121,6 +135,51 @@ class ContextBaselineTests(unittest.TestCase):
             result = verify()
             self.assertEqual(result["functional_checks"], "passed")
             self.assertEqual(result["selected_animation_qualification"], "not_attempted")
+            for mode in ("import", "check"):
+                launch = json.loads((folder / "owned-launch.json").read_text())
+                launch["mode"] = mode
+                write_json(folder / "owned-launch.json", launch)
+                run["mode"] = mode
+                run["owned_launch_sha256"] = sha256(folder / "owned-launch.json")
+                with self.assertRaisesRegex(StudioError, "mode must be test or native"):
+                    verify()
+            launch["mode"] = "native"
+            write_json(folder / "owned-launch.json", launch)
+            run["mode"] = "native"
+            run["owned_launch_sha256"] = sha256(folder / "owned-launch.json")
+            original_checks = run["checks"]
+            for empty in ({}, {"equal": {}}, {"coverage": [{"path": "states", "field": "phase", "required": []}]}):
+                run["checks"] = empty
+                with self.assertRaisesRegex(StudioError, "at least one functional assertion"):
+                    verify()
+            run["checks"] = original_checks
+            original_reservation = reservation.read_bytes()
+            unsafe = json.loads(original_reservation)
+            unsafe["host_ready"] = False
+            write_json(reservation, unsafe)
+            run["reservation"]["sha256"] = sha256(reservation)
+            with self.assertRaisesRegex(StudioError, "reservation did not cover"):
+                verify()
+            reservation.write_bytes(original_reservation)
+            run["reservation"]["sha256"] = sha256(reservation)
+            original_process = process_path.read_bytes()
+            forged = json.loads(original_process)
+            forged["windows_ownership"]["identity"]["created_filetime"] = "987"
+            write_json(process_path, forged)
+            run["process_sha256"] = sha256(process_path)
+            with self.assertRaisesRegex(StudioError, "bytes differ from historical evidence"):
+                verify()
+            process_path.write_bytes(original_process)
+            run["process_sha256"] = sha256(process_path)
+            original_launch = (folder / "owned-launch.json").read_bytes()
+            forged_launch = json.loads(original_launch)
+            forged_launch["started_utc"] = "2026-10-01T15:00:09Z"
+            write_json(folder / "owned-launch.json", forged_launch)
+            run["owned_launch_sha256"] = sha256(folder / "owned-launch.json")
+            with self.assertRaisesRegex(StudioError, "bytes differ from historical evidence"):
+                verify()
+            (folder / "owned-launch.json").write_bytes(original_launch)
+            run["owned_launch_sha256"] = sha256(folder / "owned-launch.json")
             process_bytes = process_path.read_bytes()
             process_path.unlink()
             with self.assertRaisesRegex(StudioError, "process receipt bytes changed"):
