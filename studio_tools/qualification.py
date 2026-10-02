@@ -461,6 +461,8 @@ def attach(project, url, receipt_path, actor):
         roles = set()
         for result in results:
             observed = read_json(result)
+            if receipt.get("automated_checks") == "passed" and observed.get("automated_checks") != "passed":
+                raise StudioError("Passing evidence requires passed adapter checks for both roles")
             role = observed.get("identity", {}).get("role")
             if role not in ("baseline", "candidate") or role in roles:
                 raise StudioError("Passing evidence requires distinct role identities")
