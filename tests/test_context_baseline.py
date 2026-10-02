@@ -45,6 +45,14 @@ class ContextBaselineTests(unittest.TestCase):
                                            {"one": {"id": "one", "model_id": "mite", "sha256": identity}})
             self.assertEqual(result["committed_asset_proof"], "lfs-oid")
             self.assertTrue(result["source"]["line_endings_normalized"])
+            committed_crlf = source.replace(b"\n", b"\r\n")
+            for checkout in (committed_crlf, source):
+                copied.write_bytes(checkout)
+                with patch.object(baseline, "_committed", side_effect=lambda _r, _c, path:
+                                  pointer if path.endswith(".glb") else committed_crlf):
+                    checked = baseline._source_slot(self.root, self.root, "a"*40, slot,
+                              {"one": {"id": "one", "model_id": "mite", "sha256": identity}})
+                    self.assertEqual(checked["source"]["line_endings_normalized"], checkout != committed_crlf)
             malformed = [
                 f"oid sha256:{identity}\n".encode(),
                 pointer.replace(b"version https://git-lfs.github.com/spec/v1", b"version wrong"),
@@ -107,7 +115,7 @@ class ContextBaselineTests(unittest.TestCase):
                                                             "unreadable": False, "escaped": False}]})
         write_json(folder / "owned-launch.json", {"label": name, "scope": "mite",
                                                   "schema_version": 1, "kind": "owned-launch", "kit": kit,
-                                                  "status": "launched", "pid": 42,
+                                                  "status": "launched", "pid": 42, "passthrough_count": 0,
                                                   "process_record": "process/process.json",
                                                   "expected_results": ["reports/one.json"],
                                                   "survivors": survivors,
@@ -146,10 +154,25 @@ class ContextBaselineTests(unittest.TestCase):
                     "captures": [file_record(self.root, picture)]}
         with patch.object(baseline, "_committed", side_effect=lambda _repo, _commit, path: committed[path]):
             verify = lambda: baseline._run(self.root, self.root, "a" * 40, run, engine_hash, kit, retained,
-                                          baseline._engine_platform(engine))
+                                          baseline._engine_platform(engine.read_bytes()))
             result = verify()
             self.assertEqual(result["functional_checks"], "passed")
             self.assertEqual(result["selected_animation_qualification"], "not_attempted")
+            for scope in (None, "", "unsafe/scope", True):
+                with self.subTest(scope=scope), self.assertRaises(StudioError):
+                    baseline._run(self.root, self.root, "a" * 40, {**run, "scope": scope},
+                                  engine_hash, kit, retained, "windows")
+            launch_path = folder / "owned-launch.json"
+            original = launch_path.read_bytes()
+            for count in (None, 1, True, 0.0):
+                changed = json.loads(original)
+                changed["passthrough_count"] = count
+                write_json(launch_path, changed)
+                run["owned_launch_sha256"] = sha256(launch_path)
+                with self.subTest(count=count), self.assertRaisesRegex(StudioError, "differs from the pinned fixture"):
+                    verify()
+            launch_path.write_bytes(original)
+            run["owned_launch_sha256"] = sha256(launch_path)
             for path in (project, data):
                 original = path.read_bytes()
                 path.write_bytes(original + b"changed")
@@ -341,7 +364,7 @@ class ContextBaselineTests(unittest.TestCase):
 
     def test_empty_plans_and_duplicate_execution_labels_fail_before_io(self):
         plan = {"schema_version": 1, "kind": "source-context-baseline", "source_commit": "a" * 40,
-                "slots": [{"name": "asset"}], "runs": [{"name": "one", "label": "launch-one"}]}
+                "slots": [{"name": "asset"}], "runs": [{"name": "one", "label": "launch-one", "scope": "one"}]}
         for key in ("slots", "runs"):
             for value in ([], None, {}):
                 with self.subTest(key=key, value=value), patch.object(baseline, "read_json", return_value={**plan, key: value}):
@@ -360,14 +383,79 @@ class ContextBaselineTests(unittest.TestCase):
         pe[60:64] = (64).to_bytes(4, "little")
         pe[64:68] = b"PE\x00\x00"
         engine.write_bytes(pe)
-        self.assertEqual(baseline._engine_platform(engine), "windows")
+        self.assertEqual(baseline._engine_platform(engine.read_bytes()), "windows")
         for magic in (b"\x7fELF", b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"):
             engine.write_bytes(magic + b"\x00" * 60)
-            self.assertEqual(baseline._engine_platform(engine), "posix")
+            self.assertEqual(baseline._engine_platform(engine.read_bytes()), "posix")
         for bad in (b"MZ", b"unknown", bytes(pe[:-4]) + b"bad!"):
             engine.write_bytes(bad)
             with self.assertRaisesRegex(StudioError, "platform cannot be verified"):
-                baseline._engine_platform(engine)
+                baseline._engine_platform(engine.read_bytes())
+
+    def test_known_text_accepts_committed_crlf_and_binary_requires_exact_bytes(self):
+        committed = b'extends SceneTree\r\n'
+        script = self.root / 'fixture.gd'
+        project = self.root / 'project.godot'
+        project.write_bytes(b'config_version=5\r\n')
+        for copied in (committed, committed.replace(b'\r\n', b'\n')):
+            script.write_bytes(copied)
+            with patch.object(baseline, '_committed', side_effect=lambda _r, _c, name:
+                              committed if name.endswith('.gd') else project.read_bytes()):
+                self.assertEqual(len(baseline._fixture_inputs(self.root, self.root, 'a'*40,
+                                     {'script': 'res://fixture.gd'})), 2)
+        data = self.root / 'input.bin'
+        data.write_bytes(b'a\r\nb')
+        with patch.object(baseline, '_committed', side_effect=lambda _r, _c, name:
+                          b'a\nb' if name.endswith('.bin') else (script if name.endswith('.gd') else project).read_bytes()):
+            with self.assertRaisesRegex(StudioError, 'fixture input differs'):
+                baseline._fixture_inputs(self.root, self.root, 'a'*40,
+                                         {'script': 'res://fixture.gd', 'fixture_inputs': ['input.bin']})
+
+    def test_catalog_duplicates_and_missing_scope_fail_before_run_verification(self):
+        catalog_path = self.root / 'catalog.json'
+        plan = {'schema_version': 1, 'kind': 'source-context-baseline', 'source_commit': 'a'*40,
+                'source_repository': str(self.root), 'catalog_snapshot': str(catalog_path),
+                'slots': [{'name': 'asset'}], 'runs': [{'name': 'one', 'label': 'one', 'scope': 'one'}]}
+        for collection in ('attempts', 'models'):
+            catalog = {'attempts': [{'id': 'a'}], 'models': [{'id': 'm'}]}
+            catalog[collection].append(dict(catalog[collection][0]))
+            write_json(catalog_path, catalog)
+            manifest = {**plan, 'catalog_sha256': sha256(catalog_path)}
+            with patch.object(baseline, 'read_json', side_effect=[manifest, catalog]), patch.object(baseline, '_run') as run:
+                with self.assertRaisesRegex(StudioError, collection + ' IDs must be distinct'):
+                    baseline.verify(self.root, 'manifest.json', 'receipt.json')
+                run.assert_not_called()
+        for scope in (None, '', 'one/two', True):
+            manifest = {**plan, 'runs': [{**plan['runs'][0], 'scope': scope}]}
+            with patch.object(baseline, 'read_json', return_value=manifest), patch.object(baseline, 'sha256') as hashed:
+                with self.assertRaises(StudioError):
+                    baseline.verify(self.root, 'manifest.json', 'receipt.json')
+                hashed.assert_not_called()
+
+    def test_engine_replacement_cannot_select_platform_for_different_hash(self):
+        engine = self.root / 'engine'
+        pe = bytearray(68)
+        pe[:2] = b'MZ'
+        pe[60:64] = (64).to_bytes(4, 'little')
+        pe[64:] = b'PE\x00\x00'
+        engine.write_bytes(pe)
+        catalog = {'attempts': [], 'models': []}
+        catalog_path = self.root / 'catalog.json'
+        write_json(catalog_path, catalog)
+        plan = {'schema_version': 1, 'kind': 'source-context-baseline', 'source_commit': 'a'*40,
+                'source_repository': str(self.root), 'catalog_snapshot': str(catalog_path),
+                'catalog_sha256': sha256(catalog_path), 'engine': {'path': str(engine), 'sha256': sha256(engine)},
+                'slots': [{'name': 'asset'}], 'runs': [{'name': 'one', 'label': 'one', 'scope': 'one'}]}
+        classify = baseline._engine_platform
+        def replace_then_classify(raw):
+            engine.write_bytes(b'\x7fELF' + b'\x00'*60)
+            self.assertEqual(classify(raw), 'windows')
+            return classify(raw)
+        with patch.object(baseline, 'read_json', side_effect=[plan, catalog]), \
+                patch.object(baseline, '_engine_platform', side_effect=replace_then_classify) as platform:
+            with self.assertRaisesRegex(StudioError, 'pinned retained run evidence'):
+                baseline.verify(self.root, 'manifest.json', 'receipt.json')
+            platform.assert_called_once_with(bytes(pe))
 
 
 if __name__ == "__main__":

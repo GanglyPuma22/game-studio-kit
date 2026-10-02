@@ -137,6 +137,12 @@ provenance, and verifies the returned attempt ID and preserved decisions,
 comments and game pins. It never calls review, amendments or notes endpoints.
 The API stores receipt references/hashes; it does not execute or validate
 native receipt semantics. No new viewer endpoint is needed for this milestone.
+Attaching a performance pass requires native phase, passed adapter evidence,
+and recomputed matched timing from the retained role result files. Stored observations
+and the performance summary must match those files. Both cleanroom receipts and
+their owned launches must be hash-pinned, attributable, completed, and bound to
+the plan scope, engine, fixture script and exact result outputs. CPU functional
+passes and failed diagnostic evidence remain distinct from performance qualification.
 Media serving for remote review remains a coordinated future extension:
 provenance can reference local evidence now but does not upload PNG/JSONL bytes
 to the viewer. Do not add a second catalog or edit the viewer concurrently.

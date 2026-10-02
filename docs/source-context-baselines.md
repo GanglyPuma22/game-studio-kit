@@ -40,6 +40,9 @@ silently treated as the same runtime role.
 
 Slots and runs must both be nonempty. Run names and execution labels must each
 be distinct; separate names cannot reuse a single launch.
+Catalog attempt and model IDs must be unique before resolving those identities.
+Every scope must be a nonempty safe Kit ID. Launch receipts must explicitly record
+integer `passthrough_count:0`; this baseline schema cannot bind fixture arguments.
 Each run uses mode `test` or `native` and at least one functional assertion.
 Each run names its Kit launch `label`, `scope`, `mode`, `script`, project-relative
 JSON `report`, explicit `captures`, and checks. Checks support dotted-path
@@ -62,13 +65,14 @@ project-relative `fixture_inputs` list for additional scripts, scenes, data or
 assets read by that fixture. The retained run must already contain matching
 `fixture_inputs` file and committed-blob hashes; historical receipts without
 that proof cannot establish the configuration used by a prior run. Text inputs
-permit CRLF normalization; binary inputs require exact bytes or a complete
+accept exact bytes first and otherwise normalize CRLF on both sides; binary inputs require exact bytes or a complete
 matching LFS pointer.
 
 Process proof follows the hash-verified engine executable format: PE requires
 Windows FILETIME ownership; ELF and Mach-O use the retained paired process PID,
 timestamps and completed process-group cleanup. POSIX cleanup receipts need no
 Windows-only `unstopped_pids` field. Unknown executable formats fail closed.
+Hashing and format classification use one executable byte snapshot.
 The verifier's current operating system and a missing Windows ownership object
 never select the proof route. These receipt checks do not demonstrate native
 behavior on an untested platform.

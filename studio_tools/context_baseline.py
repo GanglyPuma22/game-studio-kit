@@ -14,7 +14,7 @@ import re
 import subprocess
 import zlib
 
-from .common import StudioError, digest, file_record, kit_identity, outside_package, read_json, relative, sha256, write_json
+from .common import StudioError, digest, file_record, kit_identity, outside_package, read_json, relative, safe_id, sha256, write_json
 from .qualification import png_dimensions
 
 
@@ -77,7 +77,7 @@ def _source_slot(root: Path, repo: Path, commit: str, slot: dict, attempts: dict
         raise StudioError("Runtime source file missing: " + slot["name"])
     committed = _committed(repo, commit, slot["git_path"])
     checkout = source_path.read_bytes()
-    if checkout.replace(b"\r\n", b"\n") != committed:
+    if checkout != committed and checkout.replace(b"\r\n", b"\n") != committed.replace(b"\r\n", b"\n"):
         raise StudioError("Runtime source differs from pinned commit: " + slot["name"])
     source = committed.decode("utf-8")
     for constant, expected in ((slot["sha_constant"], slot["sha256"]),
@@ -145,19 +145,18 @@ def _time(value, label):
         raise StudioError("Invalid baseline timestamp: " + label) from exc
 
 
-def _engine_platform(engine: Path) -> str:
+def _engine_platform(raw: bytes) -> str:
     """Use pinned executable bytes, never missing ownership, to select proof."""
-    with engine.open("rb") as stream:
-        header = stream.read(64)
-        if header[:2] == b"MZ" and len(header) == 64:
-            stream.seek(int.from_bytes(header[60:64], "little"))
-            if stream.read(4) == b"PE\x00\x00":
-                return "windows"
-        if header[:4] in (b"\x7fELF", b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe",
-                           b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",
-                           b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca",
-                           b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca"):
-            return "posix"
+    header = raw[:64]
+    if header[:2] == b"MZ" and len(header) == 64:
+        offset = int.from_bytes(header[60:64], "little")
+        if raw[offset:offset + 4] == b"PE\x00\x00":
+            return "windows"
+    if header[:4] in (b"\x7fELF", b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe",
+                       b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",
+                       b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca",
+                       b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca"):
+        return "posix"
     raise StudioError("Baseline engine platform cannot be verified from executable bytes")
 
 
@@ -179,7 +178,7 @@ def _fixture_inputs(root: Path, repo: Path, commit: str, run: dict) -> list:
             matches = pointer.group(1).decode() == sha256(path) and int(pointer.group(2)) == len(copied)
         else:
             text = path.suffix in (".godot", ".gd", ".tscn", ".tres", ".json", ".cfg")
-            matches = (copied.replace(b"\r\n", b"\n") if text else copied) == committed
+            matches = copied == committed or (text and copied.replace(b"\r\n", b"\n") == committed.replace(b"\r\n", b"\n"))
         if not matches:
             raise StudioError("Baseline fixture input differs from pinned game commit: " + name)
         records.append({**file_record(root, path), "committed_sha256": hashlib.sha256(committed).hexdigest()})
@@ -192,6 +191,7 @@ def _run(root: Path, repo: Path, commit: str, run: dict, engine_sha256: str,
         raise StudioError("Baseline process platform is unverified")
     if run.get("mode") not in ("test", "native"):
         raise StudioError("Baseline fixture mode must be test or native")
+    safe_id(run.get("scope"))
     folder = "artifacts/launches/" + run["label"] + "/"
     exit_path = relative(root, "artifacts/launches/" + run["label"] + "/exit.json")
     exit_record = read_json(exit_path)
@@ -218,6 +218,7 @@ def _run(root: Path, repo: Path, commit: str, run: dict, engine_sha256: str,
             or launch.get("label") != run["label"] or launch.get("scope") != run["scope"] or
             Path(launch.get("project", "")).resolve() != root.resolve() or
             launch.get("mode") != run["mode"] or launch.get("script") != run["script"] or
+            type(launch.get("passthrough_count")) is not int or launch["passthrough_count"] != 0 or
             launch.get("engine", {}).get("sha256") != engine_sha256 or
             launch.get("engine", {}).get("sha256_after_exit") != engine_sha256 or
             launch.get("survivors") != exit_record.get("survivors") or
@@ -354,17 +355,28 @@ def verify(project, manifest_path, receipt_path):
         if (len(values) != len(manifest[collection]) or any(not isinstance(value, str) or not value for value in values)
                 or len(set(values)) != len(values)):
             raise StudioError("Baseline " + collection + " " + key + " values must be distinct nonempty strings")
+    for run in manifest["runs"]:
+        safe_id(run.get("scope"))
     repo = Path(manifest["source_repository"]).resolve()
     catalog_path = Path(manifest["catalog_snapshot"]).resolve()
     if sha256(catalog_path) != manifest["catalog_sha256"]:
         raise StudioError("Fieldbook catalog snapshot changed")
     catalog = read_json(catalog_path)
+    for collection in ("attempts", "models"):
+        entries = catalog.get(collection)
+        if not isinstance(entries, list):
+            raise StudioError("Baseline catalog " + collection + " must be a list")
+        ids = [item.get("id") for item in entries if isinstance(item, dict)]
+        if (len(ids) != len(entries) or any(not isinstance(value, str) or not value for value in ids)
+                or len(set(ids)) != len(ids)):
+            raise StudioError("Baseline catalog " + collection + " IDs must be distinct nonempty strings")
     attempts = {attempt["id"]: attempt for attempt in catalog["attempts"]}
     models = {model["id"]: model for model in catalog["models"]}
     engine = Path(manifest["engine"]["path"]).resolve()
-    if sha256(engine) != manifest["engine"]["sha256"]:
+    engine_bytes = engine.read_bytes()
+    if hashlib.sha256(engine_bytes).hexdigest() != manifest["engine"]["sha256"]:
         raise StudioError("Baseline engine executable hash changed")
-    process_platform = _engine_platform(engine)
+    process_platform = _engine_platform(engine_bytes)
     pin = manifest.get("retained_evidence")
     if not isinstance(pin, dict):
         raise StudioError("Baseline requires pinned retained run evidence")

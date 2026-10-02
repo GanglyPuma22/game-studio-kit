@@ -456,6 +456,7 @@ def attach(project, url, receipt_path, actor):
             raise StudioError("Qualification evidence changed")
     if receipt.get("input_record") and sha256(relative(root, receipt["input_record"]["path"])) != receipt["input_record"]["sha256"]:
         raise StudioError("Tested input record changed")
+    observations = {}
     if receipt.get("automated_checks") == "passed" or receipt.get("performance_qualification") == "passed":
         results = [relative(root, item["path"]) for item in receipt["files"] if item["path"].endswith("/result.json")]
         roles = set()
@@ -475,8 +476,11 @@ def attach(project, url, receipt_path, actor):
                            for item in receipt["files"]) for artifact in required):
                 raise StudioError("Passing evidence artifacts missing from receipt hashes")
             roles.add(role)
+            observations[role] = (observed, result)
         if roles != {"baseline", "candidate"} or not receipt.get("evidence_complete"):
             raise StudioError("Passing evidence requires complete capture/replay verification for both roles")
+    if receipt.get("performance_qualification") == "passed":
+        _performance_attachment(root, record, receipt, observations)
     before = request(url, "/api/catalog")
     attempt, _ = resolve(before, record["plan"]["attempt"])
     if not isinstance(actor, str) or not actor.strip():
@@ -508,3 +512,73 @@ def attach(project, url, receipt_path, actor):
     if not publication.exists():
         write_json(publication, result)
     return result
+
+
+def _performance_attachment(root, record, receipt, observations):
+    """Recheck native timings and the retained, attributable pair before publication."""
+    plan = record["plan"]
+    if (receipt.get("phase") != "native" or receipt.get("automated_checks") != "passed"
+            or (receipt.get("reservation") or {}).get("bounded_diagnostic_authorization")):
+        raise StudioError("Performance pass requires a passing native qualification")
+    actual = [observations[role][0] for role in ("baseline", "candidate")]
+    timing = compare_timing(actual, plan["thresholds"])
+    if (timing["verdict"] != "passed" or receipt.get("performance") != timing
+            or receipt.get("observations") != actual):
+        raise StudioError("Performance pass differs from actual native timing evidence")
+    runs = receipt.get("runs")
+    if (not isinstance(runs, list) or len(runs) != 2
+            or [item.get("role") for item in runs if isinstance(item, dict)] != ["baseline", "candidate"]):
+        raise StudioError("Performance pass requires both cleanroom runs in baseline/candidate order")
+    # _receipt binds parsed content and its hash to the same read. The cleanroom
+    # and launch return values have convenience paths absent from saved receipts.
+    from .launch import _pairing, _receipt
+    for run in runs:
+        role = run["role"]
+        result = observations[role][1]
+        label = safe_id(result.parent.name)
+        bench_path = relative(root, f"artifacts/bench/{label}/cleanroom.json")
+        launch_path = relative(root, f"artifacts/launches/{label}/exit.json")
+        try:
+            bench, bench_pin = _receipt(root, bench_path)
+            launched, launch_pin = _receipt(root, launch_path)
+            owned, owned_pin = _receipt(root, launch_path.parent / "owned-launch.json")
+        except (OSError, StudioError) as exc:
+            raise StudioError("Performance pass requires retained cleanroom and launch receipts") from exc
+        if any(pin not in receipt["files"] for pin in (bench_pin, launch_pin, owned_pin)):
+            raise StudioError("Performance cleanroom/launch receipts missing from evidence hashes")
+        if (_pairing(owned, launched)[0] != "paired" or owned.get("kit") != receipt.get("kit")
+                or owned.get("mode") != "native" or owned.get("script") != "res://" + plan["script"]
+                or Path(owned.get("project", "")).resolve() != root
+                or owned.get("engine", {}).get("sha256") != plan["engine"]["sha256"]
+                or owned.get("engine", {}).get("sha256_after_exit") != plan["engine"]["sha256"]
+                or owned.get("expected_results") != [result.relative_to(root).as_posix()]):
+            raise StudioError("Performance owned launch differs from the native plan")
+        embedded_bench = run.get("cleanroom")
+        embedded_launch = run.get("launch")
+        if (not isinstance(embedded_bench, dict) or not isinstance(embedded_launch, dict)
+                or {k: v for k, v in embedded_bench.items() if k not in ("bench_dir", "record")} != bench
+                or {k: v for k, v in embedded_launch.items() if k not in
+                    ("run_dir", "launch_record", "exit_record", "diagnostics_record", "process_record", "log")} != launched
+                or bench.get("schema_version") != 1 or bench.get("kind") != "cleanroom-bench"
+                or bench.get("ok") is not True or bench.get("attributable") is not True
+                or bench.get("performance_class") != "clean_qualification"
+                or bench.get("label") != label or bench.get("scope") != plan["id"]
+                or bench.get("scope_check") != "match" or bench.get("reasons") != []
+                or bench.get("kit") != receipt.get("kit") or launched.get("kit") != receipt.get("kit")
+                or launched.get("kind") != "launch-exit" or launched.get("label") != label
+                or launched.get("scope") != plan["id"] or launched.get("ok") is not True
+                or launched.get("verdict") != "completed" or launched.get("status") != "completed"
+                or launched.get("returncode") != 0 or launched.get("timed_out") is not False
+                or launched.get("cleanup") is not None):
+            raise StudioError("Performance cleanroom/launch identity or attribution is invalid")
+        capture = bench.get("capture") or {}
+        if (capture.get("verdict") != embedded_launch or capture.get("status") != "completed"
+                or capture.get("returncode") != 0 or capture.get("cleanup") is not None
+                or capture.get("failure") is not None):
+            raise StudioError("Performance cleanroom capture does not pair with its launch")
+        result_pin = file_record(root, result)
+        if not any(item.get("path") == result_pin["path"] and item.get("sha256") == result_pin["sha256"]
+                   and item.get("present") is True and item.get("stale") is False
+                   and item.get("unreadable") is False and item.get("escaped") is False
+                   for item in launched.get("result_files", [])):
+            raise StudioError("Performance timing result is not this cleanroom launch output")
