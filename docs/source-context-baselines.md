@@ -73,6 +73,11 @@ Windows FILETIME ownership; ELF and Mach-O use the retained paired process PID,
 timestamps and completed process-group cleanup. POSIX cleanup receipts need no
 Windows-only `unstopped_pids` field. Unknown executable formats fail closed.
 Hashing and format classification use one executable byte snapshot.
+Catalog hashing and parsing likewise use one byte snapshot, so replacement of
+the catalog during verification cannot substitute identities under its old hash.
+Coverage assertions preserve JSON types recursively, including numeric, Boolean,
+null and structured values. Every coverage record must contain the named field;
+a missing field cannot stand in for null or the string `"None"`.
 The verifier's current operating system and a missing Windows ownership object
 never select the proof route. These receipt checks do not demonstrate native
 behavior on an untested platform.

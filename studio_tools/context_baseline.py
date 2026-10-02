@@ -7,6 +7,7 @@ It intentionally has no fieldbook write path or candidate acceptance verdict.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 from datetime import datetime
 from pathlib import Path
@@ -130,8 +131,11 @@ def _checks(report: dict, rules: dict) -> None:
         items = _value(report, coverage["path"])
         if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
             raise StudioError("Baseline state coverage is not a list of records")
-        observed = {str(item.get(coverage["field"])) for item in items}
-        if not set(coverage["required"]).issubset(observed):
+        field = coverage["field"]
+        if any(field not in item for item in items):
+            raise StudioError("Baseline state coverage lacks required field: " + field)
+        observed = [item[field] for item in items]
+        if any(not any(_equal(value, required) for value in observed) for required in coverage["required"]):
             raise StudioError("Baseline state coverage is incomplete: " + coverage["path"])
 
 
@@ -359,9 +363,15 @@ def verify(project, manifest_path, receipt_path):
         safe_id(run.get("scope"))
     repo = Path(manifest["source_repository"]).resolve()
     catalog_path = Path(manifest["catalog_snapshot"]).resolve()
-    if sha256(catalog_path) != manifest["catalog_sha256"]:
+    catalog_bytes = catalog_path.read_bytes()
+    if hashlib.sha256(catalog_bytes).hexdigest() != manifest["catalog_sha256"]:
         raise StudioError("Fieldbook catalog snapshot changed")
-    catalog = read_json(catalog_path)
+    try:
+        catalog = json.loads(catalog_bytes.decode("utf-8"))
+    except (UnicodeError, ValueError) as exc:
+        raise StudioError("Fieldbook catalog snapshot is invalid JSON") from exc
+    if not isinstance(catalog, dict):
+        raise StudioError("Fieldbook catalog snapshot must be an object")
     for collection in ("attempts", "models"):
         entries = catalog.get(collection)
         if not isinstance(entries, list):

@@ -1,5 +1,6 @@
 """Source-slot identity and native evidence must fail closed without selection writes."""
 import json
+import hashlib
 from pathlib import Path
 import struct
 import tempfile
@@ -456,6 +457,47 @@ class ContextBaselineTests(unittest.TestCase):
             with self.assertRaisesRegex(StudioError, 'pinned retained run evidence'):
                 baseline.verify(self.root, 'manifest.json', 'receipt.json')
             platform.assert_called_once_with(bytes(pe))
+
+    def test_coverage_preserves_json_types_and_requires_field_presence(self):
+        for actual, required in ((1, '1'), (True, 1), (1, True), (1.0, 1),
+                                 ({'value': True}, {'value': 1}), ([1], [True])):
+            with self.subTest(actual=actual, required=required):
+                with self.assertRaisesRegex(StudioError, 'coverage is incomplete'):
+                    baseline._checks({'states': [{'phase': actual}]},
+                                     {'coverage': [{'path': 'states', 'field': 'phase', 'required': [required]}]})
+        for value in (1, 1.0, True, None, ['nested', 1], {'value': [None, False]}):
+            baseline._checks({'states': [{'phase': value}]},
+                             {'coverage': [{'path': 'states', 'field': 'phase', 'required': [value]}]})
+        for required in ('None', None):
+            with self.assertRaisesRegex(StudioError, 'lacks required field'):
+                baseline._checks({'states': [{}]},
+                                 {'coverage': [{'path': 'states', 'field': 'phase', 'required': [required]}]})
+
+    def test_catalog_replacement_after_read_does_not_substitute_unpinned_ids(self):
+        catalog_path = self.root / 'catalog.json'
+        original = b'{"attempts": [{"id": "a"}], "models": [{"id": "m"}]}'
+        catalog_path.write_bytes(original)
+        engine = self.root / 'engine'
+        engine.write_bytes(b'\x7fELF' + b'\x00'*60)
+        plan = {'schema_version': 1, 'kind': 'source-context-baseline', 'source_commit': 'a'*40,
+                'source_repository': str(self.root), 'catalog_snapshot': str(catalog_path),
+                'catalog_sha256': hashlib.sha256(original).hexdigest(),
+                'engine': {'path': str(engine), 'sha256': sha256(engine)},
+                'slots': [{'name': 'asset'}], 'runs': [{'name': 'one', 'label': 'one', 'scope': 'one'}]}
+        reads = []
+        read_bytes = Path.read_bytes
+        def replace_after_read(path):
+            raw = read_bytes(path)
+            if path == catalog_path:
+                reads.append(raw)
+                path.write_bytes(b'{"attempts": [{"id":"bad"},{"id":"bad"}], "models": []}')
+            return raw
+        with patch.object(baseline, 'read_json', return_value=plan), patch.object(Path, 'read_bytes', replace_after_read), \
+                patch.object(baseline, '_engine_platform', wraps=baseline._engine_platform) as platform:
+            with self.assertRaisesRegex(StudioError, 'pinned retained run evidence'):
+                baseline.verify(self.root, 'manifest.json', 'receipt.json')
+            platform.assert_called_once()
+        self.assertEqual(reads, [original])
 
 
 if __name__ == "__main__":
