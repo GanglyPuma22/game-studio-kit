@@ -1,5 +1,4 @@
 """Source-slot identity and native evidence must fail closed without selection writes."""
-import hashlib
 import json
 from pathlib import Path
 import struct
@@ -75,6 +74,12 @@ class ContextBaselineTests(unittest.TestCase):
         script = self.root / "tests/one.gd"
         script.parent.mkdir()
         script.write_bytes(b"extends SceneTree\n")
+        project = self.root / "project.godot"
+        project.write_bytes(b'config_version=5\n')
+        data = self.root / "tests/input.json"
+        data.write_bytes(b'{"seed": 1}\n')
+        committed = {"game/tests/one.gd": script.read_bytes(), "game/project.godot": project.read_bytes(),
+                     "game/tests/input.json": data.read_bytes()}
         reservation = self.root / "resource.json"
         write_json(reservation, {"checked_utc": "2026-10-01T15:00:00Z",
                                  "window_end_utc": "2026-10-01T15:20:00Z",
@@ -82,7 +87,13 @@ class ContextBaselineTests(unittest.TestCase):
                                  "competing_heavy_jobs_verified": True, "host_ready": True})
         folder = self.root / "artifacts/launches" / name
         folder.mkdir(parents=True)
-        engine_hash = hashlib.sha256(b"engine").hexdigest()
+        engine = self.root / "engine.exe"
+        pe = bytearray(68)
+        pe[:2] = b"MZ"
+        pe[60:64] = (64).to_bytes(4, "little")
+        pe[64:68] = b"PE\x00\x00"
+        engine.write_bytes(pe)
+        engine_hash = sha256(engine)
         kit = {"version": "test", "source_digest": "a" * 64}
         survivors = {"status": "ok", "stopped": True, "pids": [],
                      "unstopped_pids": [], "unverified": []}
@@ -118,6 +129,7 @@ class ContextBaselineTests(unittest.TestCase):
                                       "exited_filetime": "456"}}})
         run = {"name": "mite", "label": name, "scope": "mite", "mode": "native",
                "script": "res://tests/one.gd", "report": "reports/one.json",
+               "fixture_inputs": ["tests/input.json"],
                "checks": {"equal": {"passed": True}, "coverage": [{"path": "states", "field": "phase",
                                                                "required": ["feed", "shelter"]}]},
                "captures": ["captures/one.png"], "capture_report": "captures",
@@ -128,13 +140,68 @@ class ContextBaselineTests(unittest.TestCase):
                     "owned_launch": file_record(self.root, folder / "owned-launch.json"),
                     "process": file_record(self.root, process_path),
                     "fixture_source_sha256": sha256(script),
+                    "fixture_inputs": [{**file_record(self.root, path), "committed_sha256": sha256(path)}
+                                       for path in (project, script, data)],
                     "report": file_record(self.root, output),
                     "captures": [file_record(self.root, picture)]}
-        with patch.object(baseline, "_committed", return_value=script.read_bytes()):
-            verify = lambda: baseline._run(self.root, self.root, "a" * 40, run, engine_hash, kit, retained)
+        with patch.object(baseline, "_committed", side_effect=lambda _repo, _commit, path: committed[path]):
+            verify = lambda: baseline._run(self.root, self.root, "a" * 40, run, engine_hash, kit, retained,
+                                          baseline._engine_platform(engine))
             result = verify()
             self.assertEqual(result["functional_checks"], "passed")
             self.assertEqual(result["selected_animation_qualification"], "not_attempted")
+            for path in (project, data):
+                original = path.read_bytes()
+                path.write_bytes(original + b"changed")
+                with self.assertRaisesRegex(StudioError, "fixture input differs"):
+                    verify()
+                path.write_bytes(original)
+            old_inputs = retained.pop("fixture_inputs")
+            with self.assertRaisesRegex(StudioError, "historical evidence"):
+                verify()
+            retained["fixture_inputs"] = old_inputs
+            old_field = run.pop("capture_report")
+            with self.assertRaisesRegex(StudioError, "captures require a complete report manifest"):
+                verify()
+            run["capture_report"] = old_field
+            # These are synthetic fixtures of the actual POSIX v1 shapes: no
+            # Windows identity or unstopped_pids field is emitted there.
+            original_process = process_path.read_bytes()
+            original_exit = (folder / "exit.json").read_bytes()
+            original_launch = (folder / "owned-launch.json").read_bytes()
+            old_proofs = {key: retained[key] for key in ("launch", "owned_launch", "process")}
+            posix_process = json.loads(original_process)
+            posix_process.pop("windows_ownership")
+            write_json(process_path, posix_process)
+            run["process_sha256"] = sha256(process_path)
+            with self.assertRaisesRegex(StudioError, "Windows process ownership is unverified"):
+                verify()
+            posix_exit = json.loads(original_exit)
+            posix_exit["survivors"].pop("unstopped_pids")
+            write_json(folder / "exit.json", posix_exit)
+            posix_launch = json.loads(original_launch)
+            posix_launch["survivors"] = posix_exit["survivors"]
+            write_json(folder / "owned-launch.json", posix_launch)
+            run["owned_launch_sha256"] = sha256(folder / "owned-launch.json")
+            for key, path in (("launch", folder / "exit.json"), ("owned_launch", folder / "owned-launch.json"),
+                              ("process", process_path)):
+                retained[key] = file_record(self.root, path)
+            verify_posix = lambda: baseline._run(self.root, self.root, "a" * 40, run, engine_hash, kit, retained, "posix")
+            self.assertEqual(verify_posix()["process_platform"], "posix")
+            for key, value in (("status", "unavailable"), ("stopped", False), ("pids", [43]),
+                               ("unverified", [43]), ("unstopped_pids", [43])):
+                bad = json.loads((folder / "exit.json").read_bytes())
+                bad["survivors"][key] = value
+                write_json(folder / "exit.json", bad)
+                with self.assertRaisesRegex(StudioError, "did not finish cleanly"):
+                    verify_posix()
+                write_json(folder / "exit.json", posix_exit)
+            process_path.write_bytes(original_process)
+            (folder / "exit.json").write_bytes(original_exit)
+            (folder / "owned-launch.json").write_bytes(original_launch)
+            run["process_sha256"] = sha256(process_path)
+            run["owned_launch_sha256"] = sha256(folder / "owned-launch.json")
+            retained.update(old_proofs)
             for mode in ("import", "check"):
                 launch = json.loads((folder / "owned-launch.json").read_text())
                 launch["mode"] = mode
@@ -262,6 +329,45 @@ class ContextBaselineTests(unittest.TestCase):
                                       {"a": {"id": "a", "model_id": "slug", "sha256": identity}},
                                       {"slug": {"current_game_sha256": identity,
                                                 "current_game_path": "res://assets/other.glb"}})
+
+    def test_boolean_and_number_equality_preserves_nested_json_types(self):
+        for actual, expected in ((1, True), (0, False), (True, 1), (False, 0), (1.0, 1),
+                                 ({"pass": [1]}, {"pass": [True]})):
+            with self.subTest(actual=actual, expected=expected):
+                with self.assertRaisesRegex(StudioError, "equality check failed"):
+                    baseline._checks({"value": actual}, {"equal": {"value": expected}})
+        baseline._checks({"value": {"pass": [True, 1, 1.0, None]}},
+                         {"equal": {"value": {"pass": [True, 1, 1.0, None]}}})
+
+    def test_empty_plans_and_duplicate_execution_labels_fail_before_io(self):
+        plan = {"schema_version": 1, "kind": "source-context-baseline", "source_commit": "a" * 40,
+                "slots": [{"name": "asset"}], "runs": [{"name": "one", "label": "launch-one"}]}
+        for key in ("slots", "runs"):
+            for value in ([], None, {}):
+                with self.subTest(key=key, value=value), patch.object(baseline, "read_json", return_value={**plan, key: value}):
+                    with self.assertRaisesRegex(StudioError, "requires nonempty " + key):
+                        baseline.verify(self.root, self.root / "manifest.json", "receipt.json")
+        plan["runs"].append({"name": "two", "label": "launch-one"})
+        with patch.object(baseline, "read_json", return_value=plan), patch.object(baseline, "_run") as runner:
+            with self.assertRaisesRegex(StudioError, "runs label values must be distinct"):
+                baseline.verify(self.root, self.root / "manifest.json", "receipt.json")
+            runner.assert_not_called()
+
+    def test_platform_is_bound_to_engine_bytes_not_missing_windows_ownership(self):
+        engine = self.root / "engine"
+        pe = bytearray(68)
+        pe[:2] = b"MZ"
+        pe[60:64] = (64).to_bytes(4, "little")
+        pe[64:68] = b"PE\x00\x00"
+        engine.write_bytes(pe)
+        self.assertEqual(baseline._engine_platform(engine), "windows")
+        for magic in (b"\x7fELF", b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"):
+            engine.write_bytes(magic + b"\x00" * 60)
+            self.assertEqual(baseline._engine_platform(engine), "posix")
+        for bad in (b"MZ", b"unknown", bytes(pe[:-4]) + b"bad!"):
+            engine.write_bytes(bad)
+            with self.assertRaisesRegex(StudioError, "platform cannot be verified"):
+                baseline._engine_platform(engine)
 
 
 if __name__ == "__main__":

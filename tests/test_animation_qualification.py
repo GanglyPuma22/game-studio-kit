@@ -177,6 +177,36 @@ class QualificationTests(unittest.TestCase):
         slow = {**row, "timing": {**row["timing"], "frame_ms": [18] * 120}}
         self.assertEqual(q.compare_timing([row, slow], thresholds)["verdict"], "failed")
 
+    def test_native_failed_adapter_cannot_produce_passing_performance_receipt(self):
+        self.record["plan"]["script"] = "fixture.gd"
+        self.record["plan"]["thresholds"] = {}
+        self.record["plan_digest"] = digest(self.record["plan"])
+        write_json(self.root / "qualification.json", self.record)
+        window = {"start_utc": "2000-01-01T00:00:00Z", "end_utc": "2099-01-01T00:00:00Z"}
+        write_json(self.root / "host.json", {"ready": True, "window": window})
+        reservation = {**window, "plan_digest": self.record["plan_digest"], "coordinator": "fixture",
+                       "host_preflight": str(self.root / "host.json"),
+                       "host_preflight_sha256": sha256(self.root / "host.json"),
+                       "competing_heavy_jobs_verified": True}
+        write_json(self.root / "reservation.json", reservation)
+
+        def fake_cleanroom(_config, _root, command, **kwargs):
+            path = self.root / command[command.index("--result") + 1]
+            write_json(path, {"automated_checks": "failed" if kwargs["label"].endswith("-candidate") else "passed"})
+            return {"ok": True, "capture": {"verdict": {"ok": True}}}
+
+        with patch.object(q, "request", return_value=self.catalog), \
+                patch("studio_tools.cleanroom.snapshot", return_value={"process_status": "ok", "processes": []}), \
+                patch("studio_tools.cleanroom.execute", side_effect=fake_cleanroom), \
+                patch.object(q, "validate_evidence", return_value={"ok": True}), \
+                patch.object(q, "compare_timing", return_value={"verdict": "passed"}) as timing:
+            result = q.run({"executables": {"godot": sys.executable}}, self.root, "http://fixture",
+                           "native", "failed-adapter", "2098-01-01T00:00:00Z", self.root / "reservation.json")
+            self.assertTrue(result["evidence_complete"])
+            self.assertEqual(result["automated_checks"], "failed")
+            self.assertEqual(result["performance_qualification"], "unverified")
+            timing.assert_not_called()
+
     def complete_evidence(self, native=True):
         plan = {"attempt": self.identity, "baseline": {**self.identity, "attempt_id": "baseline"},
                 "replay": {"frames": 3, "capture_frames": [1]}, "settings": {"resolution": [1920, 1080]}}

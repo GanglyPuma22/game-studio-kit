@@ -38,12 +38,16 @@ fieldbook model's current-game pin. Every slot records the catalog relationship
 separately, so a matching SHA at a different path is visible rather than
 silently treated as the same runtime role.
 
+Slots and runs must both be nonempty. Run names and execution labels must each
+be distinct; separate names cannot reuse a single launch.
 Each run uses mode `test` or `native` and at least one functional assertion.
 Each run names its Kit launch `label`, `scope`, `mode`, `script`, project-relative
 JSON `report`, explicit `captures`, and checks. Checks support dotted-path
 `equal`, finite numeric `minimum`/`maximum`, and array-of-record `coverage`
-with a field and required values. `capture_report` may name a report field
-holding the full planned capture manifest. The verifier requires paired owned
+with a field and required values. Equality preserves exact JSON types recursively;
+Boolean values do not equal integers. When captures are claimed, `capture_report`
+must name a report field holding the full planned capture manifest with successful
+integer `save_error:0` records. The verifier requires paired owned
 launch, exit and process identities, completed process/descendant cleanup,
 finish before both launch cutoff and native reservation window end, the exact
 engine hash before and after,
@@ -52,6 +56,22 @@ complete source/fieldbook attempt hashes, committed
 asset bytes or LFS OID, and decoded 1920×1080 PNGs with valid CRCs and retained
 per-file hashes. It writes a new local receipt and refuses an existing
 destination:
+
+Every run binds `project.godot` and its script to the source commit. Use the
+project-relative `fixture_inputs` list for additional scripts, scenes, data or
+assets read by that fixture. The retained run must already contain matching
+`fixture_inputs` file and committed-blob hashes; historical receipts without
+that proof cannot establish the configuration used by a prior run. Text inputs
+permit CRLF normalization; binary inputs require exact bytes or a complete
+matching LFS pointer.
+
+Process proof follows the hash-verified engine executable format: PE requires
+Windows FILETIME ownership; ELF and Mach-O use the retained paired process PID,
+timestamps and completed process-group cleanup. POSIX cleanup receipts need no
+Windows-only `unstopped_pids` field. Unknown executable formats fail closed.
+The verifier's current operating system and a missing Windows ownership object
+never select the proof route. These receipt checks do not demonstrate native
+behavior on an untested platform.
 
 For a native run, include `reservation:{"path":"<READ-ONLY-RECORD>",
 "sha256":"<HASH>"}` in that run's manifest entry. The record must contain

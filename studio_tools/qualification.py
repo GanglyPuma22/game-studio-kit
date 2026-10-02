@@ -393,7 +393,7 @@ def run(config, project, url, phase, label, cutoff, reservation=None):
     receipt["evidence_verification"] = evidence
     receipt["evidence_complete"] = len(evidence) == 2 and all(item["ok"] for item in evidence)
     receipt["automated_checks"] = "passed" if passed else "failed"
-    if (phase == "native" and receipt["evidence_complete"] and len(results) == 2
+    if (phase == "native" and passed and receipt["evidence_complete"] and len(results) == 2
             and all(r["cleanroom"].get("ok") for r in results)):
         receipt["performance"] = compare_timing(observations, plan["thresholds"])
         if reservation_record.get("bounded_diagnostic_authorization"):
@@ -461,7 +461,7 @@ def attach(project, url, receipt_path, actor):
         roles = set()
         for result in results:
             observed = read_json(result)
-            if receipt.get("automated_checks") == "passed" and observed.get("automated_checks") != "passed":
+            if observed.get("automated_checks") != "passed":
                 raise StudioError("Passing evidence requires passed adapter checks for both roles")
             role = observed.get("identity", {}).get("role")
             if role not in ("baseline", "candidate") or role in roles:

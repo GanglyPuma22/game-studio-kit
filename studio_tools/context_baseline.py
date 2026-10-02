@@ -100,13 +100,24 @@ def _value(data: dict, path: str):
     return value
 
 
+def _equal(actual, expected):
+    """JSON equality preserves types, including inside lists and objects."""
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(actual, dict):
+        return actual.keys() == expected.keys() and all(_equal(actual[k], expected[k]) for k in actual)
+    if isinstance(actual, list):
+        return len(actual) == len(expected) and all(_equal(a, b) for a, b in zip(actual, expected))
+    return actual == expected
+
+
 def _checks(report: dict, rules: dict) -> None:
     if (not isinstance(rules, dict) or not (
             any(rules.get(kind) for kind in ("equal", "minimum", "maximum"))
             or any(item.get("required") for item in rules.get("coverage", [])))):
         raise StudioError("Baseline requires at least one functional assertion")
     for path, expected in rules.get("equal", {}).items():
-        if _value(report, path) != expected:
+        if not _equal(_value(report, path), expected):
             raise StudioError("Baseline report equality check failed: " + path)
     for comparison in ("minimum", "maximum"):
         for path, bound in rules.get(comparison, {}).items():
@@ -134,8 +145,51 @@ def _time(value, label):
         raise StudioError("Invalid baseline timestamp: " + label) from exc
 
 
+def _engine_platform(engine: Path) -> str:
+    """Use pinned executable bytes, never missing ownership, to select proof."""
+    with engine.open("rb") as stream:
+        header = stream.read(64)
+        if header[:2] == b"MZ" and len(header) == 64:
+            stream.seek(int.from_bytes(header[60:64], "little"))
+            if stream.read(4) == b"PE\x00\x00":
+                return "windows"
+        if header[:4] in (b"\x7fELF", b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe",
+                           b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",
+                           b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca",
+                           b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca"):
+            return "posix"
+    raise StudioError("Baseline engine platform cannot be verified from executable bytes")
+
+
+def _fixture_inputs(root: Path, repo: Path, commit: str, run: dict) -> list:
+    extra = run.get("fixture_inputs", [])
+    if not isinstance(extra, list) or any(not isinstance(name, str) or not name for name in extra):
+        raise StudioError("Baseline fixture inputs must be project-relative file paths")
+    names = list(dict.fromkeys(["project.godot", run["script"].removeprefix("res://"), *extra]))
+    records = []
+    for name in names:
+        path = relative(root, name)
+        committed = _committed(repo, commit, "game/" + name)
+        if not path.is_file():
+            raise StudioError("Baseline fixture input is missing: " + name)
+        copied = path.read_bytes()
+        pointer = re.fullmatch(rb"version https://git-lfs.github.com/spec/v1\n"
+                               rb"oid sha256:([0-9a-f]{64})\nsize (0|[1-9][0-9]*)\n?", committed)
+        if pointer:
+            matches = pointer.group(1).decode() == sha256(path) and int(pointer.group(2)) == len(copied)
+        else:
+            text = path.suffix in (".godot", ".gd", ".tscn", ".tres", ".json", ".cfg")
+            matches = (copied.replace(b"\r\n", b"\n") if text else copied) == committed
+        if not matches:
+            raise StudioError("Baseline fixture input differs from pinned game commit: " + name)
+        records.append({**file_record(root, path), "committed_sha256": hashlib.sha256(committed).hexdigest()})
+    return records
+
+
 def _run(root: Path, repo: Path, commit: str, run: dict, engine_sha256: str,
-         producer_kit: dict, retained: dict) -> dict:
+         producer_kit: dict, retained: dict, process_platform: str) -> dict:
+    if process_platform not in ("windows", "posix"):
+        raise StudioError("Baseline process platform is unverified")
     if run.get("mode") not in ("test", "native"):
         raise StudioError("Baseline fixture mode must be test or native")
     folder = "artifacts/launches/" + run["label"] + "/"
@@ -152,7 +206,7 @@ def _run(root: Path, repo: Path, commit: str, run: dict, engine_sha256: str,
             or exit_record.get("survivors", {}).get("status") != "ok"
             or exit_record.get("survivors", {}).get("stopped") is not True
             or exit_record.get("survivors", {}).get("pids") != []
-            or exit_record.get("survivors", {}).get("unstopped_pids") != []
+            or exit_record.get("survivors", {}).get("unstopped_pids", [] if process_platform == "posix" else None) != []
             or exit_record.get("survivors", {}).get("unverified") != []):
         raise StudioError("Owned Godot launch did not finish cleanly: " + run["label"])
     launch_path = relative(root, folder + "owned-launch.json")
@@ -176,13 +230,19 @@ def _run(root: Path, repo: Path, commit: str, run: dict, engine_sha256: str,
     ownership = process.get("windows_ownership", {})
     if (process.get("schema_version") != 1 or process.get("status") != "completed"
             or process.get("returncode") != 0 or process.get("pid") != launch.get("pid")
-            or ownership.get("status") != "ok"
-            or ownership.get("identity", {}).get("pid") != launch.get("pid")
-            or ownership.get("identity", {}).get("name") != launch.get("engine", {}).get("name")
-            or not ownership.get("identity", {}).get("created_filetime")
-            or not ownership.get("identity", {}).get("exited_filetime")
+            or type(process.get("pid")) is not int or process["pid"] <= 0
+            or process.get("cleanup") is not None
             or process.get("elapsed_seconds") != exit_record.get("elapsed_seconds")):
         raise StudioError("Owned Godot process receipt does not pair with launch: " + run["label"])
+    if process_platform == "windows":
+        if (not isinstance(ownership, dict) or ownership.get("status") != "ok"
+                or ownership.get("identity", {}).get("pid") != launch.get("pid")
+                or ownership.get("identity", {}).get("name") != launch.get("engine", {}).get("name")
+                or not ownership.get("identity", {}).get("created_filetime")
+                or not ownership.get("identity", {}).get("exited_filetime")):
+            raise StudioError("Windows process ownership is unverified: " + run["label"])
+    elif "windows_ownership" in process:
+        raise StudioError("POSIX process receipt contains incompatible Windows ownership")
     started = _time(launch.get("started_utc"), "launch started")
     process_started = _time(process.get("started_utc"), "process started")
     process_finished = _time(process.get("finished_utc"), "process finished")
@@ -196,11 +256,7 @@ def _run(root: Path, repo: Path, commit: str, run: dict, engine_sha256: str,
     if not run["script"].startswith("res://"):
         raise StudioError("Baseline fixture script must be project-relative")
     script_name = run["script"].removeprefix("res://")
-    script_path = relative(root, script_name)
-    if (not script_path.is_file() or
-            script_path.read_bytes().replace(b"\r\n", b"\n") !=
-            _committed(repo, commit, "game/" + script_name)):
-        raise StudioError("Baseline fixture script differs from pinned game commit")
+    fixture_inputs = _fixture_inputs(root, repo, commit, run)
     reservation = None
     if run["mode"] == "native":
         pin = run.get("reservation")
@@ -229,11 +285,14 @@ def _run(root: Path, repo: Path, commit: str, run: dict, engine_sha256: str,
                for item in exit_record.get("result_files", [])):
         raise StudioError("Baseline report is not the owned launch result: " + run["label"])
     _checks(report, run["checks"])
+    if run["captures"] and not run.get("capture_report"):
+        raise StudioError("Claimed baseline captures require a complete report manifest")
     if run.get("capture_report"):
         declared = _value(report, run["capture_report"])
         entries = list(declared.values()) if isinstance(declared, dict) else declared
         if (not isinstance(entries, list) or len(entries) != len(run["captures"])
-                or any(not isinstance(item, dict) or item.get("save_error") != 0 for item in entries)):
+                or any(not isinstance(item, dict) or type(item.get("save_error")) is not int
+                       or item["save_error"] != 0 for item in entries)):
             raise StudioError("Native baseline capture manifest is incomplete: " + run["label"])
         paths = set()
         for item in entries:
@@ -264,6 +323,8 @@ def _run(root: Path, repo: Path, commit: str, run: dict, engine_sha256: str,
     result = {"name": run["name"], "scope": run["scope"], "launch": file_record(root, exit_path),
             "owned_launch": file_record(root, launch_path), "process": file_record(root, process_path),
             "fixture_source_sha256": hashlib.sha256(_committed(repo, commit, "game/" + script_name)).hexdigest(),
+            "fixture_inputs": fixture_inputs,
+            "process_platform": process_platform,
             "resource_reservation": {"sha256": pin["sha256"], "checked_utc": reservation["checked_utc"],
                                      "host_ready": reservation.get("host_ready")}
             if reservation is not None else None,
@@ -271,7 +332,8 @@ def _run(root: Path, repo: Path, commit: str, run: dict, engine_sha256: str,
             "functional_checks": "passed", "human_visual_review": "pending",
             "performance_qualification": "unverified", "selected_animation_qualification": "not_attempted"}
     if any(result[key] != retained.get(key) for key in
-           ("scope", "launch", "owned_launch", "process", "fixture_source_sha256", "report", "captures")):
+           ("scope", "launch", "owned_launch", "process", "fixture_source_sha256", "fixture_inputs",
+            "report", "captures")):
         raise StudioError("Retained run or capture bytes differ from historical evidence: " + run["label"])
     return result
 
@@ -284,6 +346,14 @@ def verify(project, manifest_path, receipt_path):
         raise StudioError("Expected source-context baseline manifest v1")
     if not re.fullmatch(r"[0-9a-f]{40}", manifest.get("source_commit", "")):
         raise StudioError("Baseline manifest needs an exact game commit")
+    for collection in ("slots", "runs"):
+        if not isinstance(manifest.get(collection), list) or not manifest[collection]:
+            raise StudioError("Baseline requires nonempty " + collection)
+    for collection, key in (("slots", "name"), ("runs", "name"), ("runs", "label")):
+        values = [item.get(key) for item in manifest[collection] if isinstance(item, dict)]
+        if (len(values) != len(manifest[collection]) or any(not isinstance(value, str) or not value for value in values)
+                or len(set(values)) != len(values)):
+            raise StudioError("Baseline " + collection + " " + key + " values must be distinct nonempty strings")
     repo = Path(manifest["source_repository"]).resolve()
     catalog_path = Path(manifest["catalog_snapshot"]).resolve()
     if sha256(catalog_path) != manifest["catalog_sha256"]:
@@ -294,6 +364,7 @@ def verify(project, manifest_path, receipt_path):
     engine = Path(manifest["engine"]["path"]).resolve()
     if sha256(engine) != manifest["engine"]["sha256"]:
         raise StudioError("Baseline engine executable hash changed")
+    process_platform = _engine_platform(engine)
     pin = manifest.get("retained_evidence")
     if not isinstance(pin, dict):
         raise StudioError("Baseline requires pinned retained run evidence")
@@ -323,7 +394,7 @@ def verify(project, manifest_path, receipt_path):
     if len({slot["name"] for slot in slots}) != len(slots):
         raise StudioError("Baseline context slot names must be distinct")
     runs = [_run(root, repo, manifest["source_commit"], run, manifest["engine"]["sha256"],
-                 manifest["producer_kit"], retained_runs[run["name"]])
+                 manifest["producer_kit"], retained_runs[run["name"]], process_platform)
             for run in manifest["runs"]]
     if len({run["name"] for run in runs}) != len(runs):
         raise StudioError("Baseline run names must be distinct")

@@ -66,6 +66,21 @@ class FailedCheckAttachmentTests(unittest.TestCase):
         with patch.object(q, 'request', side_effect=self.api):
             self.assertTrue(q.attach(self.root, 'http://fixture', 'receipt.json', 'kit-fixture')['ok'])
 
+    def test_performance_pass_requires_passed_adapters_even_when_aggregate_failed(self):
+        for aggregate in ('failed', None):
+            for status in ('failed', None):
+                with self.subTest(aggregate=aggregate, adapter=status):
+                    self.receipt(status)
+                    path = self.root / 'receipt.json'
+                    receipt = json.loads(path.read_bytes())
+                    receipt['automated_checks'] = aggregate
+                    receipt['performance_qualification'] = 'passed'
+                    write_json(path, receipt)
+                    with patch.object(q, 'request') as api:
+                        with self.assertRaisesRegex(StudioError, 'adapter checks'):
+                            q.attach(self.root, 'http://fixture', 'receipt.json', 'kit-fixture')
+                        api.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
