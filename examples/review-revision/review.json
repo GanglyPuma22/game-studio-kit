@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "kind": "review-revision",
+  "builder": "builder",
+  "candidates": [
+    {
+      "path": "before-candidate.json",
+      "sha256": "1f1b4e1bbc127b5e691b44f03bd826e9ca7c941b6a086de57ba71ab7cf080d8e"
+    },
+    {
+      "path": "after-candidate.json",
+      "sha256": "a254367b24a803920a9de417e7f23077f2bdab71cd83cadeea718457e0aabfc2"
+    }
+  ],
+  "criteria": [
+    {
+      "id": "CONTACT",
+      "kind": "visual",
+      "subjects": [
+        "pocket-1"
+      ],
+      "required_scope": [
+        "close",
+        "reverse"
+      ],
+      "environment": "native"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "before-close",
+      "candidate_id": "before",
+      "content_digest": "46deca693cb25dd01ec77bf76a535e4d7d3e6fee23474b90117c36f7b1beaa91",
+      "criterion_id": "CONTACT",
+      "subjects": [
+        "pocket-1"
+      ],
+      "method": "still",
+      "environment": "native",
+      "observer": "synthetic observer",
+      "inspection": "performed",
+      "capability": "supported",
+      "inspected_scope": [
+        "close",
+        "reverse"
+      ],
+      "unknowns": [
+        "unexamined inland area"
+      ],
+      "location": "synthetic close/reverse notes",
+      "files": [
+        {
+          "path": "synthetic-notes.txt",
+          "sha256": "ca4204cf90fc55993813f1860e9422a61a7fcd1e3cbdd126f81758cdc3fa0219"
+        }
+      ]
+    },
+    {
+      "id": "after-close",
+      "candidate_id": "after",
+      "content_digest": "81971e720002fa88305536f76b2364b2c533bdcdfa01ec7a63b81cbd5225078f",
+      "criterion_id": "CONTACT",
+      "subjects": [
+        "pocket-1"
+      ],
+      "method": "still",
+      "environment": "native",
+      "observer": "synthetic observer",
+      "inspection": "performed",
+      "capability": "supported",
+      "inspected_scope": [
+        "close",
+        "reverse"
+      ],
+      "unknowns": [
+        "unexamined inland area"
+      ],
+      "location": "synthetic close/reverse notes",
+      "files": [
+        {
+          "path": "synthetic-notes.txt",
+          "sha256": "ca4204cf90fc55993813f1860e9422a61a7fcd1e3cbdd126f81758cdc3fa0219"
+        }
+      ]
+    }
+  ],
+  "defects": [
+    {
+      "defect_id": "pocket-1/CONTACT-01",
+      "criterion_id": "CONTACT",
+      "subjects": [
+        "pocket-1"
+      ],
+      "candidate_before": {
+        "candidate_id": "before",
+        "content_digest": "46deca693cb25dd01ec77bf76a535e4d7d3e6fee23474b90117c36f7b1beaa91"
+      },
+      "before_evidence": [
+        "before-close"
+      ],
+      "observed_defect": "Synthetic floating root",
+      "requested_outcome": "Synthetic rooted contact",
+      "candidate_after": {
+        "candidate_id": "after",
+        "content_digest": "81971e720002fa88305536f76b2364b2c533bdcdfa01ec7a63b81cbd5225078f"
+      },
+      "change_summary": "Synthetic revision",
+      "after_evidence": [
+        "after-close"
+      ],
+      "critic_recheck": {
+        "observer": "critic",
+        "status": "performed",
+        "verdict": "met",
+        "candidate_id": "after",
+        "content_digest": "81971e720002fa88305536f76b2364b2c533bdcdfa01ec7a63b81cbd5225078f",
+        "evidence": [
+          "after-close"
+        ],
+        "inspected_scope": [
+          "close",
+          "reverse"
+        ],
+        "unknowns": [
+          "inland not inspected"
+        ],
+        "observation": "Synthetic criterion rechecked"
+      },
+      "root_recheck": {
+        "observer": "builder",
+        "status": "performed",
+        "verdict": "met",
+        "candidate_id": "after",
+        "content_digest": "81971e720002fa88305536f76b2364b2c533bdcdfa01ec7a63b81cbd5225078f",
+        "evidence": [
+          "after-close"
+        ],
+        "inspected_scope": [
+          "close",
+          "reverse"
+        ],
+        "unknowns": [
+          "inland not inspected"
+        ],
+        "observation": "Synthetic criterion rechecked"
+      },
+      "root_decision": "closed"
+    }
+  ],
+  "human_acceptance": "pending"
+}

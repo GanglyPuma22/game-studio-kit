@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "kind": "candidate",
+  "inventory_version": 2,
+  "candidate_id": "after",
+  "content_files": [
+    {
+      "path": "after-source.txt",
+      "sha256": "77e1adb083742c195ae1fcfe4492f8debb36ef4e24148496429377d38e6880c9"
+    }
+  ],
+  "content_digest": "81971e720002fa88305536f76b2364b2c533bdcdfa01ec7a63b81cbd5225078f",
+  "workflow_files": [
+    {
+      "path": "after-source.txt",
+      "sha256": "77e1adb083742c195ae1fcfe4492f8debb36ef4e24148496429377d38e6880c9"
+    }
+  ],
+  "workflow_digest": "81971e720002fa88305536f76b2364b2c533bdcdfa01ec7a63b81cbd5225078f"
+}
