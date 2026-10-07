@@ -5,11 +5,11 @@
   "candidates": [
     {
       "path": "before-candidate.json",
-      "sha256": "1f1b4e1bbc127b5e691b44f03bd826e9ca7c941b6a086de57ba71ab7cf080d8e"
+      "sha256": "bf91a2c02ab3f36c2159a9a4ae1bd5d95bdb7373c7929cbfa96c7e849c7942ed"
     },
     {
       "path": "after-candidate.json",
-      "sha256": "a254367b24a803920a9de417e7f23077f2bdab71cd83cadeea718457e0aabfc2"
+      "sha256": "aec520d4ff9ff3e7bf29c7680a0d4d8c1c71c5d138fbf310638cfc3d09be7c6d"
     }
   ],
   "criteria": [
