@@ -272,7 +272,7 @@ def parser():
     c.add_argument("--output")
     c.add_argument("--preset")
     c = command("review", True)
-    c.add_argument("operation", choices=["validate-card", "prepare", "capture", "dense", "analyze", "assess", "compare", "validate-run", "fixtures", "ingest", "qualify"])
+    c.add_argument("operation", choices=["validate-card", "prepare", "capture", "dense", "analyze", "assess", "compare", "validate-run", "fixtures", "ingest", "qualify", "revision"])
     c.add_argument("--review", help="Named observer/evaluator JSON approved by host review_trust")
     c.add_argument("--card")
     c.add_argument("--candidate", default="artifacts/candidate.json")
@@ -285,7 +285,7 @@ def parser():
     c.add_argument("--profile", help="Explicit local recorder profile JSON")
     c.add_argument("--budget", help="Explicit clip-specific video authorization JSON")
     c.add_argument("--dense", help="Saved dense frames.json relative to project")
-    c.add_argument("--evidence", help="Bound timing/action evidence JSON")
+    c.add_argument("--evidence", help="Bound timing/action or supplemental revision evidence JSON")
     c.add_argument("--interval", nargs=2, type=float)
     c.add_argument("--output", default="artifacts/review-fixtures")
     c = command("candidate", True)
@@ -526,7 +526,7 @@ def dispatch(a):
     # Read-only validation does not create the project directory.
     root = (
         Path(a.project).resolve()
-        if a.command == "validate-record"
+        if a.command == "validate-record" or (a.command == "review" and a.operation == "revision")
         else output_root(a.project)
     )
 
@@ -547,6 +547,9 @@ def dispatch(a):
         if a.operation == "qualify":
             from .review_records import qualify
             return {"qualification": qualify(config, root, needed("review"))}
+        if a.operation == "revision":
+            from .review_revision import assess
+            return assess(root, needed("evidence"))
         if a.operation == "ingest":
             from .review_records import ingest
             return {"review": ingest(config, root, needed("run"), needed("review"))}

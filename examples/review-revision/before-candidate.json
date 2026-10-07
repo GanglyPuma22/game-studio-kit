@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "kind": "candidate",
+  "inventory_version": 2,
+  "candidate_id": "before",
+  "content_files": [
+    {
+      "path": "before-source.txt",
+      "sha256": "d7a0d631cfbeb551944af421349c43dc1878ce4370f1127c9262894cdd9fa8e1"
+    }
+  ],
+  "content_digest": "46deca693cb25dd01ec77bf76a535e4d7d3e6fee23474b90117c36f7b1beaa91",
+  "workflow_files": [
+    {
+      "path": "before-source.txt",
+      "sha256": "d7a0d631cfbeb551944af421349c43dc1878ce4370f1127c9262894cdd9fa8e1"
+    }
+  ],
+  "workflow_digest": "46deca693cb25dd01ec77bf76a535e4d7d3e6fee23474b90117c36f7b1beaa91"
+}
