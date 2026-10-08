@@ -17,6 +17,10 @@
 - Human versus quiet launch intent, delivered wrapper/args, effective game audio and independent import/live services:
 - Relevant acceptance dimensions and required evidence:
 - Current candidate/content/workflow identity:
+- Storage lifecycle ([reference](../references/storage-lifecycle.md)): canonical repository/branch/HEAD and initial overlay, active checkout/owner, candidate and fallback dependencies:
+- Reuse decision or concrete isolation need; additional allocation estimate (source/assets/LFS/cache/evidence), free space, owner and retirement condition:
+- Shared cache/object/package roots and compatibility; evidence summary/sampling/payload bounds and essential raw retention:
+- Authorized source/asset checkpoint and remote/archive recovery status; unpublished or unique state:
 - Completed work / known limits / next decision:
 
 Decision type picks the route before the first command: a perceptual question — silhouette, proportion, construction language, reference match, composition, material response, camera readability — starts in a persistent live scene, or labels a background result a time-boxed blockout that enters a visual loop immediately, because one monolithic generator run answers a look question with a take nobody watched being made; a deterministic operation — import, export, bake, reduction, measurement, qualification, replay of a settled edit — runs as an owned background job, because it has to leave a receipt and repeat tomorrow.
