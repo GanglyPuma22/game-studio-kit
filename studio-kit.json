@@ -59,6 +59,7 @@
     "references/portability.md",
     "references/production-contracts.md",
     "references/source-and-contact.md",
+    "references/storage-lifecycle.md",
     "references/tool-routing.md",
     "scripts/check_audio_import.py",
     "scripts/studio.py",

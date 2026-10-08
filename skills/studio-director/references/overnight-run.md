@@ -13,7 +13,7 @@ or [Linux setup](../../../docs/setup-linux.md#install-global-codex-rules-for-una
 
 ## 1. Preflight (under 20 minutes, no launches)
 
-`<GAME>` and `<run>` are the same path: the worktree created in step 1 below
+`<GAME>` and `<run>` are the same path: the checkout selected in step 1 below
 is both the run directory and the project root every kit command uses via
 `--project`. Say this once; the rest of the procedure writes only `<run>`.
 Everything the run writes lives under `<run>/artifacts/`: the hand-maintained
@@ -22,13 +22,20 @@ manifest, `feature-manifest.json`, and preflight receipts under
 `<run>/artifacts/run/host/`, one per attempt); everything else lands where the kit commands already put it
 (`<run>/artifacts/launches/`, `<run>/artifacts/bench/`, `<run>/artifacts/identity/`,
 `<run>/artifacts/candidate.json`). Every launch and bench label must start with `<run-id>-`
-so receipts from different runs are never confused with each other.
+so receipts from different runs are never confused with each other. Choose a
+unique run ID, including on a reused checkout, and unique result paths for every
+launch. Before replacing active `artifacts/run/` records or
+`artifacts/candidate.json`, preserve prior compact records under
+`artifacts/run-history/<previous-run-id>/`, with an index of their original paths
+and hashes. Leave referenced receipts, worker outputs and payloads in place; do
+not copy whole artifact trees. Coordinate this handover with the owner, and never
+replace records a live run still uses or overwrite completed referenced payloads.
 
-1. `git worktree add <run> <pinned revision>` into a path that does not exist yet; never the preserved candidate. `<run>` stays put for the whole run — never recreated or swapped mid-run, and every later stage's `--project` points at it.
+1. Follow [storage lifecycle](../../../references/storage-lifecycle.md): inspect checkout ownership, source HEAD/overlay, dependencies and free space; reuse a suitable active checkout by default. Record the initial source state in the work card. Only a concrete isolation need justifies `git worktree add <run> <pinned revision>` into a new path, with an allocation estimate, owner and retirement condition. Preserve the fallback and do not copy full caches/assets. `<run>` stays put for the whole run — never recreated or swapped mid-run, and every later stage's `--project` points at it.
 2. Create `<run>/artifacts/run/STATE.md` from [state](../../../templates/state.md).
 3. `python <KIT>/scripts/studio.py host preflight --window-start <UTC> --window-end <UTC> --output <run>/artifacts/run/host/preflight-<UTC stamp>.json`, a fresh stamped path per attempt so a failed receipt is never overwritten or deleted; record which one is current in `STATE.md` (a defined checkpoint, see below). This gate applies only on Windows hosts: `host preflight` reports `host_kind: unsupported` elsewhere. On Windows, stop with NEEDS-USER if it is not ready; `host apply` may run only after the user has validated the script by hand once. On any other host, record `host preflight: unsupported on this host` in `STATE.md` and continue; the cleanroom snapshot pair (stage 4) stays mandatory everywhere for performance evidence regardless of preflight support.
-4. Copy [identity-manifest](../../../templates/identity-manifest.json) to `<run>/artifacts/run/identity-manifest.json` and fill it from the production contract (engine path and sha256, project sources in this worktree), or use the manifest path the contract already provides.
-5. `python <KIT>/scripts/studio.py candidate verify --project <run> --manifest <run>/artifacts/run/identity-manifest.json` for the engine, helpers, sources and packages the contract names, hashed from this worktree. A mismatch stops the run. Verification records identities at the moment it runs; it must be run against the same worktree every later stage uses, never a worktree created or swapped afterward.
+4. Copy [identity-manifest](../../../templates/identity-manifest.json) to `<run>/artifacts/run/identity-manifest.json` and fill it from the production contract (engine path and sha256, project sources in the selected checkout), or use the manifest path the contract already provides.
+5. `python <KIT>/scripts/studio.py candidate verify --project <run> --manifest <run>/artifacts/run/identity-manifest.json` for the engine, helpers, sources and packages the contract names, hashed from the selected checkout. A mismatch stops the run. Verification records identities at the moment it runs; it must be run against the same checkout every later stage uses, never a checkout created or swapped afterward.
 6. Read the production contract's `settings.viewport` and `settings.renderer` (`project.json`). `launch --mode native` (`studio_tools/launch.py`'s `mode_flags`) unconditionally passes `--resolution 1920x1080 --rendering-method forward_plus`; there is no flag to change it. If the contract's declared viewport is not exactly `[1920, 1080]` or its declared renderer is not exactly `forward_plus`, record `declared render settings differ from the fixed native launch profile; no performance evidence citable` in `STATE.md` at this checkpoint and refuse stage 4 when it is reached; carry the same sentence into `RETURN.md`'s Not demonstrated section. This is a known limit of `launch --mode native`, not a bug to work around mid-run: the kit fixes native launches to 1920x1080/forward_plus, so this procedure only cites stage 4-7 evidence when the contract already declares that exact resolution and renderer.
 7. Copy [feature-manifest](../../../templates/feature-manifest.json) to `<run>/artifacts/run/feature-manifest.json` and fill `canonical_route` from the production contract's own `canonical_route` ([production contracts](../../../references/production-contracts.md)), recording `"route_source": "contract"`. A contract that predates that field has no route: derive one from its `input_route` and the project's main scene, record `"route_source": "derived"`, and flag it in `RETURN.md` for the user to confirm. Leave `features` empty; the run appends a row the moment a lane starts — when a worker is spawned for it, or when the root takes it on — carrying `"maturity": "in-progress"` and `"human_verdict": "pending"`, with `route_step`, `entry`, `installed_by` and `launch_flags` `null` until integration fills them. The row moves to `"maturity": "source-ready"` only when a checked deliverable exists, because a lane that opened at `source-ready` would claim a deliverable before anything had been produced. A row is created by the work existing, not by the work being wired: a manifest that holds only wired features cannot show a finished lane nobody integrated, which is the failure it exists to make visible. The template's example row has those four fields filled because it shows an integrated row.
 
@@ -293,14 +300,20 @@ player-facing metrics first (minutes of ordinary-control play, distance
 travelled, landings, encounters), then the scorecard by stage and scope, then
 what was not demonstrated, then the evidence index produced by
 `python <KIT>/scripts/studio.py evidence launches <run>/artifacts/launches`.
-A run never reuses a worktree: the pinned worktree from Preflight step 1 is
-`--project` for every launch this run makes, so `<run>/artifacts/launches`
-is this run's own inventory root and holds only its launches. There is no
-flag to filter by run; never place another run's launches under this
-worktree. If the run stopped before any launch was owned (at preflight or stage 2, so
-no `owned-launch.json` exists yet), skip that command — it raises when the
-run root has no launches — and write `launch inventory: none (no launches)`
-under Evidence index together with the stop reason.
+The selected checkout is `--project` for every launch this run makes. A reused
+checkout may contain earlier runs in `<run>/artifacts/launches`. There is no
+flag to filter by run: retain the complete inventory, then list this run's
+entries by their directory labels starting with its unique `<run-id>-`,
+including failures. Report current-run totals separately; combined inventory
+totals are not this run's totals. If this run stopped before owning any launch
+(at preflight or stage 2), write `launch inventory: none (no launches)` under
+Evidence index with the stop reason, even if earlier launches exist. Skip the
+command when no `owned-launch.json` exists anywhere under the inventory root.
+
+Complete [storage closeout](../../../references/storage-lifecycle.md#closeout)
+in the Return: source/asset preservation, unpublished state, evidence/cache
+growth, live dependencies, recovery proof and exact retirement candidates.
+Retirement planning grants no deletion authority.
 
 The scorecard may cite only receipts produced under the final candidate's
 `content_digest` (Section 2); a receipt left over from an earlier
@@ -356,9 +369,9 @@ When the production contract carries the authorization line
 handback that leaves the run's own output untracked makes the user baseline it by
 hand:
 
-1. Decide what is eligible: the files this run produced or changed that are part of the game. Never `artifacts/`, never machine-only evidence, never a path the contract's exclusion list names. Count what was left out.
+1. Decide what is eligible against the initial source state: the files this run produced or changed that are part of the game. Exclude unrelated pre-existing changes; an overlapping file needs an owner-reviewed separation before it is eligible. Never `artifacts/`, never machine-only evidence, never a path the contract's exclusion list names. Count what was left out.
 2. If nothing is eligible — the run stopped early, or every changed file was excluded — create no branch and commit nothing. Record `snapshot: no eligible changes, ref <current commit>` and the excluded count in both records, and stop here; an empty commit records a baseline that does not exist.
-3. Otherwise create branch `run/<run-id>` from the pinned worktree's current commit.
+3. Otherwise, at an owner-controlled checkpoint, create branch `run/<run-id>` from the selected checkout's current commit. Record its relationship to the canonical source branch; do not switch a checkout a live service or another writer depends on.
 4. Stage the eligible files by name: `git add -- <eligible paths>`, never a whole-tree add.
 5. Commit once, `git commit -m "run <run-id>: snapshot at Return" --only -- <eligible paths>`. `--only` commits those paths and nothing else, so a path some earlier action left in the index stays out of the snapshot; count it among the excluded.
 6. Record the branch ref and the count of excluded files in `STATE.md` and `RETURN.md`.
@@ -368,7 +381,7 @@ baseline the user can diff, never evidence of acceptance: a dimension passes on
 its receipts or not at all. Without the authorization line the run commits
 nothing and records `uncommitted overlay: <staged> staged, <modified> modified or
 deleted unstaged, <untracked> untracked` in both records instead, counted from
-`git status --porcelain` in the pinned worktree, so the size of what the user
+`git status --porcelain` in the selected checkout, so the size of what the user
 inherits is at least known — the unstaged column is there because a run's own
 edits to tracked files land in it.
 
