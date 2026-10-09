@@ -21,6 +21,16 @@ The boundary is the one [acceptance](../../references/acceptance.md) already dra
 
 ## The canonical route
 
+For evidence that will support a current-candidate review, pass
+`--content-identity strict`. The default `cached` mode speeds repeat starts by
+reusing file hashes from metadata and records that advisory identity method.
+Its unchanged-content diagnostic cannot prove unchanged bytes; cached receipts
+attach as identity `unknown`, retaining the observer's verdict independently.
+Strict mode hashes every included file before and after play (or at collect).
+Both modes prune excluded artifact/cache folders. Receipts record scan time,
+file count, cache hits and method for each phase; see
+[process and evidence lifecycle](../../references/execution-evidence.md).
+
 The project owns a short ordered list of route steps a player actually walks from
 the normal start: the canonical route. A run records it as `canonical_route` in
 [feature-manifest](../../templates/feature-manifest.json), and every feature the

@@ -11,12 +11,14 @@ and add the one claim that matters here: `ok` is run health, never acceptance.
 
 from __future__ import annotations
 from datetime import datetime, timezone
+from contextvars import ContextVar
 import json
 import math
 from pathlib import Path, PurePosixPath
 import re
 import shlex
 import subprocess
+import time
 import uuid
 from .adapters.godot import classify_log, self_contained
 from .common import (
@@ -44,6 +46,8 @@ LIMITS = [
     "descendants are enumerated by process group (POSIX) or parent walk (Windows); "
     "a process that re-parented out of both is not seen",
     "ready_seconds is a load-time measurement, never acceptance",
+    "metadata-cached content identity is advisory, never strict byte verification; "
+    "use --content-identity strict for evidence bound to a byte-hashed build",
 ]
 # Nobody waited for an attended session, so its receipt claims strictly less.
 ATTENDED_LIMITS = LIMITS + [
@@ -60,6 +64,7 @@ HARNESS_REPORT = "harness.json"
 HARNESS_ARGUMENT = "--studio-playtest="
 # Every field `collect` reads out of a receipt it did not write in this process.
 REQUIRED_RECEIPT_FIELDS = ("label", "engine", "expected_results", "started_utc")
+_CONTENT_SCAN = ContextVar("playtest_content_scan", default=(False, None))
 
 
 def _scene(scene):
@@ -244,10 +249,13 @@ def execute(
     label=None, max_minutes=None, cutoff_utc=None, results=(), scrub=(),
     passthrough=(), use_host_profile=False, emit_launcher=True,
     rendering_method=None, resolution=None, launch_profile=None,
+    content_identity="cached",
 ):
     """Verify identity, start the game once, and record the session."""
     if session not in SESSIONS:
         raise StudioError("Unknown playtest session; use handoff, attended or driven")
+    if content_identity not in {"strict", "cached"}:
+        raise StudioError("Content identity must be strict or cached")
     root = Path(project).resolve()
     if not root.is_dir():
         raise StudioError("Playtest needs an existing game project directory")
@@ -388,7 +396,7 @@ def execute(
     # what this session is about to be played on, named the way a candidate
     # record names it, so a human verdict can be bound to a build rather than
     # to a date.
-    content = content_digest(root)
+    content, content_scan = _measured_content_digest(root, content_identity)
     playtest = {
         "schema_version": 1,
         "kind": "playtest",
@@ -398,6 +406,9 @@ def execute(
         "scene": scene,
         "scene_sha256": _scene_digest(root, scene),
         "content_digest": content,
+        "content_identity": content_identity,
+        "content_identity_method": content_scan["method"],
+        "content_inventory": content_scan,
         "script": script,
         "engine": {"name": engine_path.name, "sha256": actual, "sha256_after_exit": None},
         "project": str(root),
@@ -578,21 +589,39 @@ def execute(
 
 
 def content_digest(root):
-    """The project's content identity, the same one a candidate record carries.
+    """Advisory project identity, using the candidate's inventory format.
 
-    `evidence.inventory` over the project, hashed the way `new_candidate`
-    hashes it, so a playtest receipt and a candidate record name the same
-    build with the same number. Receipts under `artifacts/` are excluded by
-    that inventory, so this session's own files never move it.
+    Receipts under `artifacts/` are excluded by that inventory. Direct calls
+    hash bytes; measured playtest calls may opt into metadata caching, whose
+    method is recorded separately and cannot prove candidate integrity.
 
     A project this host cannot inventory portably reports `None` rather than
     failing the session: the digest is evidence about the build, not a gate on
     playing it.
     """
+    cache, stats = _CONTENT_SCAN.get()
     try:
-        return digest(inventory(root))
+        return digest(inventory(root, cache=cache, stats=stats))
     except (StudioError, OSError):
+        if stats is not None:
+            stats.update(files=None, cache_hits=0, method="unavailable")
         return None
+
+
+def _measured_content_digest(root, identity):
+    # Keep content_digest(root)'s public one-argument shape, including mocks;
+    # only a completed actual inventory fills in the measurement's method.
+    stats = {"files": None, "cache_hits": 0, "method": "unavailable"}
+    started = time.perf_counter()
+    token = _CONTENT_SCAN.set((identity == "cached", stats))
+    try:
+        value = content_digest(root)
+    finally:
+        _CONTENT_SCAN.reset(token)
+    if value is None:
+        stats.update(files=None, cache_hits=0, method="unavailable")
+    stats["seconds"] = round(time.perf_counter() - started, 6)
+    return value, stats
 
 
 def _scene_digest(root, scene):
@@ -668,7 +697,7 @@ def _harness(root, run_dir, playtest):
 
 def _finish(root, run_dir, playtest, record, text, verdict, failure, survivors=None):
     diagnostics = classify_log(text)
-    after = content_digest(root)
+    after, after_scan = _measured_content_digest(root, playtest.get("content_identity", "strict"))
     # A session played on content that changed under it was not a session on
     # the build its own receipt names. Said in the diagnostics, where a reader
     # already looks for what to distrust about the run.
@@ -716,6 +745,11 @@ def _finish(root, run_dir, playtest, record, text, verdict, failure, survivors=N
         "survivors": survivors,
         "combined_log_bytes": log_path.stat().st_size if log_path.is_file() else 0,
         "content_digest": playtest.get("content_digest"),
+        "content_identity": playtest.get("content_identity", "strict"),
+        "content_identity_method": playtest.get("content_identity_method", "byte-hashed"),
+        "content_inventory": playtest.get("content_inventory"),
+        "content_identity_method_after_exit": after_scan["method"],
+        "content_inventory_after_exit": after_scan,
         "content_digest_after_exit": after,
         "diagnostics": diagnostics,
         "result_files": result_files,
@@ -813,7 +847,10 @@ def _collected(config, root, run_dir, record_path, playtest):
     # collection, which is a reason to distrust the evidence rather than a
     # claim about what was played. `content_changed_during_session` is left to
     # the sessions this kit actually waited for.
-    collect_content = content_digest(root)
+    identity = playtest.get("content_identity", "strict")
+    if identity not in {"strict", "cached"}:
+        raise StudioError("Playtest receipt has an invalid content identity mode")
+    collect_content, collect_scan = _measured_content_digest(root, identity)
     diagnostics["content_changed_before_collect"] = (
         playtest.get("content_digest") is not None
         and collect_content is not None
@@ -865,6 +902,11 @@ def _collected(config, root, run_dir, record_path, playtest):
         "survivors": None,
         "combined_log_bytes": log_path.stat().st_size if log_path.is_file() else 0,
         "content_digest": playtest.get("content_digest"),
+        "content_identity": identity,
+        "content_identity_method": playtest.get("content_identity_method", "byte-hashed"),
+        "content_inventory": playtest.get("content_inventory"),
+        "content_identity_method_at_collect": collect_scan["method"],
+        "content_inventory_at_collect": collect_scan,
         # Named for when it was taken. There is no observed exit to measure
         # after, so this is not `content_digest_after_exit`.
         "content_digest_at_collect": collect_content,
