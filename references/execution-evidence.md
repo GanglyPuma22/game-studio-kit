@@ -654,9 +654,29 @@ number is not a result a person has accepted.
 **Playtest content digest (`content_digest`, `content_digest_after_exit`,
 `content_changed_during_session`, `content_digest_at_collect`,
 `content_changed_before_collect`).** `playtest.json` records the project's
-content digest — `evidence.inventory` hashed exactly the way a candidate record
-hashes it — taken after the engine identity checks and before the engine starts,
-so a human verdict can be bound to a build rather than to a date. For a session
+content digest in the candidate inventory format, taken after the engine
+identity checks and before the engine starts. `--content-identity cached` is
+the default: it reuses hashes by size, nanosecond modification/creation-change
+times and file identity in `.studio/inventory-cache.json`. The cache is atomic,
+excluded from the inventory, and never read or written through a symlink or
+junction. Cache failures fall back to hashing; directory walk errors return a
+null identity rather than a partial digest. Excluded folders are pruned before
+descent. This removes work proportional to historical run artifacts.
+
+`--content-identity strict` hashes every included file in every phase and
+supports review evidence bound to a byte-hashed build. Candidate creation,
+candidate validation and launch-profile integrity checks always hash bytes.
+Metadata caching is advisory: identical or restored metadata, coarse timestamps,
+or an edited cache can hide changed bytes. Even a byte-hashed scan is not an
+atomic snapshot of a tree changing concurrently. No unchanged diagnostic proves
+integrity. In cached mode a file changing during its read fails the scan without
+publishing a reusable hash. Receipts record `content_identity`, `content_identity_method`
+and `content_inventory` (seconds, files, cache_hits, method), with matching
+`_after_exit` or `_at_collect` fields for the later phase. Failed or unmeasured
+scans use method `unavailable`. Metadata-cached receipts attach as identity
+`unknown`; the human's observation remains recorded, but cannot support a
+current-content pass. Use strict mode for that review. Legacy receipts retain
+their original meaning and collect with byte hashing. For a session
 this kit waited for, `exit.json` records the same measurement again when the
 engine exits, as `content_digest_after_exit`, and a difference between the two
 is reported in `diagnostics` as `content_changed_during_session: true`. An

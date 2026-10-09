@@ -110,6 +110,8 @@ def parser():
     c.add_argument("--use-host-profile", action="store_true",
                    help="Play on the real user profile so saves and settings persist")
     c.add_argument("--no-launcher", action="store_true", help="Skip the re-runnable relaunch script")
+    c.add_argument("--content-identity", choices=["strict", "cached"], default="cached",
+                   help="cached advisory content digest (default), or strict byte hashing for review evidence")
     c.add_argument("--cutoff-utc", help="ISO 8601 UTC instant after which no playtest may start or run")
     c.add_argument("--profile", help="Project-relative launch profile JSON; see templates/launch-profile.json")
     c.add_argument("--check", action="store_true",
@@ -434,6 +436,7 @@ def dispatch(a):
             cutoff_utc=a.cutoff_utc, results=fields.get("results", []),
             scrub=fields.get("scrub_env", []), passthrough=fields.get("passthrough", []),
             use_host_profile=a.use_host_profile, emit_launcher=not a.no_launcher,
+            content_identity=a.content_identity,
             rendering_method=fields.get("rendering_method"),
             resolution=fields.get("resolution"), **extra,
         )
