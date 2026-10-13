@@ -458,6 +458,7 @@ def new_candidate(project, candidate_id, engine_version, workflow):
             "studio_tools",
             "scripts",
             ".codex-plugin",
+            ".claude-plugin",
         )
         for p in sorted((kit / folder).rglob("*"))
         if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"

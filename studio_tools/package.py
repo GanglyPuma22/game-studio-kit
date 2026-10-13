@@ -18,6 +18,13 @@ def check(root):
             errors.append("plugin name/skills disagree with studio-kit.json")
         if plugin.get("version") != manifest.get("version"):
             errors.append("plugin version disagrees with package")
+        claude_path = root / ".claude-plugin/plugin.json"
+        if claude_path.is_file():
+            claude = read_json(claude_path)
+            if claude.get("name") != manifest.get("name") or claude.get("version") != manifest.get("version"):
+                errors.append("Claude plugin name/version disagree with package")
+            if claude.get("skills", "./skills/") not in ("./skills/", ["./skills/"]):
+                errors.append("Claude plugin must load the shared skills directory")
         names = set()
         for skill in manifest["skills"]:
             if skill["name"] in names:

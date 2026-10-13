@@ -1,0 +1,10 @@
+{
+  "name": "game-studio-kit",
+  "version": "0.1.9",
+  "description": "Local game production skills for Blender, Godot, asset workflows and evidence-based review.",
+  "author": {
+    "name": "Game Studio Kit contributors"
+  },
+  "repository": "https://github.com/GanglyPuma22/game-studio-kit",
+  "license": "MIT"
+}

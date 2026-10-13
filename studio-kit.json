@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "game-studio-kit",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "skills": [
     {
       "name": "studio-director",
@@ -49,6 +49,9 @@
     }
   ],
   "resources": [
+    ".claude-plugin/plugin.json",
+    ".claude-plugin/marketplace.json",
+    "docs/claude-code.md",
     "examples/review-loop/create.py",
     "examples/review-loop/qualification.py",
     "references/acceptance.md",
