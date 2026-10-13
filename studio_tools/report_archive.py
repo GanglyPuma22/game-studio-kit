@@ -3,7 +3,7 @@ import base64
 import gzip
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from .common import outside_package, relative
 
 CHUNK = 1024 * 1024
@@ -36,12 +36,13 @@ def expand(archive, expected_size, expected_hash, output=None):
 
 def archive_report(source, archive, *, provenance=None):
     source, archive = Path(source).resolve(), Path(archive).absolute()
-    outside_package(archive)
     manifest = Path(str(archive) + '.manifest.json')
     if source.suffix.lower() != '.json':
         raise ValueError('Select an explicit completed .json report')
-    if archive.exists() or manifest.exists():
+    if archive.exists() or archive.is_symlink() or manifest.exists() or manifest.is_symlink():
         raise FileExistsError('Archive or manifest already exists; refusing overwrite')
+    archive = outside_package(archive)
+    manifest = outside_package(Path(str(archive) + '.manifest.json'))
     archive_created = manifest_created = False
     try:
         with source.open('rb') as src, archive.open('xb') as dst:
@@ -105,10 +106,14 @@ def verify_archive(archive):
             if hashlib.sha256(raw).hexdigest() != provenance[key]['sha256']:
                 raise ValueError('Preserved receipt hash mismatch')
             saved[key] = json.loads(raw)
+        expected_project = _source_project(record['source_path'], provenance['result_path'])
+        if ('expected_project' in provenance
+                and _lexical_path(provenance['expected_project']) != expected_project):
+            raise ValueError('Archive project does not match preserved source location')
+        _validate_terminal_pair(saved['exit_receipt'], saved['owned_launch'], expected_project)
         rows = [r for r in saved['exit_receipt'].get('result_files', [])
                 if r.get('path') == provenance['result_path']]
-        if (len(rows) != 1 or not rows[0].get('present')
-                or any(rows[0].get(k) for k in ('stale', 'escaped', 'unreadable'))
+        if (len(rows) != 1 or not _fresh_result(rows[0])
                 or rows[0].get('sha256') != record['source_sha256']
                 or provenance['result_sha256'] != record['source_sha256']
                 or any(r.get('label') != provenance['label'] for r in saved.values())):
@@ -122,7 +127,9 @@ def verify_archive(archive):
 def restore_report(archive, output):
     record = verify_archive(archive)
     output = Path(output)
-    outside_package(output)
+    if output.exists() or output.is_symlink():
+        raise FileExistsError('Restore output already exists; refusing overwrite')
+    output = outside_package(output)
     created = False
     try:
         with output.open('xb') as stream:
@@ -145,6 +152,63 @@ def _snapshot(path):
                            'bytes_base64': base64.b64encode(raw).decode('ascii')}
 
 
+def _lexical_path(value):
+    """Compare historical absolute paths without probing this host's filesystem."""
+    if not isinstance(value, str) or not value:
+        raise ValueError('Need an absolute recorded project/source path')
+    windows = PureWindowsPath(value)
+    if windows.drive:
+        path = windows
+        kind = 'windows'
+        parts = tuple(part.lower() for part in path.parts)
+    else:
+        path = PurePosixPath(value)
+        kind = 'posix'
+        parts = path.parts
+    if not path.is_absolute() or '..' in path.parts:
+        raise ValueError('Need an absolute recorded project/source path')
+    return kind, parts
+
+
+def _source_project(source, result):
+    if (not isinstance(result, str) or not result or '\\' in result or ':' in result
+            or PurePosixPath(result).is_absolute() or '..' in PurePosixPath(result).parts):
+        raise ValueError('Need a portable project-relative result path')
+    kind, source_parts = _lexical_path(source)
+    result_parts = PurePosixPath(result).parts
+    if not result_parts:
+        raise ValueError('Need a portable project-relative result path')
+    if kind == 'windows':
+        result_parts = tuple(part.lower() for part in result_parts)
+    if (len(source_parts) <= len(result_parts)
+            or source_parts[-len(result_parts):] != result_parts):
+        raise ValueError('Preserved result does not match source location')
+    return kind, source_parts[:-len(result_parts)]
+
+
+def _validate_terminal_pair(record, launch, expected_project):
+    if not isinstance(record, dict) or not isinstance(launch, dict):
+        raise ValueError('Need paired terminal launch records')
+    survivors = record.get('survivors')
+    survivors_clear = survivors == [] or (isinstance(survivors, dict)
+        and survivors.get('status') == 'ok' and survivors.get('stopped') is True
+        and not survivors.get('unstopped_pids') and not survivors.get('unverified'))
+    finished = record.get('finished_utc')
+    label = record.get('label')
+    if (record.get('kind') != 'launch-exit' or launch.get('kind') != 'owned-launch'
+            or not isinstance(finished, str) or not finished.strip()
+            or record.get('status') not in ('completed', 'failed', 'timed_out')
+            or not survivors_clear
+            or not isinstance(label, str) or not label.strip() or label != launch.get('label')
+            or _lexical_path(launch.get('project')) != expected_project):
+        raise ValueError('Need paired terminal launch records for this project, with no survivors')
+
+
+def _fresh_result(row):
+    return (row.get('present') is True and row.get('stale') is False
+            and not any(row.get(k) for k in ('escaped', 'unreadable')))
+
+
 def linked_archive(project, receipt, source, archive, *, completed=False):
     """Bind one declared result to immutable copies of its existing launch records."""
     if not completed:
@@ -156,17 +220,7 @@ def linked_archive(project, receipt, source, archive, *, completed=False):
     receipt.relative_to(root)
     record, saved_exit = _snapshot(receipt)
     launch, saved_launch = _snapshot(receipt.parent / 'owned-launch.json')
-    survivors = record.get('survivors')
-    survivors_clear = survivors == [] or (isinstance(survivors, dict)
-        and survivors.get('status') == 'ok' and survivors.get('stopped') is True
-        and not survivors.get('unstopped_pids') and not survivors.get('unverified'))
-    if (record.get('kind') != 'launch-exit' or launch.get('kind') != 'owned-launch'
-            or not record.get('finished_utc')
-            or record.get('status') not in ('completed', 'failed', 'timed_out')
-            or not survivors_clear
-            or not record.get('label') or record['label'] != launch.get('label')
-            or Path(launch.get('project', '')).resolve() != root):
-        raise ValueError('Need paired terminal launch records for this project, with no survivors')
+    _validate_terminal_pair(record, launch, _lexical_path(str(root)))
     matches = []
     for row in record.get('result_files', []):
         target = relative(root, row['path'])
@@ -175,10 +229,11 @@ def linked_archive(project, receipt, source, archive, *, completed=False):
     if len(matches) != 1:
         raise ValueError('Source must be exactly one declared result in the exit receipt')
     row = matches[0]
-    if (not row.get('present') or any(row.get(k) for k in ('stale', 'escaped', 'unreadable'))
+    if (not _fresh_result(row)
             or digest(source)[1] != row.get('sha256')):
         raise ValueError('Source does not match the fresh result recorded at exit')
     provenance = {'kind': 'studio-launch-result', 'label': record['label'],
+                  'expected_project': str(root),
                   'result_path': row['path'], 'result_sha256': row['sha256'],
                   'exit_receipt': saved_exit, 'owned_launch': saved_launch,
                   'limits': 'Preserves recorded identity; does not add missing source identity or acceptance'}
