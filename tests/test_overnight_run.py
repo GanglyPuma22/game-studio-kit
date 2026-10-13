@@ -259,10 +259,11 @@ class OvernightRunTests(unittest.TestCase):
 
     def test_launch_rows_bound_by_stage_deadline(self):
         procedure = PROCEDURE.read_text(encoding="utf-8")
-        # 4 stage-table rows (3, 5, 6, 7) plus the cleanroom-wrapped launch in Section 4.
-        self.assertEqual(
-            procedure.count("--timeout <remaining, max 3600> --cutoff-utc <stage deadline>"), 5
-        )
+        # Native diagnostic stages keep launch bounds; human stage 7 uses playtest.
+        for stage in (3, 5, 6):
+            row = next(line for line in procedure.splitlines() if line.startswith(f"| {stage} "))
+            self.assertIn("--timeout <remaining, max 3600>", row)
+            self.assertIn("--cutoff-utc <stage deadline>", row)
         section = procedure[procedure.index("## 4. Benchmarks"):procedure.index("## 5. Return")]
         self.assertIn("--timeout <remaining, max 3600> --cutoff-utc <stage deadline>", section)
         self.assertIn("host config's default timeout is not a stage bound", procedure)

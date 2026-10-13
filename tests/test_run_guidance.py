@@ -1,7 +1,10 @@
 """The run guidance a Codex agent executes: waiting, feature rows, tiers, snapshots."""
 
+import ast
 import json
 from pathlib import Path
+import re
+import shlex
 import unittest
 
 from studio_tools.cli import parser
@@ -520,6 +523,75 @@ class RunContinuationGuidanceTests(unittest.TestCase):
             self.assertIn("actual UTC cutoff", body)
             self.assertIn("All authorized lanes", body)
             self.assertIn("validated run-decision", body)
+
+class HumanReviewGuidanceTests(unittest.TestCase):
+    def test_stage_seven_recipe_parses_as_bounded_strict_human_play(self):
+        procedure = text(PROCEDURE)
+        row = next(line for line in procedure.splitlines() if line.startswith("| 7 "))
+        self.assertIn("playtest start", row)
+        self.assertNotIn("launch --mode", row)
+        section = procedure.split("**Stage 7 human review.**", 1)[1].split("**Launch deadlines.**", 1)[0]
+        recipe = section.split("```text", 1)[1].split("```", 1)[0]
+        values = {
+            "KIT": "KIT", "run": "GAME", "host config": "HOST",
+            "engine": "HASH", "bounded minutes": "30",
+            "operation deadline": "2026-10-14T18:00:00Z", "run-id": "review",
+        }
+        recipe = re.sub(r"<([^>]+)>", lambda match: values[match[1]], recipe)
+        argv = shlex.split(recipe.replace("\\\n", " "))[2:]
+        args = parser().parse_args(argv)
+        self.assertEqual((args.command, args.operation, args.session), ("playtest", "start", "handoff"))
+        self.assertEqual(args.content_identity, "strict")
+        self.assertGreater(args.max_minutes, 0)
+        self.assertEqual(args.cutoff_utc, values["operation deadline"])
+        self.assertEqual((args.project, args.config, args.sha256), ("GAME", "HOST", "HASH"))
+        self.assertEqual(args.passthrough, [])
+
+    def test_acceptance_guidance_names_actual_session_specific_receipt_fields(self):
+        tree = ast.parse(text(ROOT / "studio_tools/playtest.py"))
+        for function, digest_key, method_key, diagnostic in (
+            ("_finish", "content_digest_after_exit", "content_identity_method_after_exit", "content_changed_during_session"),
+            ("_collected", "content_digest_at_collect", "content_identity_method_at_collect", "content_changed_before_collect"),
+        ):
+            node = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == function)
+            constants = {node.value for node in ast.walk(node) if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+            for field in ("exit.json", digest_key, method_key, diagnostic):
+                self.assertIn(field, constants, function)
+                for path in (PROCEDURE, PLAYTEST, REVIEW):
+                    self.assertIn(field, text(path), path.name)
+        for path in (PROCEDURE, PLAYTEST, REVIEW):
+            body = text(path)
+            for requirement in ("--content-identity strict", "byte-hashed", "unknown", "final candidate", "human acceptance"):
+                self.assertIn(requirement, body, path.name)
+            self.assertNotIn("`collect.json`", body, path.name)
+
+    def test_attended_guidance_preserves_manual_close_and_admission_only_cutoff(self):
+        for path in (PROCEDURE, PLAYTEST):
+            body = " ".join(text(path).split())
+            for requirement in ("admission only", "cannot enforce", "manual", "exact task-owned game window"):
+                self.assertIn(requirement, body, path.name)
+        args = parser().parse_args([
+            "playtest", "start", "--project", "GAME", "--config", "HOST", "--sha256", "HASH",
+            "--session", "attended", "--max-minutes", "0", "--content-identity", "strict",
+            "--cutoff-utc", "2026-10-14T18:00:00Z",
+        ])
+        self.assertEqual((args.session, args.max_minutes), ("attended", 0))
+        collect = parser().parse_args(["playtest", "collect", "--project", "GAME", "--config", "HOST", "--label", "review-7-1"])
+        self.assertEqual((collect.operation, collect.project, collect.config, collect.label), ("collect", "GAME", "HOST", "review-7-1"))
+
+    def test_all_lanes_blocked_distinguishes_mode_targets_and_unfinished_lanes(self):
+        stop = " ".join(text(PROCEDURE).split("## 6. Stop rules", 1)[1].split())
+        for requirement in ("completion_maturity", "completion_evidence", "development mode", "omitted target", "strict-mode", "Feasible, deferred or below-target", "pending human"):
+            self.assertIn(requirement, stop)
+        self.assertNotIn("for that authority needs complete status and user-accepted maturity", stop)
+
+    def test_preflight_identity_mismatch_blocks_affected_lane(self):
+        preflight = " ".join(text(PROCEDURE).split("## 1. Preflight", 1)[1].split("## 2. Stage gates", 1)[0].split())
+        self.assertIn("mismatch blocks the affected candidate/engine lane", preflight)
+        self.assertIn("repair its identity before launching it", preflight)
+        self.assertIn("independent safe authorized work", preflight)
+        self.assertNotIn("A mismatch stops the run", preflight)
+
 
 if __name__ == "__main__":
     unittest.main()
