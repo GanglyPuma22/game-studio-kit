@@ -116,6 +116,7 @@
     "studio_tools/package.py",
     "studio_tools/processes.py",
     "studio_tools/records.py",
+    "studio_tools/report_archive.py",
     "studio_tools/review_media.py",
     "studio_tools/review_records.py",
     "studio_tools/review_video.py",
