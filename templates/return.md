@@ -38,6 +38,13 @@ pending the user until every mandatory dimension above is `pass`.
 - Live edit journal (`artifacts/blender/journal/<source-stem>.json`, one checkpoint per save; a checkpoint without a project script and its hash is transcript-only and not reproducible):
 - Snapshot commit (`run/<run-id>` ref and excluded-file count, written only when the contract carries `snapshot_commit: authorized`, or `snapshot: no eligible changes, ref <current commit>` when nothing was eligible; otherwise `uncommitted overlay: <staged> staged, <modified> modified or deleted unstaged, <untracked> untracked`):
 
+## Storage closeout
+- [Storage lifecycle](../references/storage-lifecycle.md); active repository/branch/HEAD, candidate, fallback launcher and dependencies:
+- Unpublished source overlays, unique assets/evidence/saves/drafts and preservation gaps:
+- Authorized Git/LFS checkpoint; verified remote refs/LFS objects or archive restore proof (a pointer alone is unverified):
+- Output/cache/shared-object roots, measured growth and evidence bounds; lossless cold archive identity/restore check:
+- Owner release and exact retirement candidates with keep/archive/hold reasons; cleanup authorization status:
+
 ## Budget used
 - Wall clock / cutoff:
 - Root compactions / worker spawns:

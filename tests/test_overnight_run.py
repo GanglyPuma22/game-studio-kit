@@ -189,10 +189,12 @@ class OvernightRunTests(unittest.TestCase):
             self.assertIn("host_kind: unsupported", text)
             self.assertIn("Windows", text)
 
-    def test_launch_inventory_root_is_the_run_worktree(self):
+    def test_reused_checkout_inventory_separates_current_run(self):
         procedure = PROCEDURE.read_text(encoding="utf-8")
-        self.assertIn("never reuses a worktree", procedure)
+        self.assertNotIn("never reuses a worktree", procedure)
+        self.assertIn("reuse a suitable active checkout by default", procedure)
         self.assertIn("There is no\nflag to filter by run", procedure)
+        self.assertIn("combined inventory\ntotals are not this run\'s totals", procedure)
 
     def test_worker_brief_omits_incomplete_fields_instead_of_using_null(self):
         brief = (ROOT / "templates/worker-brief.md").read_text(encoding="utf-8")
