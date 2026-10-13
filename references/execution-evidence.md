@@ -78,6 +78,41 @@ sampling/size bounds by default; full scene dumps are an explicit bounded
 diagnostic choice. Preserve essential raw inputs, failures and receipt identities
 losslessly. Keep active files and historical verdicts intact.
 
+### Verified post-capture archives
+
+After the producer and timed measurement window have ended, archive a declared
+JSON result with its paired `exit.json` and `owned-launch.json`:
+
+```text
+python <KIT>/scripts/studio.py evidence archive --project <GAME> --receipt <absolute-exit.json> --source <absolute-result.json> --output <absolute-new.json.gz> --completed
+python <KIT>/scripts/studio.py evidence archive-verify --archive <absolute-new.json.gz>
+python <KIT>/scripts/studio.py evidence restore --archive <absolute-new.json.gz> --output <absolute-new-restored.json>
+```
+
+All paths are explicit; source must be inside the project and match exactly one
+fresh, hash-recorded result in the terminal exit receipt. The launch label and
+project must match and survivor cleanup must be verified. Failed runs can retain
+their diagnostic evidence too; archival does not change their verdict.
+
+The gzip sidecar `.manifest.json` binds original/archived sizes and SHA-256 hashes
+to exact preserved bytes of both receipts. It verifies decompressed bytes before
+returning. This preserves every sample and JSON numeric spelling, but cannot add
+source/content identity absent from the original experiment. The original receipts
+are never edited. Archive plus sidecar must travel together; verification remains
+possible without original files. The preserved receipt copies are base64 bytes,
+not encryption or signatures; keep private evidence private.
+
+Existing readers still use JSON. Restore to a new explicit location when needed;
+no implicit restore, overwrite, deletion, upload or compressed-reader migration is
+performed. Original `evidence verify` intentionally still reports a missing raw
+file if someone later removes it. Use `archive-verify` for archived evidence and
+retain the manifest mapping with the run's Return. Paths refer to recorded history,
+not authority to overwrite a restored project's files.
+
+This command is opt-in and never runs in the launch timing path. It reduces disk
+representation, not capture overhead. Approve retirement separately only after
+consumer/owner review and any required off-machine recovery verification.
+
 ## Time and pass accounting
 
 Reuse the work card's authorization and budget. Keep a single event ledger of

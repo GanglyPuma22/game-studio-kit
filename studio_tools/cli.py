@@ -121,11 +121,14 @@ def parser():
     c.add_argument("--project", required=True, help="Explicit game/output root outside the toolkit")
     c.add_argument("--label", required=True, help="The attended session to complete, exactly once")
     c = command("evidence")
-    c.add_argument("operation", choices=["launches", "verify"])
+    c.add_argument("operation", choices=["launches", "verify", "archive", "archive-verify", "restore"])
     c.add_argument("run_root", nargs="?", help="Run root to index; `launches` only")
     c.add_argument("--output", help="Inventory JSON path; default is a dated file under the run root")
     c.add_argument("--receipt", help="Receipt whose recorded result files are re-hashed; `verify` only")
     c.add_argument("--project", help="Project root the receipt's recorded paths are relative to")
+    c.add_argument("--source", help="Explicit completed JSON result to archive")
+    c.add_argument("--archive", help="Gzip archive path for archive-verify or restore")
+    c.add_argument("--completed", action="store_true", help="Confirm the result producer has finished")
     # A remainder positional cannot follow another positional, so bench nests its operation.
     bench = sub.add_parser("bench")
     c = bench.add_subparsers(dest="operation", required=True).add_parser("cleanroom")
@@ -303,7 +306,7 @@ def main(argv=None):
         result = dispatch(args)
         print(json.dumps(result, indent=2, allow_nan=False))
         return 0 if result.get("ok", True) else 1
-    except (StudioError, OSError, KeyError, TypeError, ValueError) as exc:
+    except (StudioError, OSError, EOFError, KeyError, TypeError, ValueError) as exc:
         # Only application errors deliberately constructed as safe strings are exposed.
         error = (
             str(exc)
@@ -438,6 +441,20 @@ def dispatch(a):
             resolution=fields.get("resolution"), **extra,
         )
     if a.command == "evidence":
+        if a.operation in ("archive", "archive-verify", "restore"):
+            from .report_archive import linked_archive, verify_archive, restore_report
+
+            if a.operation == "archive":
+                if not all((a.project, a.receipt, a.source, a.output, a.completed)):
+                    raise StudioError("evidence archive needs --project --receipt --source --output --completed")
+                return linked_archive(a.project, a.receipt, a.source, a.output, completed=True)
+            if not a.archive:
+                raise StudioError("Archive operation needs --archive")
+            if a.operation == "archive-verify":
+                return verify_archive(a.archive)
+            if not a.output:
+                raise StudioError("evidence restore needs --output (a new file)")
+            return restore_report(a.archive, a.output)
         if a.operation == "verify":
             from .evidence import verify_receipt
 
