@@ -1,0 +1,3 @@
+# Evidence fixture hashes require identical bytes on every platform.
+*.json text eol=lf
+*.txt -text
