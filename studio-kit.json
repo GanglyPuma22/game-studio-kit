@@ -119,6 +119,7 @@
     "studio_tools/report_archive.py",
     "studio_tools/review_media.py",
     "studio_tools/review_records.py",
+    "studio_tools/review_revision.py",
     "studio_tools/review_video.py",
     "studio_tools/validation.py",
     "templates/asset.json",
