@@ -3,7 +3,9 @@
 from pathlib import Path, PurePosixPath
 from datetime import datetime, timezone
 import re
+import os
 import shutil
+import stat
 import uuid
 from .common import (
     digest, file_record, kit_identity, StudioError, read_json, safe_id, sha256, write_json,
@@ -14,18 +16,111 @@ from .records import required, verify_file, DIMENSIONS, VERDICTS
 EXCLUDED = {".git", ".godot", "artifacts", "__pycache__", ".studio"}
 
 
-def inventory(project, *, portable=True):
-    root = Path(project).resolve()
-    files = [
-        file_record(root, p)
-        for p in sorted(root.rglob("*"))
-        if p.is_file()
-        and not p.is_symlink()
-        and not any(x in EXCLUDED for x in p.relative_to(root).parts)
-        and p.name not in {".studio-local.json"}
-    ]
+def _inventory_paths(root):
+    def failed(error):
+        # os.walk otherwise silently omits unreadable subtrees.
+        raise error
 
-    return canonical_inventory(files, portable=portable)
+    for directory, dirs, names in os.walk(root, onerror=failed, followlinks=False):
+        dirs[:] = [name for name in dirs if name not in EXCLUDED]
+        for name in names:
+            if name in EXCLUDED or name == ".studio-local.json":
+                continue
+            path = Path(directory) / name
+            if path.is_file() and not path.is_symlink():
+                yield path
+
+
+def _cache_path(root):
+    """Never read/write the advisory cache through a symlink or junction."""
+    folder = root / ".studio"
+    path = folder / "inventory-cache.json"
+    for target in (folder, path):
+        try:
+            attributes = getattr(target.lstat(), "st_file_attributes", 0)
+        except FileNotFoundError:
+            attributes = 0
+        if target.is_symlink() or attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+            raise StudioError("Inventory cache path is a link")
+        if not target.resolve().is_relative_to(root):
+            raise StudioError("Inventory cache path escapes the project")
+    return path
+
+
+def _file_metadata(path):
+    value = path.stat()
+    return {name: getattr(value, name, None) for name in
+            ("st_size", "st_mtime_ns", "st_ctime_ns", "st_dev", "st_ino")}
+
+
+def inventory(project, *, portable=True, cache=False, stats=None):
+    """Inventory bytes by default; opt-in metadata caching is advisory only.
+
+    A cache cannot establish strict integrity: metadata can be restored or a
+    cache edited. Candidate creation/validation and profile gates never opt in.
+    """
+    root = Path(project).resolve()
+    if stats is not None:
+        stats.update(files=None, cache_hits=0, method="unavailable")
+    if not cache:
+        files = canonical_inventory(
+            [file_record(root, path) for path in sorted(_inventory_paths(root))],
+            portable=portable,
+        )
+        if stats is not None:
+            stats.update(files=len(files), cache_hits=0, method="byte-hashed")
+        return files
+    cached = {}
+    cache_path = None
+    if cache:
+        try:
+            cache_path = _cache_path(root)
+        except (StudioError, OSError):
+            pass
+        try:
+            if cache_path is None:
+                raise StudioError("Cache unavailable")
+            if cache_path.is_file():
+                record = read_json(cache_path)
+                if not isinstance(record, dict) or record.get("schema_version") != 1 or not isinstance(record.get("files"), dict):
+                    raise StudioError("Invalid inventory cache")
+                cached = record["files"]
+        except (StudioError, OSError):
+            cached = {}  # A corrupt/unreadable safe cache is an empty cache.
+    files = []
+    updated = {}
+    hits = 0
+    for path in sorted(_inventory_paths(root)):
+        # Match file_record's resolved path semantics, including junctions.
+        resolved = path.resolve()
+        name = resolved.relative_to(root).as_posix()
+        before = _file_metadata(path)
+        prior = cached.get(name)
+        if (cache_path is not None and isinstance(prior, dict)
+                and prior.get("metadata") == before
+                and isinstance(prior.get("sha256"), str)
+                and re.fullmatch(r"[0-9a-f]{64}", prior["sha256"])):
+            item = {"path": name, "sha256": prior["sha256"]}
+            hits += 1
+        else:
+            item = file_record(root, path)
+        after = _file_metadata(path)
+        if before != after or path.resolve() != resolved or path.is_symlink():
+            raise StudioError("Project file changed while inventorying: " + name)
+        files.append(item)
+        updated[name] = {"metadata": after, "sha256": item["sha256"]}
+    files = canonical_inventory(files, portable=portable)
+    if cache_path is not None:
+        try:
+            cache_path.parent.mkdir(exist_ok=True)
+            # Recheck after creating the directory, before the atomic replace.
+            write_json(_cache_path(root), {"schema_version": 1, "files": updated})
+        except (StudioError, OSError):
+            pass  # Cache persistence must never gate a playtest.
+    if stats is not None:
+        stats.update(files=len(files), cache_hits=hits,
+                     method="metadata-cached" if cache_path is not None else "byte-hashed")
+    return files
 
 
 def canonical_inventory(files, *, portable=True):
@@ -89,6 +184,9 @@ def receipt_identity(receipt, candidate, evidence=None):
     inventory the candidate names — not that the files on disk match it today,
     which is `validate_candidate`'s job.
 
+    A declared metadata-cached or unavailable identity is always unknown:
+    matching advisory hashes cannot establish a current-content review.
+
     The receipt is asked first, because a capture receipt records the candidate
     it was taken from. A bench receipt does not: `cleanroom.json` knows a
     project and a window, never a candidate, and it is the row an operator
@@ -97,6 +195,10 @@ def receipt_identity(receipt, candidate, evidence=None):
     recorded one is `unknown`. That is weaker than `historical`: it says
     nothing was recorded, not that something was and has moved on.
     """
+    for source in (receipt, evidence):
+        if (isinstance(source, dict) and "content_identity_method" in source
+                and source["content_identity_method"] != "byte-hashed"):
+            return "unknown"
     recorded = _recorded_digest(receipt, evidence)
     if recorded is None:
         return "unknown"
@@ -191,6 +293,11 @@ def attach_evidence(candidate, dimension, evidence, receipt=None):
     source = receipt if isinstance(receipt, dict) else evidence
     entry = dict(evidence)
     entry["identity"] = receipt_identity(receipt, candidate, evidence)
+    identity_method = evidence.get("content_identity_method")
+    if identity_method in (None, "byte-hashed"):
+        identity_method = source.get("content_identity_method", identity_method)
+    if isinstance(identity_method, str):
+        entry["content_identity_method"] = identity_method
     performance_class = source.get("performance_class")
     if isinstance(performance_class, str) and performance_class:
         entry["performance_class"] = performance_class
@@ -456,6 +563,9 @@ def validate_candidate(record, root):
         for item in evidence_items:
             if not isinstance(item, dict):
                 raise StudioError("Verdict evidence entries must be JSON objects: " + dimension)
+            if (row_identity(item) == "current" and "content_identity_method" in item
+                    and item["content_identity_method"] != "byte-hashed"):
+                raise StudioError("Current evidence needs byte-hashed content identity: " + dimension)
             if row_identity(item) not in IDENTITIES:
                 raise StudioError(
                     "Evidence identity must be current, historical or unknown: "
