@@ -930,7 +930,69 @@ class PlaytestContentDigestTests(PlaytestCase):
         self.assertIsNone(result["content_digest"])
         self.assertIsNone(result["content_digest_after_exit"])
         self.assertFalse(result["diagnostics"]["content_changed_during_session"])
+        self.assertEqual(result["content_identity_method"], "unavailable")
+        self.assertEqual(result["content_inventory_after_exit"]["method"], "unavailable")
         self.assertEqual(result["verdict"], "completed")
+
+    def test_cached_phase_metrics_and_method_are_persisted(self):
+        first = self.execute("print('played')", label="cache-first", max_minutes=1)
+        record = read_json(self.root / "artifacts/playtests/cache-first/playtest.json")
+        self.assertEqual(record["content_identity"], "cached")
+        self.assertEqual(record["content_identity_method"], "metadata-cached")
+        self.assertEqual(record["content_inventory"]["cache_hits"], 0)
+        files = record["content_inventory"]["files"]
+        self.assertGreater(files, 0)
+        self.assertGreaterEqual(record["content_inventory"]["seconds"], 0)
+        self.assertEqual(first["content_inventory_after_exit"]["cache_hits"], files)
+        second = self.execute("print('played')", label="cache-second", max_minutes=1)
+        self.assertEqual(second["content_inventory"]["cache_hits"], files)
+        self.assertEqual(second["content_digest"], first["content_digest"])
+
+    def test_strict_mode_hashes_all_phases_and_collection_respects_it(self):
+        from studio_tools.evidence import inventory
+        from studio_tools.common import digest
+        expected = digest(inventory(self.root))
+        waited = self.execute("print('played')", label="strict-waited", max_minutes=1,
+                              content_identity="strict")
+        self.assertEqual(waited["content_digest"], expected)
+        for field in ("content_inventory", "content_inventory_after_exit"):
+            self.assertEqual(waited[field]["method"], "byte-hashed")
+            self.assertEqual(waited[field]["cache_hits"], 0)
+        started = self.attend("print('played')", label="strict-attended", content_identity="strict")
+        self.settled(started["pid"])
+        collected = playtest.collect(self.config, self.root, "strict-attended")
+        self.assertEqual(collected["content_identity_method_at_collect"], "byte-hashed")
+        self.assertEqual(collected["content_inventory_at_collect"]["cache_hits"], 0)
+        self.assertFalse((self.root / ".studio/inventory-cache.json").exists())
+
+    def test_cached_collection_reports_its_own_metrics(self):
+        started = self.attend("print('played')", label="cached-attended")
+        self.settled(started["pid"])
+        collected = playtest.collect(self.config, self.root, "cached-attended")
+        self.assertEqual(collected["content_identity_method_at_collect"], "metadata-cached")
+        self.assertEqual(collected["content_inventory_at_collect"]["cache_hits"],
+                         collected["content_inventory_at_collect"]["files"])
+
+    def test_mocked_unmeasured_digest_never_claims_a_verified_method(self):
+        with patch("studio_tools.playtest.content_digest", return_value="a" * 64):
+            result = self.execute("print('played')", label="mocked", max_minutes=1)
+        self.assertEqual(result["content_identity_method"], "unavailable")
+        self.assertIsNone(result["content_inventory"]["files"])
+        # The context is reset even when a digest callable raises.
+        with patch("studio_tools.playtest.content_digest", side_effect=RuntimeError("fixture")):
+            with self.assertRaises(RuntimeError):
+                playtest._measured_content_digest(self.root, "cached")
+        self.assertEqual(playtest._CONTENT_SCAN.get(), (False, None))
+
+    def test_cli_content_identity_flag_is_explicit_and_not_passthrough(self):
+        args = cli.parser().parse_args([
+            "playtest", "start", "--project", str(self.root), "--sha256", self.sha,
+            "--content-identity", "strict",
+        ])
+        with patch("studio_tools.playtest.execute", return_value={}) as execute:
+            cli.dispatch(args)
+        self.assertEqual(execute.call_args.kwargs["content_identity"], "strict")
+        self.assertEqual(execute.call_args.kwargs["passthrough"], [])
 
 
 if __name__ == "__main__":
