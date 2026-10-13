@@ -44,11 +44,25 @@ and it is the absence of a verdict — then `accepted` or `rejected`. An accepte
 row's `content_digest` is copied from this session's own `playtest.json`, which
 records the digest computed before the engine started: that is the build the
 person walked through, and copying it is what binds the verdict to content
-rather than to a moment. Never type one. The session's `exit.json` records
-`content_digest_after_exit` as well, and a session whose receipts differ carries
-`diagnostics.content_changed_during_session`; it cannot support `accepted` at
-all, because the observation belongs to one of two builds and the receipt cannot
-say which, so the feature is observed again on a build that stayed still. Observed in the scene where it was built is not that: an
+rather than to a moment. Never type one. Both blocking and attended sessions
+write `exit.json`, with different later identity fields:
+
+| Session | Later digest in `exit.json` | Change diagnostic |
+|---|---|---|
+| Blocking handoff/driven | `content_digest_after_exit` | `diagnostics.content_changed_during_session` |
+| Attended, collected once | `content_digest_at_collect` | `diagnostics.content_changed_before_collect` |
+
+Acceptance requires strict identity with `byte-hashed` methods at startup
+(`content_identity_method`) and at the applicable later phase
+(`content_identity_method_after_exit` or `content_identity_method_at_collect`).
+Compare that later digest with `playtest.json`'s `content_digest`; attended
+collection measures at collection, not at an observed exit. Differing or
+unavailable digests, a true applicable change diagnostic, or metadata-cached/
+unknown identity support no `accepted` row. The feature is observed again on a build that stayed still.
+The row's digest must match the current final candidate's content and reviewed
+scope; a historical session needs a fresh review. Neither matching hashes nor
+a successful record checker grants human acceptance.
+Observed in the scene where it was built is not that: an
 isolated scene shows the feature runs, not that the game reaches it. Two features
 that passed in their own scenes went into a handback unwired, because nothing in
 the run had to name the step a player would meet them on. When a row's
@@ -66,6 +80,17 @@ not installed, and it is reported that way.
 `--max-minutes 0` removes the cap and is legal only for `handoff` and `attended`, where a person decides when the session ends. A `driven` session has nobody at the controls and stays bounded. `attended` goes further: nothing waits for it, so a cap could only be written into the receipt and never applied, and a non-zero `--max-minutes` there is refused rather than recorded.
 
 An `attended` session is completed by exactly one `playtest collect --label <label>`, run after the player says they are done. Calling `collect` repeatedly to find out whether the game has closed yet is polling, which the [overnight rules](../studio-director/references/overnight-run.md) forbid; the second call is refused rather than supported. Ask, or wait to be told.
+
+Pass `--project <game>` and `--config <host config>` to both start and collect,
+and the pinned `--sha256 <engine>` to start. In a bounded human review, handoff
+uses a positive `--max-minutes` and an explicit `--cutoff-utc <operation deadline>`;
+the earlier bound ends the owned run. Attended returns immediately, cannot enforce
+a duration, and its cutoff gates admission only. The player or root desktop
+operator must manually close the exact task-owned game window before collection;
+collect does not close it, observe its exit or clean surviving descendants.
+Use blocking handoff/driven or an owned `launch` when an enforced unattended
+runtime bound is required. A driven/launch diagnostic never substitutes for
+ordinary play or human acceptance; desktop operation stays with the root/operator.
 
 Isolation is the default and throws away saves and settings between runs, which is right for a clean first look and wrong for anything about progression, settings or a save file. `--use-host-profile` plays on the real user profile and records `"profile": "host"`, so the receipt is never ambiguous about which one ran.
 

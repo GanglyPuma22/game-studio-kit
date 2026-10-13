@@ -48,7 +48,7 @@ replace records a live run still uses or overwrite completed referenced payloads
 2. Create `<run>/artifacts/run/STATE.md` from [state](../../../templates/state.md).
 3. `python <KIT>/scripts/studio.py host preflight --window-start <UTC> --window-end <UTC> --output <run>/artifacts/run/host/preflight-<UTC stamp>.json`, a fresh stamped path per attempt so a failed receipt is never overwritten or deleted; record which one is current in `STATE.md` (a defined checkpoint, see below). This gate applies only on Windows hosts: `host preflight` reports `host_kind: unsupported` elsewhere. On Windows, block engine launches with NEEDS-USER if it is not ready; safe independent source work may continue; `host apply` may run only after the user has validated the script by hand once. On any other host, record `host preflight: unsupported on this host` in `STATE.md` and continue; the cleanroom snapshot pair (stage 4) stays mandatory everywhere for performance evidence regardless of preflight support.
 4. Copy [identity-manifest](../../../templates/identity-manifest.json) to `<run>/artifacts/run/identity-manifest.json` and fill it from the production contract (engine path and sha256, project sources in the selected checkout), or use the manifest path the contract already provides.
-5. `python <KIT>/scripts/studio.py candidate verify --project <run> --manifest <run>/artifacts/run/identity-manifest.json` for the engine, helpers, sources and packages the contract names, hashed from the selected checkout. A mismatch stops the run. Verification records identities at the moment it runs; it must be run against the same checkout every later stage uses, never a checkout created or swapped afterward.
+5. `python <KIT>/scripts/studio.py candidate verify --project <run> --manifest <run>/artifacts/run/identity-manifest.json` for the engine, helpers, sources and packages the contract names, hashed from the selected checkout. A mismatch blocks the affected candidate/engine lane; repair its identity before launching it, and continue genuinely independent safe authorized work. Verification records identities at the moment it runs; it must be run against the same checkout every later stage uses, never a checkout created or swapped afterward.
 6. Read the production contract's `settings.viewport` and `settings.renderer` (`project.json`). `launch --mode native` (`studio_tools/launch.py`'s `mode_flags`) unconditionally passes `--resolution 1920x1080 --rendering-method forward_plus`; there is no flag to change it. If the contract's declared viewport is not exactly `[1920, 1080]` or its declared renderer is not exactly `forward_plus`, record `declared render settings differ from the fixed native launch profile; no performance evidence citable` in `STATE.md` at this checkpoint and refuse performance qualification when stage 4 is reached; carry the same sentence into `RETURN.md`'s Not demonstrated section. This is a known limit of `launch --mode native`, not a bug to work around mid-run: the kit fixes native launches to 1920x1080/forward_plus, so performance qualification requires that exact declared profile. Safe native visual/traversal observation under recorded actual settings may continue; it supplies no contract-profile performance pass.
 7. Copy [feature-manifest](../../../templates/feature-manifest.json) to `<run>/artifacts/run/feature-manifest.json` and fill `canonical_route` from the production contract's own `canonical_route` ([production contracts](../../../references/production-contracts.md)), recording `"route_source": "contract"`. A contract that predates that field has no route: derive one from its `input_route` and the project's main scene, record `"route_source": "derived"`, and flag it in `RETURN.md` for the user to confirm. Leave `features` empty; the run appends a row the moment a lane starts — when a worker is spawned for it, or when the root takes it on — carrying `"maturity": "in-progress"` and `"human_verdict": "pending"`, with `route_step`, `entry`, `installed_by` and `launch_flags` `null` until integration fills them. The row moves to `"maturity": "source-ready"` only when a checked deliverable exists, because a lane that opened at `source-ready` would claim a deliverable before anything had been produced. A row is created by the work existing, not by the work being wired: a manifest that holds only wired features cannot show a finished lane nobody integrated, which is the failure it exists to make visible. The template's example row has those four fields filled because it shows an integrated row.
 
@@ -107,7 +107,7 @@ can authorize whole-run termination.
 | 4 Performance cleanroom | root, idle | `bench cleanroom -- launch ...` with `attributable: true` | one capture per rung plus one repeat (five for the four-rung example) | 45 | frame miss/noisy attribution → bounded repair, defer or continue safe integration/review |
 | 5 Traversal | root | `launch --mode native --timeout <remaining, max 3600> --cutoff-utc <stage deadline>` with the game's route probe and synthetic input ([studio-playtest](../../studio-playtest/SKILL.md)) | 3 per hypothesis, 6 planned in total | 60 | harness bug → headless fixture; hypothesis allowance exhausted → stop hypothesis and switch lanes |
 | 6 Visual review | root, desktop | `launch --mode native --timeout <remaining, max 3600> --cutoff-utc <stage deadline>` native stills against the style reference | 2 | 45 | no defect list → review remains unverified; choose next useful operation |
-| 7 Audiovisual and human acceptance | operator, then user | `launch --mode native --timeout <remaining, max 3600> --cutoff-utc <stage deadline>` recorded route, listening notes | 1 | 30 | never claimed by the root |
+| 7 Audiovisual and human acceptance | root owns desktop; available human operator, then user | `playtest start --session handoff --content-identity strict --max-minutes <bounded minutes> --cutoff-utc <operation deadline>` ordinary route, listening notes, `playtest.json` + `exit.json` | 1 | 30 | human unavailable → diagnostic/pending; acceptance never claimed by the root |
 
 **Stage 2 completion.** The compile report must carry `compile_verdict: pass`
 or `compile_verdict: fail`; `fail` or a missing report blocks that candidate's engine use;
@@ -205,7 +205,37 @@ native --script`, since `playtest`'s session modes all assume somebody is
 there; `playtest --session driven` is the same harness with a person available
 to look at the result.
 
-**Launch deadlines.** Every `launch` invocation — stages 3, 5, 6 and 7 above,
+**Stage 7 human review.** With a human operator available, use the current final
+candidate and its canonical route with ordinary controls:
+
+```text
+python "<KIT>/scripts/studio.py" playtest start --project "<run>" --config "<host config>" --sha256 <engine> --session handoff --content-identity strict --max-minutes <bounded minutes> --cutoff-utc <operation deadline> --label <run-id>-7-1
+```
+
+Keep the verified checkout, pinned engine path/hash and applicable host preflight
+from earlier stages. Carry the contract's startup scene, renderer, viewport,
+save/settings choice and required flags through the supported playtest arguments
+or a verified project-owned `--profile <review profile>`; use that profile's
+`--check` before starting when applicable. Do not guess missing startup inputs or
+launch an incompatible identity. Playtest uses project render settings unless
+explicitly overridden; this review does not change stage 4's fixed-renderer
+qualification rules. The root owns the desktop and records scope, route and
+listening evidence. When no human operator is available, audiovisual observations
+remain diagnostic and human review pending; an unattended harness never replaces
+ordinary play or acceptance.
+
+Optional `--session attended --max-minutes 0` returns immediately. It cannot
+enforce a duration: `--cutoff-utc` gates admission only, never runtime. Arrange
+manual close of the exact task-owned game window by the player or root operator,
+then run exactly one `playtest collect --project <run> --config <host config>
+--label <run-id>-7-1` after the player has finished and quit. Collection neither
+closes the window nor observes its exit status, elapsed runtime or surviving
+descendants. Use a blocking handoff/driven session or an owned `launch` when an
+enforced unattended runtime bound is required; driven/launch diagnostics still
+cannot supply human acceptance. The existing root/worker desktop boundary and
+one-wait rules apply.
+
+**Launch deadlines.** Every `launch` invocation — stages 3, 5 and 6 above,
 and the cleanroom-wrapped launch in Section 4 — passes `--timeout <seconds
 remaining in the stage, max 3600>` and `--cutoff-utc <stage deadline UTC>`
 explicitly. The host config's default timeout is not a stage bound. The
@@ -218,6 +248,12 @@ command. Batch forwards its earlier deadline to each launch; cleanroom bounds
 settling and its owned capture without rewriting arbitrary capture arguments.
 The policy validator does not automatically load policy or supply these flags;
 see [runtime cutoff use](../../../docs/development-cutoff-review.md).
+Stage 7's blocking playtest instead passes a positive `--max-minutes` within the
+remaining operation window and `--cutoff-utc <operation deadline>`; its runtime
+ends at the earlier bound and it writes its own `exit.json`. Recompute both
+before starting against the same earlier-of-cutoff operation deadline. Attended
+review has only the admission cutoff described above, so it cannot be used to
+promise an enforced runtime deadline.
 
 **Tell the harness to wait.** A blocking command only works if the tool call
 carrying it waits as long as the command may run. Set the outer yield directive
@@ -358,17 +394,29 @@ record of what was wired in and who saw it. A row's `human_verdict` is `pending`
 (the value it is created with, which is the absence of a verdict), `accepted` or
 `rejected`; only `accepted` with evidence on the canonical route at the final
 `content_digest` is acceptance ([studio-playtest](../../studio-playtest/SKILL.md)).
-A row may be set to `accepted` only when its `evidence` holds the session's own
+A row may be set to `accepted` only after ordinary human review started with
+`--content-identity strict`, with a `byte-hashed` method recorded for both identity
+phases, and when its `evidence` holds the session's own
 receipts, and its `content_digest` is copied from that session's
 `playtest.json`, which records the digest computed before the engine started —
-the build the person actually saw. Copy it; never type one. The session's
-`exit.json` records `content_digest_after_exit`, and when the two differ it
-carries `diagnostics.content_changed_during_session`: that session cannot
-support `accepted`, because nobody can say which of the two builds the
-observation belongs to, and the feature has to be observed again on a build that
+the build the person actually saw. Copy it; never type one. Both session shapes
+write `exit.json`, with identity taken at different times:
+
+| Session | Later digest in `exit.json` | Change diagnostic |
+|---|---|---|
+| Blocking handoff/driven | `content_digest_after_exit` | `diagnostics.content_changed_during_session` |
+| Attended, collected once | `content_digest_at_collect` | `diagnostics.content_changed_before_collect` |
+
+Compare the applicable later digest with `playtest.json`'s `content_digest`;
+check `content_identity_method` and the applicable
+`content_identity_method_after_exit` or `content_identity_method_at_collect`.
+Attended collection measures at collection, not at an observed exit. A differing
+or unavailable digest, a true applicable change diagnostic, or metadata-cached/
+unknown identity cannot support `accepted`. The feature has to be observed again on a build that
 stayed still. A row whose `content_digest` differs from the final candidate's is
 historical: it cannot be accepted for that candidate, and the feature has to be
 observed again.
+Matching hashes or a successful record checker never grants human acceptance.
 `RETURN.md`'s Accepted features line points at the manifest, and every row that
 is not `accepted` is listed under Not demonstrated: a `rejected` row with the
 reason it was rejected, a `pending` row as unreviewed. A feature that ran green
@@ -435,9 +483,14 @@ at each explicitly declared lane target (`development_complete`, development mod
 only, with human acceptance still pending), explicitly authorized strict
 `stop_run` gate failure, or every
 meaningful remaining lane binding-blocked. An omitted, deferred or merely
-unqualified lane cannot establish all-lanes-blocked. A lane counted as finished
-for that authority needs complete status and user-accepted maturity; a completed
-source deliverable still awaits integration/review. Human stop takes effect
+unqualified lane cannot establish all-lanes-blocked. That authority needs at least
+one binding-blocked lane. A lane counted as finished needs `complete` status,
+hashed `completion_evidence` and maturity at or beyond its policy
+`completion_maturity` in development mode; an omitted target and every strict-mode
+lane retain the `user-accepted` threshold. Feasible, deferred or below-target
+lanes prevent this stop. A completed source deliverable still awaits any required
+integration/review; an explicit source target does not erase pending human review.
+See [run policy](../../../references/run-policy.md). Human stop takes effect
 immediately even when time remains. Development completion and human acceptance are distinct. An omitted lane
 completion target retains the user-accepted threshold. Never lower an integration
 or native-review target to disguise unfinished work. Preserve all pending human
