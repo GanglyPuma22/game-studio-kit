@@ -459,6 +459,57 @@ PowerShell at all. `--output` and `--receipt` must be outside
 the installed toolkit, like every other output. On non-Windows hosts preflight
 reports `host_kind: unsupported` and apply refuses.
 
+## Explicit isolated profile seeds
+
+An optional `profile_seed` field in a launch or playtest profile copies declared
+raw bytes into a fresh owned isolated profile before the engine starts. It has
+exactly `platform` and `files`; each of 1–8 files has exactly `source`, `target`
+and `sha256`. Sources are project-relative regular files; targets are relative
+to the isolated profile root. Each file is at most 1 MiB, with 8 MiB total.
+Hashes are mandatory SHA-256 of raw bytes, including original line endings.
+There are no command hooks, directory copies, inline contents or environment
+fields. For example, after hashing a project-owned settings file:
+
+```json
+"profile_seed": {
+  "platform": "windows",
+  "files": [{
+    "source": "settings/startup.cfg",
+    "target": "Godot/app_userdata/EXAMPLE/startup.cfg",
+    "sha256": "<64 hexadecimal characters from the raw source bytes>"
+  }]
+}
+```
+
+This initial contract requires native Windows and an explicitly configured
+`.exe` engine. It refuses path mappings, other platforms, `--use-host-profile`
+and self-contained Godot engines. The caller declares the verified target;
+the kit does not infer `user://` or read game settings to guess a directory.
+Unknown fields remain errors, including legacy `settings_override` metadata.
+Portable paths refuse absolute paths, traversal, empty/dot segments,
+backslashes, ADS, control characters, placeholders, device names and trailing
+dots/spaces. Targets cannot duplicate or collide with parents, ignoring case.
+Source and destination ancestry is checked for links and Windows reparse points
+before resolution. Hardlinked seed files are refused too.
+
+Declarations and bounded source snapshots are checked before label reservation.
+`--check` verifies real seed hashes and host conflicts without making a profile
+or starting a child; an identity manifest may still write its existing verification
+receipt. Execution creates an exclusive profile and exclusive target files,
+never overwrites, and leaves refused preparation evidence if copying fails.
+After the slow prelaunch process snapshot and engine rehash, it rechecks source
+and copied bytes, path safety, profile ownership and the named launch-profile
+JSON hash, then checks the cutoff last. Direct Python execution follows the
+same validation as CLI profiles.
+
+Seed receipts carry only relative source/target paths, byte counts, hashes,
+status and setup time. Setup time is separate from `ready_seconds`. They do
+not embed contents or host source paths. No seed field is added to default
+no-seed receipts. A generated direct relaunch script explicitly says it does
+not reproduce seed initialization. These checks guard setup and detect changes;
+they are not a hostile-process filesystem sandbox or evidence of native
+initialization parity, gameplay performance or human acceptance.
+
 ## Fields that say what a receipt does not prove
 
 **Evidence identity (`identity`, `evidence_current`, `evidence_total`).** Every

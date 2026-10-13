@@ -20,6 +20,7 @@ from .common import (
 )
 from .config import app_path, require_executable
 from .processes import prelaunch_baseline, run, stop_survivors
+from . import profile_seed as seeds
 
 MODES = ("import", "test", "check", "native")
 MAX_TIMEOUT = 3600
@@ -164,9 +165,10 @@ def _readable_digest(path):
 def execute(
     config, project, *, sha256_expected, mode="import", script=None,
     timeout=None, cutoff_utc=None, label=None, scope=None, results=(), scrub=(), passthrough=(),
-    launch_profile=None,
+    launch_profile=None, profile_seed=None,
 ):
     """Verify identity, launch once, wait, and return a verdict with receipts."""
+    seed = seeds.snapshot(config, project, profile_seed)
     root = Path(project).resolve()
     if not root.is_dir():
         raise StudioError("Launch needs an existing game project directory")
@@ -200,6 +202,8 @@ def execute(
     scope = safe_id(scope) if scope is not None else None
     # The launch directory is contained like a declared result: a symlinked
     # artifacts/ must not move these receipts out of the project or into the kit.
+    if seed is not None:
+        seeds.safe_components(root / f"artifacts/launches/{label}/profile")
     run_dir = owned = outside_package(relative(root, f"artifacts/launches/{label}"))
     expected = []
     results_before = []
@@ -258,11 +262,29 @@ def execute(
         "pid": None,
         "process_record": "process/process.json" if verdict is None else None,
     }
+    if seed is not None:
+        launch["profile_seed"] = seed.receipt
     write_json(run_dir / "owned-launch.json", launch)
     if verdict == "cutoff_passed":
         return _finish(root, run_dir, launch, None, "", verdict, "Authorized cutoff already passed")
     profile = run_dir / "profile"
-    profile.mkdir()
+    try:
+        seed.prepare(profile) if seed is not None else profile.mkdir()
+    except StudioError as exc:
+        seed.refuse()
+        launch.update(status="refused", timeout_seconds_effective=None, process_record=None)
+        write_json(run_dir / "owned-launch.json", launch)
+        return _finish(root, run_dir, launch, None, "", "profile_seed_refused", str(exc))
+    except KeyboardInterrupt:
+        if seed is not None:
+            seed.refuse()
+            launch.update(status="interrupted", timeout_seconds_effective=None, process_record=None)
+            write_json(run_dir / "owned-launch.json", launch)
+            _finish(root, run_dir, launch, None, "", "interrupted",
+                    "launch interrupted during profile seed preparation")
+        raise
+    if seed is not None:
+        write_json(run_dir / "owned-launch.json", launch)
     environment = _scrubbed(prefixes)
     for key in PROFILE_KEYS:
         environment[key] = app_path(config, profile, "godot")
@@ -273,6 +295,14 @@ def execute(
     # authorized window after that window was judged open.
     try:
         baseline = prelaunch_baseline(hide_window=mode != "native")
+    except (StudioError, OSError):
+        if seed is None:
+            raise
+        seed.refuse()
+        launch.update(status="refused", timeout_seconds_effective=None, process_record=None)
+        write_json(run_dir / "owned-launch.json", launch)
+        return _finish(root, run_dir, launch, None, "", "profile_seed_refused",
+                       "Seeded launch preparation could not complete before process start")
     except KeyboardInterrupt:
         # The receipts for this label already exist; an interrupt during the
         # enumeration must leave them saying so rather than "launching".
@@ -293,6 +323,22 @@ def execute(
             root, run_dir, launch, None, "", "engine_replaced",
             "Engine bytes changed before the launch; the verified identity did not start",
         )
+    if seed is not None:
+        try:
+            seed.recheck(profile, launch_profile)
+            write_json(run_dir / "owned-launch.json", launch)
+        except StudioError as exc:
+            seed.refuse()
+            launch.update(status="refused", timeout_seconds_effective=None, process_record=None)
+            write_json(run_dir / "owned-launch.json", launch)
+            return _finish(root, run_dir, launch, None, "", "profile_seed_refused", str(exc))
+        except KeyboardInterrupt:
+            seed.refuse()
+            launch.update(status="interrupted", timeout_seconds_effective=None, process_record=None)
+            write_json(run_dir / "owned-launch.json", launch)
+            _finish(root, run_dir, launch, None, "", "interrupted",
+                    "launch interrupted during final profile seed verification")
+            raise
     # Writing the receipts, preparing the profile, the snapshot and hashing the
     # engine all consume part of the window, so the authorization is rechecked
     # last, after every slow step: the wait `run` gets is what is left of it
@@ -447,6 +493,8 @@ def _finish(root, run_dir, launch, record, text, verdict, failure, survivors=Non
         "finished_utc": datetime.now(timezone.utc).isoformat(),
         "limits": LIMITS,
     }
+    if "profile_seed" in launch:
+        exit_record["profile_seed"] = launch["profile_seed"]
     if launch["mode"] == "native" and launch["expected_results"]:
         # A native launch that had to produce a declared file is the closest
         # thing this launcher does to a capture, and it was measured on
