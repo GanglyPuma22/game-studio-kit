@@ -107,6 +107,7 @@
     "studio_tools/launch.py",
     "studio_tools/playtest.py",
     "studio_tools/profile.py",
+    "studio_tools/profile_seed.py",
     "studio_tools/manifest.py",
     "studio_tools/fixture.py",
     "studio_tools/godot_template/main.gd",

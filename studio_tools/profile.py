@@ -27,6 +27,7 @@ import uuid
 from .common import StudioError, digest, read_json, relative, safe_id
 from .config import app_path
 from .evidence import inventory
+from . import profile_seed as seeds
 
 PROFILE_KIND = "launch-profile"
 SCHEMA_VERSION = 1
@@ -42,6 +43,7 @@ SHARED_FIELDS = {
     "passthrough": list,
     "identity_manifest": str,
     "feature_flags": list,
+    "profile_seed": dict,
 }
 COMMAND_FIELDS = {
     "launch": {"mode": str, "timeout": (int, float), "scope": str, **SHARED_FIELDS},
@@ -116,6 +118,8 @@ def load(root, path):
             raise StudioError(f'Launch profile field "{name}" must be a list of nonempty strings')
         if allowed[name] is str and not value.strip():
             raise StudioError(f'Launch profile field "{name}" must be a nonempty string')
+    if "profile_seed" in record:
+        seeds.declaration(record["profile_seed"])
     file_record = {
         "path": Path(profile_path).resolve().relative_to(Path(root).resolve()).as_posix(),
         "sha256": hashlib.sha256(raw).hexdigest(),
@@ -192,13 +196,15 @@ def _identity(root, record, config):
     }
 
 
-def resolve(config, root, command, overrides, *, path, label=None, check=False):
+def resolve(config, root, command, overrides, *, path, label=None, check=False,
+            use_host_profile=False):
     """Turn one profile plus the explicit CLI flags into command arguments.
 
     Returns a dict with either `refused` (an `identity_mismatch` verdict, or a
     `--check` report) or `arguments` and `receipt`. Explicit CLI flags win over
     the profile: the profile is the project's default way to play, not a lock.
     """
+    lexical_root = root
     root = Path(root).resolve()
     record, file_record = load(root, path)
     if record["command"] != command:
@@ -208,7 +214,6 @@ def resolve(config, root, command, overrides, *, path, label=None, check=False):
     # A label is resolved here rather than inside the launcher, because
     # `{label}` has to name the run directory the receipts are actually in.
     label = safe_id(label) if label else uuid.uuid4().hex
-    identity = _identity(root, record, config)
     fields = {name: value for name, value in record.items() if name in COMMAND_FIELDS[command]}
     fields.pop("identity_manifest", None)
     feature_flags = fields.pop("feature_flags", [])
@@ -218,6 +223,12 @@ def resolve(config, root, command, overrides, *, path, label=None, check=False):
         # is the parser's own default rather than a caller's choice.
         if value is not None and value != []:
             fields[name] = value
+    seed = seeds.snapshot(config, lexical_root, fields.get("profile_seed"),
+                          use_host_profile=use_host_profile)
+    if seed is not None:
+        namespace = "launches" if command == "launch" else "playtests"
+        seeds.safe_components(Path(lexical_root) / f"artifacts/{namespace}/{label}/profile")
+    identity = _identity(root, record, config)
     passthrough = list(fields.pop("passthrough", [])) + list(feature_flags)
     # Resolved before the receipt is built, so a stale candidate refuses with
     # the profile named in the refusal like every other verdict here.
@@ -244,6 +255,8 @@ def resolve(config, root, command, overrides, *, path, label=None, check=False):
             "identity_receipt": identity.get("receipt"),
         }
     }
+    if seed is not None:
+        receipt["profile_seed"] = seed.receipt
     if stored is not None and stored != actual:
         return {"refused": {
             "schema_version": 1,
@@ -303,4 +316,7 @@ def resolve(config, root, command, overrides, *, path, label=None, check=False):
         }}
     fields["passthrough"] = passthrough
     fields["label"] = label
+    # Runtime creates its own snapshot and receipt; never pass check-time bytes
+    # or a public receipt as an input that could bypass direct API validation.
+    receipt.pop("profile_seed", None)
     return {"arguments": fields, "receipt": receipt, "identity": identity}

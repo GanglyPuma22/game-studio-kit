@@ -310,6 +310,27 @@ real resolver.
 python -m unittest discover -s tests -p test_launch_profiles.py -v
 ```
 
+## Isolated profile seed checks
+
+`test_profile_seed.py` uses temporary files and mocked process entrypoints,
+never Godot. It checks exact raw CRLF bytes before child invocation, strict
+nested declarations, source size/hash/type failures, portable path refusal,
+duplicate and parent/child targets, native Windows/configured-engine restrictions,
+host-profile and mapping conflicts, self-contained-engine refusal, exclusive
+fresh profile ownership and no overwrite. It also checks source, destination
+and profile JSON changes during the prelaunch snapshot, attended preparation,
+copy/baseline failures, interruption receipts, cutoff ordering, check-mode
+privacy, CLI forwarding and a 120-word public fixture in original order.
+Reparse attributes are tested with a mock; real link checks skip explicitly
+when Windows does not grant symlink creation. A skipped capability is unverified.
+These tests establish preparation and refusal behavior only, not native startup
+parity or player acceptance. The contract is in
+[execution evidence](../references/execution-evidence.md#explicit-isolated-profile-seeds).
+
+```text
+python -m unittest discover -s tests -p test_profile_seed.py -v
+```
+
 ## Interactive playtest
 
 `playtest` and `launch --mode native` start the same engine with the same
