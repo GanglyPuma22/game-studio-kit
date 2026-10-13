@@ -33,5 +33,7 @@ running a kit helper and running project-owned tests. A menu listing or file rea
 does not prove registered invocation. This receipt needs neither a new schema
 nor mandatory reads of every sibling.
 
+Use [storage lifecycle](storage-lifecycle.md) for checkout allocation, source/asset preservation and closeout; record these decisions in the work card and Return without introducing a new record schema.
+
 Use [process and evidence lifecycle](execution-evidence.md) for bounded hidden
 jobs, unique run evidence, completed-log status and active/idle budget accounting.

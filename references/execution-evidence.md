@@ -70,6 +70,14 @@ stop dependent work if preparation fails. Use distinct output identities and
 derived-from hashes; archive a new assessment rather than editing old verdicts.
 Use [archive_capture](acceptance.md) for existing capture bytes.
 
+## Evidence storage
+
+Follow [storage lifecycle](storage-lifecycle.md) before selecting diagnostic
+payloads or archiving completed evidence. Use compact summaries and declared
+sampling/size bounds by default; full scene dumps are an explicit bounded
+diagnostic choice. Preserve essential raw inputs, failures and receipt identities
+losslessly. Keep active files and historical verdicts intact.
+
 ## Time and pass accounting
 
 Reuse the work card's authorization and budget. Keep a single event ledger of
