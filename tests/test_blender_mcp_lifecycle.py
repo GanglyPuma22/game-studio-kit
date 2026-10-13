@@ -984,36 +984,53 @@ class EnsureReturnsTests(unittest.TestCase):
 
     def test_run_returns_within_its_bound_while_a_grandchild_is_still_alive(self):
         from studio_tools import blender_mcp_lifecycle as lifecycle
+        import socket
 
-        marker = Path(self.temp.name) / "grandchild.pid"
         # The parent writes its JSON to the stream the lifecycle redirected to
         # a file, spawns a long-lived grandchild that inherits that same
         # stream, and exits. Under the old pipe-backed capture the read would
         # have waited for the grandchild; against a file it cannot.
-        child = (
-            "import os,pathlib,subprocess,sys;"
-            "p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(120)'],"
-            "stdout=sys.stdout,stderr=sys.stderr);"
-            f"pathlib.Path({str(marker)!r}).write_text(str(p.pid));"
-            "sys.stdout.write('{\"status\":\"PASS\"}');sys.stdout.flush()"
-        )
-        started = time.monotonic()
-        with patch.object(lifecycle, "_command", return_value=[sys.executable, "-c", child]):
-            result = lifecycle._run(
-                "Ensure-SupervisedBlenderMCP.ps1", [],
-                working_root=self.root, operation="ensure",
-            )
-        elapsed = time.monotonic() - started
-        grandchild = int(marker.read_text())
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        connection = None
         try:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            listener.settimeout(10)
+            grandchild = (
+                "import os,socket;"
+                f"s=socket.create_connection({listener.getsockname()!r},timeout=10);"
+                "s.settimeout(30);s.sendall(b'alive');s.recv(4);"
+                "os.close(1);os.close(2);s.sendall(b'stopped');s.close()"
+            )
+            child = (
+                "import subprocess,sys;"
+                f"subprocess.Popen([sys.executable,'-c',{grandchild!r}],"
+                "stdout=sys.stdout,stderr=sys.stderr);"
+                "sys.stdout.write('{\"status\":\"PASS\"}');sys.stdout.flush()"
+            )
+            started = time.monotonic()
+            with patch.object(lifecycle, "_command", return_value=[sys.executable, "-c", child]):
+                result = lifecycle._run(
+                    "Ensure-SupervisedBlenderMCP.ps1", [],
+                    working_root=self.root, operation="ensure",
+                )
+            elapsed = time.monotonic() - started
+            connection, _ = listener.accept()
+            connection.settimeout(10)
             self.assertEqual(result, {"status": "PASS"})
             self.assertLess(elapsed, lifecycle.RUN_TIMEOUT_SECONDS)
-            # Still running: the return did not depend on it, and nothing
-            # here stopped a process the lifecycle does not own.
-            os.kill(grandchild, 0)
+            # The connected Python fixture proves liveness without Windows
+            # os.kill(pid, 0), which terminates rather than probes a process.
+            self.assertEqual(connection.recv(5), b"alive")
         finally:
-            with contextlib.suppress(OSError):
-                os.kill(grandchild, signal.SIGKILL)
+            if connection is not None:
+                with contextlib.suppress(OSError):
+                    connection.sendall(b"stop")
+                    # The acknowledgement follows release of the inherited
+                    # file handles, so Windows fixture cleanup cannot race it.
+                    self.assertEqual(connection.recv(7), b"stopped")
+                connection.close()
+            listener.close()
 
     def test_streams_land_in_a_run_directory_named_by_operation_and_stamp(self):
         from studio_tools import blender_mcp_lifecycle as lifecycle

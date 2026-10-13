@@ -69,6 +69,7 @@ def parser():
     c.add_argument("--plan", required=True, help="JSON plan listing the runs; see templates/batch-plan.json")
     c.add_argument("--sha256", required=True, help="Expected SHA-256 of executables.godot from the host config")
     c.add_argument("--label", help="Batch identity under artifacts/batches; default is a new UUID")
+    c.add_argument("--cutoff-utc", help="ISO 8601 UTC instant bounding the whole batch and every planned launch")
     c.add_argument("--max-minutes", type=float,
                    help="Total wall clock for the whole batch, separate from each run's own timeout; "
                         "default 60, maximum 1440")
@@ -142,6 +143,7 @@ def parser():
     c.add_argument("--sample-interval", type=float, default=10.0, help="Seconds between mid-window process samples; 1-60")
     c.add_argument("--agent-log", help="Agent activity log; timestamps inside the window break attribution")
     c.add_argument("--timeout", type=float, help="Capture timeout in seconds; default 3600")
+    c.add_argument("--cutoff-utc", help="ISO 8601 UTC instant bounding the owned capture; also pass it to any nested studio launch/batch command after --")
     c.add_argument("--busy-fraction", type=float, default=0.05, help="CPU seconds per window second that count as busy")
     c.add_argument("--busy-floor-seconds", type=float, default=1.0)
     c.add_argument("--heavy-working-set-mb", type=float, default=200.0)
@@ -411,7 +413,7 @@ def dispatch(a):
         # script, results and passthrough, do not fit one argument list.
         return batch_execute(
             config, Path(a.project).resolve(), plan=a.plan, sha256_expected=a.sha256,
-            label=a.label, max_minutes=a.max_minutes,
+            label=a.label, max_minutes=a.max_minutes, cutoff_utc=a.cutoff_utc,
             stop_on_first_failure=a.stop_on_first_failure,
         )
     if a.command == "playtest":
@@ -489,7 +491,8 @@ def dispatch(a):
         # the refusal `cleanroom.execute` is written to give.
         return bench_execute(
             config, Path(a.project).resolve(), capture, label=a.label, scope=a.scope, settle=a.settle,
-            agent_log=a.agent_log, timeout=a.timeout, busy_fraction=a.busy_fraction,
+            agent_log=a.agent_log, timeout=a.timeout, cutoff_utc=a.cutoff_utc,
+            busy_fraction=a.busy_fraction,
             busy_floor_seconds=a.busy_floor_seconds, heavy_working_set_mb=a.heavy_working_set_mb,
             sample_interval=a.sample_interval,
         )

@@ -81,8 +81,8 @@ class OvernightRunTests(unittest.TestCase):
     def test_stage_four_and_five_state_their_launch_totals(self):
         procedure = PROCEDURE.read_text(encoding="utf-8")
         self.assertIn("one capture per rung plus one repeat (five for the four-rung example)", procedure)
-        self.assertIn("3 per hypothesis, 6 in total", procedure)
-        self.assertIn("stop at 6 total launches", procedure)
+        self.assertIn("3 per hypothesis, 6 planned in total", procedure)
+        self.assertIn("hypothesis allowance exhausted → stop hypothesis and switch lanes", procedure)
 
     def test_run_id_convention_and_evidence_root_are_defined(self):
         procedure = PROCEDURE.read_text(encoding="utf-8")
@@ -131,7 +131,8 @@ class OvernightRunTests(unittest.TestCase):
 
     def test_stop_rules_mark_which_stages_are_retryable(self):
         procedure = PROCEDURE.read_text(encoding="utf-8")
-        self.assertEqual(procedure.count("(retryable)"), 3)
+        self.assertNotIn("(retryable)", procedure)
+        self.assertIn("Mandatory continuation invariant", procedure)
         for stage in ("Native admission", "Performance cleanroom", "Traversal"):
             self.assertIn(stage, procedure)
 
@@ -213,7 +214,8 @@ class OvernightRunTests(unittest.TestCase):
         procedure = PROCEDURE.read_text(encoding="utf-8")
         self.assertIn("stage 3-7 receipt recorded under the previous `content_digest` is invalid", procedure)
         self.assertIn("no exception for a correction that only touched a renderer, LOD or scope setting", procedure)
-        self.assertIn("stages 3 through 7 are repeated in order under the new `content_digest`", procedure)
+        self.assertIn("required final claims must be rechecked under the new `content_digest`", procedure)
+        self.assertIn("no automatic ordered full-stage", procedure)
         self.assertEqual(procedure.count("may cite only receipts produced under the final"), 2)
         self.assertNotIn("Stage 4 runs immediately after any renderer, LOD or scope change and blocks", procedure)
         state = (ROOT / "templates/state.md").read_text(encoding="utf-8")

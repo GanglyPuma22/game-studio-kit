@@ -36,3 +36,13 @@ Updated: <UTC>  Compactions so far: <n>
 - Harness wait behaviour (record `captures completed under a capped harness` when the outer yield directive did not hold, so a later `attributable: false` has a known cause):
 - Feature manifest (`artifacts/run/feature-manifest.json`; `route_source`, and the rows not yet `human_verdict: accepted`):
 - Snapshot commit (`run/<run-id>` ref and excluded-file count under `snapshot_commit: authorized`, or `snapshot: no eligible changes, ref <current commit>`; otherwise `uncommitted overlay: <staged> staged, <modified> modified or deleted unstaged, <untracked> untracked`):
+
+
+Run policy and disposition:
+- Policy mode (development default; strict authority if requested):
+- Hashed run-policy pointer, actual UTC cutoff, explicit overall limits/usage:
+- Retained baseline, hypothesis family/used trials and seconds:
+- All authorized lanes, maturity, next operation and binding blockers:
+- Selected lane/operation and near-cutoff handback reserve:
+- Unique validated run-decision pointer and whole-run stop authority, if any:
+- Diagnostic/qualified limits; baseline shortfall separate from regression:

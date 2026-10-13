@@ -504,5 +504,22 @@ class DiagnosticBatchTests(unittest.TestCase):
         self.assertIn("twilight", procedure)
         self.assertIn("before paying", procedure)
 
+
+class RunContinuationGuidanceTests(unittest.TestCase):
+    def test_quality_and_local_experiment_limits_do_not_authorize_return(self):
+        procedure = text(PROCEDURE)
+        self.assertIn("Mandatory continuation invariant", procedure)
+        self.assertIn("hypothesis allowance has no default whole-run stop authority", procedure)
+        self.assertIn("human stop", procedure)
+        self.assertNotIn("A stage 4 failure blocks stages 5 to 7", procedure)
+        self.assertNotIn("Each rung must pass the frame budget", procedure)
+
+    def test_return_and_state_request_policy_lanes_and_decision(self):
+        for path in (RETURN, STATE):
+            body = text(path)
+            self.assertIn("actual UTC cutoff", body)
+            self.assertIn("All authorized lanes", body)
+            self.assertIn("validated run-decision", body)
+
 if __name__ == "__main__":
     unittest.main()

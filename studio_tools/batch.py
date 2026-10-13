@@ -534,7 +534,8 @@ def _summary(index, entry, status, **fields):
 
 
 def _rollup(root, label, plan_record, started, deadline, max_minutes,
-            stop_on_first_failure, runs, planned, stopped, finished=None, experiment=None):
+            stop_on_first_failure, runs, planned, stopped, finished=None, experiment=None,
+            cutoff=None):
     totals = {
         "planned": planned,
         # Only a row whose engine actually started counts as having run, so a
@@ -558,8 +559,9 @@ def _rollup(root, label, plan_record, started, deadline, max_minutes,
         "started_utc": started.isoformat(),
         "finished_utc": finished.isoformat() if finished else None,
         "max_minutes": max_minutes,
-        "max_minutes_effective": round((deadline - started).total_seconds() / 60, 3),
+        "max_minutes_effective": round(max(0, (deadline - started).total_seconds()) / 60, 3),
         "deadline_utc": deadline.isoformat(),
+        **({"cutoff_utc": cutoff.isoformat()} if cutoff is not None else {}),
         "stop_on_first_failure": stop_on_first_failure,
         "stopped_early": stopped,
         "totals": totals,
@@ -590,7 +592,7 @@ def _rollup(root, label, plan_record, started, deadline, max_minutes,
 
 def execute(
     config, project, *, plan, sha256_expected, label=None,
-    max_minutes=None, stop_on_first_failure=False,
+    max_minutes=None, stop_on_first_failure=False, cutoff_utc=None,
 ):
     """Run every planned launch in order, block until the last one is finished,
     and return one verdict for the batch."""
@@ -611,12 +613,15 @@ def execute(
         # There is no uncapped batch: nobody is watching it, so `0` would mean
         # a run of unknown length rather than a run until the player quits.
         raise StudioError(f"Batch --max-minutes must be 1-{MAX_BATCH_MINUTES}; an unattended batch stays bounded")
+    overall_cutoff = parse_utc(cutoff_utc) if cutoff_utc is not None else None
     try:
         run_dir.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
         raise StudioError("Batch directory exists; choose a new label") from None
     started = datetime.now(timezone.utc)
     deadline = started + timedelta(minutes=max_minutes)
+    if overall_cutoff is not None:
+        deadline = min(deadline, overall_cutoff)
     rollup_path = run_dir / "batch.json"
     runs = [_summary(index, entry, "not_run", failure="batch had not reached this run")
             for index, entry in enumerate(entries)]
@@ -632,6 +637,7 @@ def execute(
         write_json(rollup_path, _rollup(
             root, label, plan_record, started, deadline, max_minutes,
             stop_on_first_failure, runs, len(entries), stopped, finished, experiment,
+            overall_cutoff,
         ))
 
     save()
@@ -642,8 +648,12 @@ def execute(
             runs[index]["failure"] = f"batch stopped earlier: {stopped}"
             continue
         if datetime.now(timezone.utc) >= deadline:
-            stopped = "budget_exhausted"
-            runs[index]["failure"] = "batch wall-clock budget was spent before this run started"
+            if overall_cutoff is not None and deadline == overall_cutoff:
+                stopped = "cutoff_passed"
+                runs[index]["failure"] = "authorized cutoff passed before this run started"
+            else:
+                stopped = "budget_exhausted"
+                runs[index]["failure"] = "batch wall-clock budget was spent before this run started"
             continue
         # The run's own cutoff never outlives the batch's: whichever instant
         # comes first is the one the launcher is allowed to wait until.
@@ -711,7 +721,8 @@ def execute(
     save(finished, experiment)
     return {
         **_rollup(root, label, plan_record, started, deadline, max_minutes,
-                  stop_on_first_failure, runs, len(entries), stopped, finished, experiment),
+                  stop_on_first_failure, runs, len(entries), stopped, finished, experiment,
+                  overall_cutoff),
         "run_dir": str(run_dir),
         "batch_record": str(rollup_path),
     }

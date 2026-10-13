@@ -46,7 +46,13 @@ def validate(record, root):
     if not isinstance(record, dict) or record.get("schema_version") != 1:
         raise StudioError("Expected record schema_version 1")
     kind = record.get("kind")
-    if kind == "project":
+    if kind in {"run-policy", "run-decision"}:
+        from .run_policy import validate_policy, validate_decision
+
+        if type(record["schema_version"]) is not int:
+            raise StudioError("Expected record schema_version 1")
+        return (validate_policy if kind == "run-policy" else validate_decision)(record, root)
+    elif kind == "project":
         required(
             record,
             [
@@ -162,6 +168,6 @@ def validate(record, root):
         validate_candidate(record, root)
     else:
         raise StudioError(
-            "Unknown record kind; expected project, asset, audio-cues or candidate"
+            "Unknown record kind; expected project, asset, audio-cues, candidate, run-policy or run-decision"
         )
     return {"ok": True, "kind": kind}
