@@ -32,6 +32,7 @@ from .launch import (
     parse_utc, ready_marker,
 )
 from .processes import alive, prelaunch_baseline, run, start, stop_started, stop_survivors
+from . import profile_seed as seeds
 
 SESSIONS = ("handoff", "attended", "driven")
 DEFAULT_MAX_MINUTES = 60
@@ -216,6 +217,8 @@ def _launcher(root, run_dir, args, playtest):
         "resolves the way it did then.",
         "It establishes nothing: a playtest is accepted by a person, not by a script.",
     ]
+    if playtest.get("profile_seed"):
+        notes.append("This script does not reproduce profile seed initialization.")
     path = run_dir / name
     path.write_text("\n".join(head + [comment + note for note in notes] + body + [""]), encoding="utf-8")
     if not IS_WINDOWS:
@@ -249,13 +252,14 @@ def execute(
     label=None, max_minutes=None, cutoff_utc=None, results=(), scrub=(),
     passthrough=(), use_host_profile=False, emit_launcher=True,
     rendering_method=None, resolution=None, launch_profile=None,
-    content_identity="cached",
+    content_identity="cached", profile_seed=None,
 ):
     """Verify identity, start the game once, and record the session."""
     if session not in SESSIONS:
         raise StudioError("Unknown playtest session; use handoff, attended or driven")
     if content_identity not in {"strict", "cached"}:
         raise StudioError("Content identity must be strict or cached")
+    seed = seeds.snapshot(config, project, profile_seed, use_host_profile=use_host_profile)
     root = Path(project).resolve()
     if not root.is_dir():
         raise StudioError("Playtest needs an existing game project directory")
@@ -337,6 +341,8 @@ def execute(
     label = safe_id(label) if label else uuid.uuid4().hex
     # A separate namespace from artifacts/launches, so a playtest and an owned
     # launch can never collide on the label that refuses a reused run directory.
+    if seed is not None:
+        seeds.safe_components(root / f"artifacts/playtests/{label}/profile")
     run_dir = owned = outside_package(relative(root, f"artifacts/playtests/{label}"))
     expected = []
     results_before = []
@@ -439,6 +445,8 @@ def execute(
         "launcher": None,
         "process_record": "process/process.json" if verdict is None else None,
     }
+    if seed is not None:
+        playtest["profile_seed"] = seed.receipt
     write_json(run_dir / "playtest.json", playtest)
     if verdict == "cutoff_passed":
         return _finish(root, run_dir, playtest, None, "", verdict, "Authorized cutoff already passed")
@@ -450,7 +458,23 @@ def execute(
     environment = _scrubbed(prefixes)
     if not use_host_profile:
         profile = run_dir / "profile"
-        profile.mkdir()
+        try:
+            seed.prepare(profile) if seed is not None else profile.mkdir()
+        except StudioError as exc:
+            seed.refuse()
+            playtest.update(status="refused", max_minutes_effective=None, process_record=None)
+            write_json(run_dir / "playtest.json", playtest)
+            return _finish(root, run_dir, playtest, None, "", "profile_seed_refused", str(exc))
+        except KeyboardInterrupt:
+            if seed is not None:
+                seed.refuse()
+                playtest.update(status="interrupted", max_minutes_effective=None, process_record=None)
+                write_json(run_dir / "playtest.json", playtest)
+                _finish(root, run_dir, playtest, None, "", "interrupted",
+                        "playtest interrupted during profile seed preparation")
+            raise
+        if seed is not None:
+            write_json(run_dir / "playtest.json", playtest)
         for key in PROFILE_KEYS:
             environment[key] = app_path(config, profile, "godot")
     # Snapshot, then bytes, then cutoff: on Windows this enumeration costs
@@ -461,6 +485,14 @@ def execute(
     # so the evidence would only delay the human it hands the game to.
     try:
         baseline = prelaunch_baseline(hide_window=False) if session != "attended" else None
+    except (StudioError, OSError):
+        if seed is None:
+            raise
+        seed.refuse()
+        playtest.update(status="refused", max_minutes_effective=None, process_record=None)
+        write_json(run_dir / "playtest.json", playtest)
+        return _finish(root, run_dir, playtest, None, "", "profile_seed_refused",
+                       "Seeded playtest preparation could not complete before process start")
     except KeyboardInterrupt:
         # The receipts for this label already exist; an interrupt during the
         # enumeration must leave them saying so rather than "launching".
@@ -480,6 +512,22 @@ def execute(
             root, run_dir, playtest, None, "", "engine_replaced",
             "Engine bytes changed before the playtest; the verified identity did not start",
         )
+    if seed is not None:
+        try:
+            seed.recheck(profile, launch_profile)
+            write_json(run_dir / "playtest.json", playtest)
+        except StudioError as exc:
+            seed.refuse()
+            playtest.update(status="refused", max_minutes_effective=None, process_record=None)
+            write_json(run_dir / "playtest.json", playtest)
+            return _finish(root, run_dir, playtest, None, "", "profile_seed_refused", str(exc))
+        except KeyboardInterrupt:
+            seed.refuse()
+            playtest.update(status="interrupted", max_minutes_effective=None, process_record=None)
+            write_json(run_dir / "playtest.json", playtest)
+            _finish(root, run_dir, playtest, None, "", "interrupted",
+                    "playtest interrupted during final profile seed verification")
+            raise
     opened, effective = _window(cutoff, limit, playtest, run_dir)
     if not opened:
         return _finish(
@@ -758,6 +806,8 @@ def _finish(root, run_dir, playtest, record, text, verdict, failure, survivors=N
         "finished_utc": datetime.now(timezone.utc).isoformat(),
         "limits": LIMITS,
     }
+    if "profile_seed" in playtest:
+        exit_record["profile_seed"] = playtest["profile_seed"]
     write_json(run_dir / "exit.json", exit_record)
     return {
         **exit_record,
@@ -916,6 +966,8 @@ def _collected(config, root, run_dir, record_path, playtest):
         "finished_utc": datetime.now(timezone.utc).isoformat(),
         "limits": ATTENDED_LIMITS,
     }
+    if "profile_seed" in playtest:
+        exit_record["profile_seed"] = playtest["profile_seed"]
     write_json(run_dir / "exit.json", exit_record)
     return {
         **exit_record,

@@ -339,7 +339,8 @@ def _profile_fields(config, root, command, a, overrides):
     from . import profile as profiles
 
     resolved = profiles.resolve(
-        config, root, command, overrides, path=a.profile, label=a.label, check=a.check
+        config, root, command, overrides, path=a.profile, label=a.label, check=a.check,
+        use_host_profile=getattr(a, "use_host_profile", False),
     )
     if "refused" in resolved:
         return {}, {}, resolved["refused"]
@@ -390,7 +391,7 @@ def dispatch(a):
         # not created here: a mistyped --project must fail, not be built empty.
         # Godot exposes only arguments after `--` through OS.get_cmdline_user_args(),
         # so the separator itself must reach the engine.
-        root = Path(a.project).resolve()
+        root = Path(a.project).absolute()
         fields, extra, refusal = _profile_fields(config, root, "launch", a, {
             "mode": a.mode, "script": a.script, "timeout": a.timeout, "scope": a.scope,
             "results": a.result, "scrub_env": a.scrub_env, "passthrough": list(a.passthrough),
@@ -403,6 +404,7 @@ def dispatch(a):
             label=fields.get("label"), scope=fields.get("scope"),
             results=fields.get("results", []), scrub=fields.get("scrub_env", []),
             passthrough=fields.get("passthrough", []), **extra,
+            profile_seed=fields.get("profile_seed"),
         )
     if a.command == "batch":
         from .batch import execute as batch_execute
@@ -424,7 +426,7 @@ def dispatch(a):
         # OS.get_cmdline_user_args() to expose anything after it.
         if a.operation == "collect":
             return playtest_collect(config, Path(a.project).resolve(), a.label)
-        root = Path(a.project).resolve()
+        root = Path(a.project).absolute()
         fields, extra, refusal = _profile_fields(config, root, "playtest", a, {
             "session": a.session, "scene": a.scene, "script": a.script,
             "rendering_method": a.rendering_method, "resolution": a.resolution,
@@ -444,6 +446,7 @@ def dispatch(a):
             content_identity=a.content_identity,
             rendering_method=fields.get("rendering_method"),
             resolution=fields.get("resolution"), **extra,
+            profile_seed=fields.get("profile_seed"),
         )
     if a.command == "evidence":
         if a.operation in ("archive", "archive-verify", "restore"):
