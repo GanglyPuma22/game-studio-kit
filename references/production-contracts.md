@@ -1,6 +1,11 @@
 # Minimal production contracts
 
-Use [project](../templates/project.json), [work card](../templates/work-card.md), [asset](../templates/asset.json), [audio cues](../templates/audio-cues.json) and [candidate](../templates/candidate.json). Templates are starting structures, not passed evidence. Schema version is `1`; supported kinds are project, asset, audio-cues and candidate. Terrain/provider records are validated by their adapters.
+Use [project](../templates/project.json), [work card](../templates/work-card.md), [asset](../templates/asset.json), [audio cues](../templates/audio-cues.json) and [candidate](../templates/candidate.json). Templates are starting structures, not passed evidence. Schema version is `1`; supported kinds are project, asset, audio-cues, candidate, run-policy and run-decision. Terrain/provider records are validated by their adapters.
+
+[Run policy](run-policy.md) records development-default mode, actual limits,
+complete lane inventory and explicit stop authority. Candidate quality validation
+and run disposition are independent. Strict qualification requires explicit
+authority; a numeric target alone never selects it.
 
 All stored artifact entries have `path` relative to GAME and `sha256` of actual bytes. Paths escaping GAME, missing files and mismatched hashes fail validation. Units are metres. Record exact reference IDs/version and decision status; retain the image/file with its rights and hash. A name such as “painterly” cannot replace a reference.
 

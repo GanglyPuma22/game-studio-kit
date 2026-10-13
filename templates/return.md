@@ -53,3 +53,13 @@ pending the user until every mandatory dimension above is `pass`.
 
 ## Next decision for the user
 -
+
+
+Run policy and disposition:
+- Policy mode (development default; strict authority if requested):
+- Hashed run-policy pointer, actual UTC cutoff, explicit overall limits/usage:
+- Retained baseline, hypothesis family/used trials and seconds:
+- All authorized lanes, maturity, next operation and binding blockers:
+- Selected lane/operation and near-cutoff handback reserve:
+- Unique validated run-decision pointer and whole-run stop authority, if any:
+- Diagnostic/qualified limits; baseline shortfall separate from regression:

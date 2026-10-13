@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "kind": "run-policy",
+  "run_id": "replace-run-id",
+  "project_id": "replace-project-id",
+  "mode": "development",
+  "authorization": {"path": "artifacts/run/contract.md", "sha256": "replace-with-actual-sha256"},
+  "started_utc": "2000-01-01T00:00:00Z",
+  "cutoff_utc": "2000-01-01T01:00:00Z",
+  "goals": ["player-outcome"],
+  "lanes": [
+    {"id": "integration", "goal_id": "player-outcome", "scope": "declared-scope", "dependencies": [], "completion_maturity": "native-reviewed"}
+  ],
+  "overall_limits": [],
+  "hard_gates": []
+}
