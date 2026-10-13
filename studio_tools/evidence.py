@@ -85,7 +85,7 @@ def inventory(project, *, portable=True, cache=False, stats=None):
                 if not isinstance(record, dict) or record.get("schema_version") != 1 or not isinstance(record.get("files"), dict):
                     raise StudioError("Invalid inventory cache")
                 cached = record["files"]
-        except (StudioError, OSError):
+        except (StudioError, OSError, RecursionError):
             cached = {}  # A corrupt/unreadable safe cache is an empty cache.
     files = []
     updated = {}
