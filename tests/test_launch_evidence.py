@@ -368,7 +368,7 @@ class OwnedLaunchTests(LaunchCase):
     def _reap(pid):
         """Never leave a sleeper behind when an assertion fails first."""
         with contextlib.suppress(OSError):
-            os.kill(pid, signal.SIGKILL)
+            os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
 
     @staticmethod
     def _running(pid):

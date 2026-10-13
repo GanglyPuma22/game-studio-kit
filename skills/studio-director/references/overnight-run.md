@@ -11,6 +11,19 @@ on its own. Install the matching global rules from
 install snippet in [Windows setup](../../../docs/setup-windows.md#install-global-codex-rules-for-unattended-runs)
 or [Linux setup](../../../docs/setup-linux.md#install-global-codex-rules-for-unattended-runs).
 
+Default policy mode is `development`. A numeric performance target or the word
+production does not select `strict_qualification`; that mode requires an explicit
+user instruction or existing contract. Preserve actual cutoffs, explicit overall
+budgets, identity/resource ownership and human stops in both modes. Internal
+stage allowances guide bounded experiments, not whole-run termination.
+
+Create [run-policy](../../../templates/run-policy.json) with the authorized goals,
+all meaningful lanes, actual UTC cutoff and explicit overall limits. Before a
+normal final Return validate a unique [run-decision](../../../templates/run-decision.json)
+using `validate-record --project <run> --record artifacts/run/decisions/<id>.json`.
+This validator refuses unsupported handback; it is not a scheduler and cannot
+prevent host/API interruption or authenticate invented human authorization.
+
 ## 1. Preflight (under 20 minutes, no launches)
 
 `<GAME>` and `<run>` are the same path: the checkout selected in step 1 below
@@ -33,10 +46,10 @@ replace records a live run still uses or overwrite completed referenced payloads
 
 1. Follow [storage lifecycle](../../../references/storage-lifecycle.md): inspect checkout ownership, source HEAD/overlay, dependencies and free space; reuse a suitable active checkout by default. Record the initial source state in the work card. Only a concrete isolation need justifies `git worktree add <run> <pinned revision>` into a new path, with an allocation estimate, owner and retirement condition. Preserve the fallback and do not copy full caches/assets. `<run>` stays put for the whole run — never recreated or swapped mid-run, and every later stage's `--project` points at it.
 2. Create `<run>/artifacts/run/STATE.md` from [state](../../../templates/state.md).
-3. `python <KIT>/scripts/studio.py host preflight --window-start <UTC> --window-end <UTC> --output <run>/artifacts/run/host/preflight-<UTC stamp>.json`, a fresh stamped path per attempt so a failed receipt is never overwritten or deleted; record which one is current in `STATE.md` (a defined checkpoint, see below). This gate applies only on Windows hosts: `host preflight` reports `host_kind: unsupported` elsewhere. On Windows, stop with NEEDS-USER if it is not ready; `host apply` may run only after the user has validated the script by hand once. On any other host, record `host preflight: unsupported on this host` in `STATE.md` and continue; the cleanroom snapshot pair (stage 4) stays mandatory everywhere for performance evidence regardless of preflight support.
+3. `python <KIT>/scripts/studio.py host preflight --window-start <UTC> --window-end <UTC> --output <run>/artifacts/run/host/preflight-<UTC stamp>.json`, a fresh stamped path per attempt so a failed receipt is never overwritten or deleted; record which one is current in `STATE.md` (a defined checkpoint, see below). This gate applies only on Windows hosts: `host preflight` reports `host_kind: unsupported` elsewhere. On Windows, block engine launches with NEEDS-USER if it is not ready; safe independent source work may continue; `host apply` may run only after the user has validated the script by hand once. On any other host, record `host preflight: unsupported on this host` in `STATE.md` and continue; the cleanroom snapshot pair (stage 4) stays mandatory everywhere for performance evidence regardless of preflight support.
 4. Copy [identity-manifest](../../../templates/identity-manifest.json) to `<run>/artifacts/run/identity-manifest.json` and fill it from the production contract (engine path and sha256, project sources in the selected checkout), or use the manifest path the contract already provides.
 5. `python <KIT>/scripts/studio.py candidate verify --project <run> --manifest <run>/artifacts/run/identity-manifest.json` for the engine, helpers, sources and packages the contract names, hashed from the selected checkout. A mismatch stops the run. Verification records identities at the moment it runs; it must be run against the same checkout every later stage uses, never a checkout created or swapped afterward.
-6. Read the production contract's `settings.viewport` and `settings.renderer` (`project.json`). `launch --mode native` (`studio_tools/launch.py`'s `mode_flags`) unconditionally passes `--resolution 1920x1080 --rendering-method forward_plus`; there is no flag to change it. If the contract's declared viewport is not exactly `[1920, 1080]` or its declared renderer is not exactly `forward_plus`, record `declared render settings differ from the fixed native launch profile; no performance evidence citable` in `STATE.md` at this checkpoint and refuse stage 4 when it is reached; carry the same sentence into `RETURN.md`'s Not demonstrated section. This is a known limit of `launch --mode native`, not a bug to work around mid-run: the kit fixes native launches to 1920x1080/forward_plus, so this procedure only cites stage 4-7 evidence when the contract already declares that exact resolution and renderer.
+6. Read the production contract's `settings.viewport` and `settings.renderer` (`project.json`). `launch --mode native` (`studio_tools/launch.py`'s `mode_flags`) unconditionally passes `--resolution 1920x1080 --rendering-method forward_plus`; there is no flag to change it. If the contract's declared viewport is not exactly `[1920, 1080]` or its declared renderer is not exactly `forward_plus`, record `declared render settings differ from the fixed native launch profile; no performance evidence citable` in `STATE.md` at this checkpoint and refuse performance qualification when stage 4 is reached; carry the same sentence into `RETURN.md`'s Not demonstrated section. This is a known limit of `launch --mode native`, not a bug to work around mid-run: the kit fixes native launches to 1920x1080/forward_plus, so performance qualification requires that exact declared profile. Safe native visual/traversal observation under recorded actual settings may continue; it supplies no contract-profile performance pass.
 7. Copy [feature-manifest](../../../templates/feature-manifest.json) to `<run>/artifacts/run/feature-manifest.json` and fill `canonical_route` from the production contract's own `canonical_route` ([production contracts](../../../references/production-contracts.md)), recording `"route_source": "contract"`. A contract that predates that field has no route: derive one from its `input_route` and the project's main scene, record `"route_source": "derived"`, and flag it in `RETURN.md` for the user to confirm. Leave `features` empty; the run appends a row the moment a lane starts — when a worker is spawned for it, or when the root takes it on — carrying `"maturity": "in-progress"` and `"human_verdict": "pending"`, with `route_step`, `entry`, `installed_by` and `launch_flags` `null` until integration fills them. The row moves to `"maturity": "source-ready"` only when a checked deliverable exists, because a lane that opened at `source-ready` would claim a deliverable before anything had been produced. A row is created by the work existing, not by the work being wired: a manifest that holds only wired features cannot show a finished lane nobody integrated, which is the failure it exists to make visible. The template's example row has those four fields filled because it shows an integrated row.
 
 There is no ledger script: the machine ledgers are the receipts the kit
@@ -71,7 +84,7 @@ cheapest place it can be observed before paying for long native runs — a defec
 seen at twilight is not reproduced by four daylight runs, however green they
 come back.
 `STATE.md`, `RETURN.md` and `<run>/artifacts/run/feature-manifest.json` are the
-only hand-maintained run records, beside the live edit journal at
+hand-maintained run records, alongside run-policy/run-decision records and the live edit journal at
 `<run>/artifacts/blender/journal/<source-stem>.json`, which a live Blender
 session appends a checkpoint to at each save ([studio-blender](../../studio-blender/SKILL.md))
 and the Return's evidence index lists: `RETURN.md` is write-once, at the
@@ -81,19 +94,24 @@ gets no other edits.
 
 ## 2. Stage gates
 
-| Stage | Owner | Kit command / artifact | Max launches | Max minutes | Stop rule |
+These are development checkpoints. Max launches/minutes are planning defaults
+unless the user expressly makes them overall caps. A strict gate records its
+authority, affected action/scope and effect; only an explicit `stop_run` effect
+can authorize whole-run termination.
+
+| Stage | Owner | Kit command / artifact | Max launches | Max minutes | Affected action and next decision |
 |---|---|---|---|---|---|
 | 1 Host readiness | root | `host preflight` receipt | 0 | 20 | not ready (Windows) → NEEDS-USER; unsupported elsewhere → continue |
 | 2 Source compile | root (script), via kit commands; worker analyzes | terrain/composition build owned and written by the root; worker report JSON, then `candidate new` + `validate-record` | 0 | 60, one compaction | missing report or `compile_verdict: fail` → stop stage |
-| 3 Native admission | root | `launch --mode native --timeout <remaining, max 3600> --cutoff-utc <stage deadline>` verdict JSON | 2 | 30 | second verdict not `completed` → stop (retryable) |
-| 4 Performance cleanroom | root, idle | `bench cleanroom -- launch ...` with `attributable: true` | one capture per rung plus one repeat (five for the four-rung example) | 45 | fails the frame budget → one attribution pass, no new scope (retryable) |
-| 5 Traversal | root | `launch --mode native --timeout <remaining, max 3600> --cutoff-utc <stage deadline>` with the game's route probe and synthetic input ([studio-playtest](../../studio-playtest/SKILL.md)) | 3 per hypothesis, 6 in total | 60 | harness bug → headless fixture, never a native relaunch; stop at 6 total launches (retryable) |
-| 6 Visual review | root, desktop | `launch --mode native --timeout <remaining, max 3600> --cutoff-utc <stage deadline>` native stills against the style reference | 2 | 45 | no defect list → stop |
+| 3 Native admission | root | `launch --mode native --timeout <remaining, max 3600> --cutoff-utc <stage deadline>` verdict JSON | 2 | 30 | second verdict not `completed` → preserve failure, repair or switch lanes |
+| 4 Performance cleanroom | root, idle | `bench cleanroom -- launch ...` with `attributable: true` | one capture per rung plus one repeat (five for the four-rung example) | 45 | frame miss/noisy attribution → bounded repair, defer or continue safe integration/review |
+| 5 Traversal | root | `launch --mode native --timeout <remaining, max 3600> --cutoff-utc <stage deadline>` with the game's route probe and synthetic input ([studio-playtest](../../studio-playtest/SKILL.md)) | 3 per hypothesis, 6 planned in total | 60 | harness bug → headless fixture; hypothesis allowance exhausted → stop hypothesis and switch lanes |
+| 6 Visual review | root, desktop | `launch --mode native --timeout <remaining, max 3600> --cutoff-utc <stage deadline>` native stills against the style reference | 2 | 45 | no defect list → review remains unverified; choose next useful operation |
 | 7 Audiovisual and human acceptance | operator, then user | `launch --mode native --timeout <remaining, max 3600> --cutoff-utc <stage deadline>` recorded route, listening notes | 1 | 30 | never claimed by the root |
 
 **Stage 2 completion.** The compile report must carry `compile_verdict: pass`
-or `compile_verdict: fail`; `fail` or a missing report stops the run at
-stage 2. On a `pass` — and again after any later content correction — the
+or `compile_verdict: fail`; `fail` or a missing report blocks that candidate's engine use;
+repair it or continue a genuinely independent authorized source lane. On a `pass` — and again after any later content correction — the
 root first verifies the engine version, then creates and validates the
 candidate:
 
@@ -105,13 +123,13 @@ candidate:
    (`studio_tools/config.py`'s `executable`), so a match is authoritative for
    this host, not merely corroborating. Compare the reported version to the
    production contract's declared `engine.version` (`project.json`); a
-   mismatch stops the run before stage 3. [Known limit: if
+   mismatch blocks affected native actions before stage 3. [Known limit: if
    `capabilities.godot` carries no `version` field (status `needs_setup` —
    the configured executable is missing, or its `--version` output did not
    match a recognizable version string), no kit command can verify the
    engine version; record `engine version: unverified — doctor could not
-   probe the configured executable` in `STATE.md` and stop at stage 2 rather
-   than recording the declared version unverified. There is no
+   probe the configured executable` in `STATE.md`, block that engine lane and evaluate independent work
+   rather than recording a verified engine version. There is no
    `launch --version` fallback: `launch --mode check` requires `--script`
    and runs an engine script, it does not expose a bare `--version` result as
    its own verdict.]
@@ -159,17 +177,20 @@ changed. Whenever `candidate new` is re-run after a content correction (an
 actual change to project files, which does change `content_digest`), every
 stage 3-7 receipt recorded under the previous `content_digest` is invalid
 — there is no exception for a correction that only touched a renderer, LOD or scope setting —
-and stages 3 through 7 are repeated in order under the new `content_digest`.
+and required final claims must be rechecked under the new `content_digest`.
+Development may continue between those checks; no automatic ordered full-stage
+rerun is an admission gate.
 The final scorecard may cite only receipts produced under the final
 `content_digest`.
 
-A stage 4 failure blocks stages 5 to 7. No geometry refinement to satisfy a
-tolerance proof until stage 4 passes at the scope the refinement will create.
+In development mode, retain a stage 4 performance finding and continue safe
+authorized integration, refinement, traversal and native review. Qualification
+requires current clean attributable evidence at the claimed scope.
 Stage 4's render settings are fixed, not requested: `launch --mode native`
 always launches at 1920x1080 with the `forward_plus` renderer regardless of
 what the run passes it, so Preflight step 6 (Section 1) is the only gate —
 if the contract does not declare that exact resolution and renderer, stage 4
-never runs.
+cannot establish contract-profile performance qualification.
 
 **Stage 5 mode.** Traversal launches use `--mode native` explicitly;
 `launch`'s default mode is `import`, and no headless mode can establish
@@ -188,9 +209,15 @@ to look at the result.
 and the cleanroom-wrapped launch in Section 4 — passes `--timeout <seconds
 remaining in the stage, max 3600>` and `--cutoff-utc <stage deadline UTC>`
 explicitly. The host config's default timeout is not a stage bound. The
-stage deadline is the stage's start time, recorded in `STATE.md` at its
-stage-transition checkpoint, plus that stage's budget from the Max minutes
-column above.
+stage deadline is the earlier of the actual authorized cutoff and the
+current bounded operation/experiment window, recorded in `STATE.md`. Recompute
+remaining time before each command; an internal stage window is not a new
+whole-run cutoff. Reserve handback time near the actual cutoff. Pass the bound
+explicitly as `--cutoff-utc` to batch and cleanroom as well as every nested studio
+command. Batch forwards its earlier deadline to each launch; cleanroom bounds
+settling and its owned capture without rewriting arbitrary capture arguments.
+The policy validator does not automatically load policy or supply these flags;
+see [runtime cutoff use](../../../docs/development-cutoff-review.md).
 
 **Tell the harness to wait.** A blocking command only works if the tool call
 carrying it waits as long as the command may run. Set the outer yield directive
@@ -228,9 +255,9 @@ one-line description; for a planetary terrain game: `macro-terrain` (macro
 terrain only), `three-sites` (three certified sites), `hero-obstructions`
 (hero area plus obstruction geometry), `habitat-chunk` (one habitat chunk).
 Substitute one of these IDs for `<rung>` wherever `--scope <rung>` appears
-below. Each rung must pass the frame budget in a cleanroom capture before the
-next rung is added: one capture per rung plus one repeat (five captures for
-the four-rung example). Pass the rung's ID as `--scope <rung>` to both `bench
+below. Rungs organize comparable evidence, not development admission. Actual
+dependencies govern safe expansion. For qualification use one capture per rung
+plus one repeat (five captures for the four-rung example). Pass the rung's ID as `--scope <rung>` to both `bench
 cleanroom` and `launch`; both commands persist it in
 their receipts. A pass at a lower rung is never cited for a higher one.
 
@@ -272,7 +299,7 @@ list was the only place that said so.
 
 ```text
 python <KIT>/scripts/studio.py bench cleanroom --project <run> --config <host config> --label <run-id>-<stage>-<n> \
-  --scope <rung> --timeout 2700 --agent-log <agent activity log> -- \
+  --scope <rung> --timeout 2700 --cutoff-utc <stage deadline> --agent-log <agent activity log> -- \
   python <KIT>/scripts/studio.py launch --project <run> --config <host config> --sha256 <engine> --mode native \
   --script <probe> --timeout <remaining, max 3600> --cutoff-utc <stage deadline> --label <run-id>-<stage>-<n> --scope <rung> --result <summary json>
 ```
@@ -294,6 +321,12 @@ pair, cannot be cited. Close only processes the run itself started; record
 everything else in the reasons and leave it running.
 
 ## 5. Return
+
+Validate the run-decision before normal final Return. Incomplete goals, remaining
+overall budget and a safe actionable authorized lane require a selected concrete
+next operation. A worker's source-ready deliverable still awaits integration;
+include that lane in the inventory. An interruption is reported as interrupted,
+not as goal completion.
 
 Write `RETURN.md` once, at the end, from [return](../../../templates/return.md):
 player-facing metrics first (minutes of ordinary-control play, distance
@@ -387,15 +420,33 @@ edits to tracked files land in it.
 
 ## 6. Stop rules
 
-Each stage's own stop rule in the table above is authoritative for that stage
-and takes precedence over this section: an unmarked stop rule ends the run
-the first time it fires. "Fires twice" below applies only to the stages the
-table marks retryable (3 Native admission, 4 Performance cleanroom,
-5 Traversal), whose own max-launches counts already bound how many attempts
-that is.
+Mandatory continuation invariant: incomplete authorized goals + remaining overall
+budget + at least one safe actionable authorized lane prohibits normal final
+Return. Choose and perform the next concrete operation. A frame-budget miss,
+dirty attribution, tool failure, internal stage recommendation or exhausted
+hypothesis allowance has no default whole-run stop authority. Three trials or
+900 seconds ends that hypothesis, not the run; preserve its stable family ID and
+results rather than resetting it under a new name.
 
-Stop and hand back when the authorized cutoff is reached, the run budget is
-spent, a retryable stage's stop rule fires twice, or the contract needs a
-user decision (entitlement, spend, scope, safety contract). A stopped run
-with honest state is a good outcome; a run that continues past its rules is
-not.
+Whole-run handback needs recorded, evidenced authority: actual deadline, explicit
+overall budget exhausted, human stop, global safety threat, all authorized goals
+complete with user-accepted goal-lane maturity, completed development deliverables
+at each explicitly declared lane target (`development_complete`, development mode
+only, with human acceptance still pending), explicitly authorized strict
+`stop_run` gate failure, or every
+meaningful remaining lane binding-blocked. An omitted, deferred or merely
+unqualified lane cannot establish all-lanes-blocked. A lane counted as finished
+for that authority needs complete status and user-accepted maturity; a completed
+source deliverable still awaits integration/review. Human stop takes effect
+immediately even when time remains. Development completion and human acceptance are distinct. An omitted lane
+completion target retains the user-accepted threshold. Never lower an integration
+or native-review target to disguise unfinished work. Preserve all pending human
+reviews in Return; goal completion never implies acceptance.
+Missing entitlement/spend authorization, failed compile, unready Windows host,
+identity mismatch or resource-local safety blocks affected work; continue safe
+independent authorized work. Never enlarge scope/spend or extend the cutoff.
+
+Use one new `artifacts/run/decisions/<unique-id>.json` at a completed command,
+experiment/lane boundary or handback. Validate through the existing record path;
+do not hand-write or poll a progress ledger. Authority references and hashed
+evidence are reviewable provenance, not proof that a human instruction is real.

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "kind": "run-decision",
+  "decision_id": "replace-unique-id",
+  "run_id": "replace-run-id",
+  "at_utc": "2000-01-01T00:30:00Z",
+  "policy": {"path": "artifacts/run/policy.json", "sha256": "replace-with-actual-sha256"},
+  "candidate": {"path": "artifacts/candidate.json", "sha256": "replace-with-actual-sha256"},
+  "candidate_id": "replace-current-id",
+  "content_digest": "replace-current-content-digest",
+  "trigger": {"code": "completed_operation", "evidence": []},
+  "affected": {"kind": "action", "id": "integration"},
+  "remaining": {"seconds_until_cutoff": 1800, "explicit_limits": []},
+  "quality_findings": [],
+  "lane_inventory": [
+    {"id": "integration", "maturity": "source-ready", "status": "feasible", "next_operation": "Wire authorized content on canonical route"}
+  ],
+  "selected_lane": "integration",
+  "selected_operation": "Wire authorized content on canonical route",
+  "disposition": "continue",
+  "stop_authority": null,
+  "rationale": "Authorized integration remains and overall budget permits it"
+}

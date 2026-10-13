@@ -133,7 +133,11 @@
     "templates/worker-brief.md",
     "templates/work-card.md",
     "templates/playtest-harness.gd",
-    "templates/edit-journal.json"
+    "templates/edit-journal.json",
+    "studio_tools/run_policy.py",
+    "references/run-policy.md",
+    "templates/run-policy.json",
+    "templates/run-decision.json"
   ],
   "commands": [
     "check-package",

@@ -27,6 +27,7 @@ from .common import (
     write_json,
 )
 from .processes import run
+from .launch import parse_utc
 
 MAX_CAPTURE_TIMEOUT = 3600
 DEFAULT_SAMPLE_INTERVAL = 10.0
@@ -904,6 +905,7 @@ def compare(before, after, window, *, busy_cpu_seconds, heavy_working_set_bytes,
 
 def execute(
     config, project, capture, *, label=None, scope=None, settle=0.0, agent_log=None, timeout=None,
+    cutoff_utc=None,
     busy_fraction=0.05, busy_floor_seconds=1.0, heavy_working_set_mb=200.0,
     sample_interval=DEFAULT_SAMPLE_INTERVAL, snapshot_reader=None, sampler_factory=None, self_pid=None,
 ):
@@ -921,6 +923,9 @@ def execute(
     limit = MAX_CAPTURE_TIMEOUT if timeout is None else timeout
     if type(limit) not in (int, float) or not 0 < limit <= MAX_CAPTURE_TIMEOUT:
         raise StudioError("Capture timeout must be 1–3600 seconds")
+    cutoff = parse_utc(cutoff_utc) if cutoff_utc is not None else None
+    if cutoff is not None and datetime.now(timezone.utc) >= cutoff:
+        raise StudioError("Authorized cutoff already passed; cleanroom capture was not started")
     if type(settle) not in (int, float) or not 0 <= settle <= 600:
         raise StudioError("Settle must be 0–600 seconds")
     if type(sample_interval) not in (int, float) or not MIN_SAMPLE_INTERVAL <= sample_interval <= MAX_SAMPLE_INTERVAL:
@@ -956,7 +961,8 @@ def execute(
     # and on Windows the enumeration is a PowerShell process whose CPU time a
     # quiet-host bench would otherwise have to account for as its own.
     if settle:
-        time.sleep(settle)
+        remaining = (cutoff - datetime.now(timezone.utc)).total_seconds() if cutoff else settle
+        time.sleep(min(settle, max(0, remaining)))
     before = snapshot_reader()
     write_json(bench / "before.json", before)
     # One long-lived sampler, started before the capture and stopped after it,
@@ -975,10 +981,20 @@ def execute(
     window = {"started_utc": _utc()}
     started = time.monotonic()
     failure = None
+    effective = limit
     sampler.start()
     try:
-        run(list(capture), cwd=str(root), timeout=limit, job_dir=bench / "capture",
-            hide_window=False)
+        if cutoff is not None:
+            remaining = (cutoff - datetime.now(timezone.utc)).total_seconds()
+            effective = min(limit, remaining) if remaining > 0 else None
+        if effective is None:
+            failure = "Authorized cutoff passed while the cleanroom capture was prepared"
+        else:
+            # The capture may be any command: its argv stays intact. A nested
+            # studio launch/batch must also receive the caller's cutoff so its
+            # own launch preparation and owned-engine cleanup honor it.
+            run(list(capture), cwd=str(root), timeout=effective, job_dir=bench / "capture",
+                hide_window=False)
     except StudioError as exc:
         failure = str(exc)
     finally:
@@ -989,7 +1005,9 @@ def execute(
     write_json(bench / "after.json", after)
     write_json(bench / "during.json", during)
     record_path = bench / "capture" / "process.json"
-    record = read_json(record_path) if record_path.is_file() else {"status": "start_failed"}
+    record = read_json(record_path) if record_path.is_file() else {
+        "status": "refused" if effective is None else "start_failed",
+    }
     log_path = bench / "capture" / "stdout.log"
     verdict = None
     if log_path.is_file():
@@ -1035,6 +1053,8 @@ def execute(
         "scope": scope,
         "scope_check": scope_check,
         "window": window,
+        **({"cutoff_utc": cutoff.isoformat(), "timeout_seconds_requested": limit,
+            "timeout_seconds_effective": effective} if cutoff is not None else {}),
         "capture": {
             "status": record.get("status"), "returncode": record.get("returncode"),
             "elapsed_seconds": record.get("elapsed_seconds"), "cleanup": record.get("cleanup"),
