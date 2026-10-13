@@ -192,6 +192,19 @@ class InventoryTests(unittest.TestCase):
         path.write_text("abcd")
         self.assertEqual(self.cached()[0], cold)
 
+    def test_deeply_nested_cache_falls_back_to_hashing(self):
+        expected = evidence.inventory(self.root)
+        cache = self.root / ".studio/inventory-cache.json"
+        cache.parent.mkdir()
+        cache.write_text("[" * 10000 + "]" * 10000, encoding="utf-8")
+        with patch("studio_tools.evidence.file_record", wraps=file_record) as hashed:
+            files, stats = self.cached()
+        self.assertEqual(files, expected)
+        self.assertEqual(stats["cache_hits"], 0)
+        self.assertEqual(hashed.call_count, len(expected))
+        self.assertEqual(read_json(cache)["schema_version"], 1)
+        self.assertEqual(self.cached()[1]["cache_hits"], len(expected))
+
     def test_cache_io_errors_fall_back_to_hashing(self):
         expected = evidence.inventory(self.root)
         with patch("studio_tools.evidence._cache_path", side_effect=OSError("unsafe cache")):
