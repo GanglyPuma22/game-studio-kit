@@ -458,10 +458,14 @@ def new_candidate(project, candidate_id, engine_version, workflow):
             "studio_tools",
             "scripts",
             ".codex-plugin",
+            ".claude-plugin",
         )
         for p in sorted((kit / folder).rglob("*"))
         if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"
     ]
+    claude_policy = kit / "docs/claude-code.md"
+    if claude_policy.is_file():
+        workflow_files.append(file_record(kit, claude_policy))
     workflow_files = canonical_inventory(workflow_files)
     project_record = (
         read_json(Path(project) / "project.json")

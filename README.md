@@ -23,6 +23,6 @@ python "$Kit\scripts\studio.py" godot smoke --project "$Game" --config "C:\Studi
 - [Testing and exact native smoke](docs/testing.md), [compatibility and remaining checks](docs/compatibility.md)
 - [Contribution and archive recipe](docs/contributing.md), [third-party notices](THIRD_PARTY_NOTICES.md)
 
-There is a skills-based plugin manifest in [.codex-plugin/plugin.json](.codex-plugin/plugin.json). Registration is opt-in and host-specific; it does not manufacture computer use or install Blender. A direct read of a skill is useful but does not prove plugin discovery. Follow the installed-coordinator test from a separate project directory.
+Codex uses [.codex-plugin/plugin.json](.codex-plugin/plugin.json); Claude Code uses [.claude-plugin/plugin.json](.claude-plugin/plugin.json). Both load the same skills and helper. See [Claude Code setup](docs/claude-code.md) for session-only testing and marketplace installation. Registration is opt-in and host-specific; it does not manufacture computer use or install Blender. A direct read of a skill is useful but does not prove plugin discovery. Follow the installed-coordinator test from a separate project directory.
 
 New code, instructions and original example are MIT. Adapted upstream guidance retains its own license and exact provenance. Provider service/output rights remain separate. This repository is prepared for review; see the compatibility matrix before making a target-host or release-readiness claim.

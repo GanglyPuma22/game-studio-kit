@@ -9,6 +9,8 @@ Start from the next player-facing outcome. Inputs are the declared game director
 
 Resolve this file's location to the package root (`../../`), then read [portability](../../references/portability.md) once per host setup. Run the absolute [helper entrypoint](../../scripts/studio.py) with an explicit game/output root. Do not assume the current directory is this package or write into its cache. Read [production contracts](../../references/production-contracts.md) when creating/changing the relevant records, and only the needed capability row in [tool routing](../../references/tool-routing.md).
 
+For Claude Code, read the [runtime notes](../../docs/claude-code.md) before using host-specific execution or connector examples. The plugin shares these skills; it does not supply desktop/MCP tools or choose the host's worker model.
+
 For overnight work resolve development-default mode and actual stop authority
 before work using [run policy](../../references/run-policy.md). A target miss or
 nonzero command result feeds triage; it does not authorize final Return while a
