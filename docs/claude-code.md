@@ -2,7 +2,7 @@
 
 This repository is one kit with two plugin manifests. Claude Code uses
 `.claude-plugin/plugin.json`; Codex uses `.codex-plugin/plugin.json`. Both load
-the same eleven skills, Python helper, references and examples. Keep the whole
+the same twelve skills, Python helper, references and examples. Keep the whole
 package together. Do not duplicate or translate the production skills into a
 second implementation.
 

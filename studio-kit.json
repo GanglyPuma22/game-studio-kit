@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "game-studio-kit",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "skills": [
     {
       "name": "studio-director",
@@ -22,6 +22,10 @@
     {
       "name": "studio-meshy",
       "path": "skills/studio-meshy/SKILL.md"
+    },
+    {
+      "name": "studio-tripo",
+      "path": "skills/studio-tripo/SKILL.md"
     },
     {
       "name": "studio-terrain",
@@ -70,6 +74,7 @@
     "skills/studio-godot/references/physics-and-precision.md",
     "skills/studio-godot/references/testing-and-performance.md",
     "skills/studio-playtest/references/harness.md",
+    "skills/studio-tripo/references/provider-workflow.md",
     "skills/studio-review/references/validation-loop.md",
     "skills/studio-blender/scripts/lifecycle/Ensure-SupervisedBlenderMCP.ps1",
     "skills/studio-blender/scripts/lifecycle/Test-SupervisedBlenderMCP.ps1",

@@ -74,8 +74,23 @@ def check(root):
                 r"^name: " + re.escape(skill["name"]) + r"$", front, re.M
             ) or not re.search(r"^description: .+", front, re.M):
                 errors.append("invalid skill metadata: " + skill["path"])
-        if len(names) != 11:
-            errors.append("expected eleven distinct studio entrypoints")
+        tripo_path = "skills/studio-tripo/SKILL.md"
+        tripo_reference = "skills/studio-tripo/references/provider-workflow.md"
+        has_tripo = "studio-tripo" in names
+        expected_count = 12 if has_tripo else 11
+        if len(names) != expected_count:
+            errors.append(f"expected {expected_count} distinct studio entrypoints")
+        if has_tripo:
+            if any(skill["name"] == "studio-tripo" and skill["path"] != tripo_path
+                   for skill in manifest["skills"]):
+                errors.append("studio-tripo must use its canonical skill path")
+            if tripo_reference not in manifest["resources"]:
+                errors.append("studio-tripo workflow must be declared as a resource")
+        elif (root / "skills/studio-tripo").exists() or any(
+            skill["path"].startswith("skills/studio-tripo/")
+            for skill in manifest["skills"]
+        ) or tripo_reference in manifest["resources"]:
+            errors.append("studio-tripo files/resources require its skill declaration")
         for name in manifest["resources"]:
             if not relative(root, name).is_file():
                 errors.append("missing resource: " + name)
