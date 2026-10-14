@@ -83,8 +83,12 @@ not grant provider credits or GPU availability.
 
 ## Release and acceptance
 
-All five version declarations (both agent manifests, `studio-kit.json`, Python
-package metadata and `studio_tools.__version__`) advance together. Building for
+For a normal published release, all five version declarations (both agent
+manifests, `studio-kit.json`, Python package metadata and
+`studio_tools.__version__`) advance together. The explicitly documented
+[local staging exception](plugin-staging.md) updates the staged plugin and kit
+manifests while preserving the canonical Python release metadata; it is a
+preview procedure, not a published release. Building for
 Claude does not change the asset provider or game's sources. Keep generated
 work/evidence outside the installed kit and preserve originals.
 

@@ -21,10 +21,41 @@ def check(root):
         claude_path = root / ".claude-plugin/plugin.json"
         if claude_path.is_file():
             claude = read_json(claude_path)
+            if not isinstance(claude, dict):
+                raise StudioError("Claude plugin manifest must be an object")
             if claude.get("name") != manifest.get("name") or claude.get("version") != manifest.get("version"):
                 errors.append("Claude plugin name/version disagree with package")
             if claude.get("skills", "./skills/") not in ("./skills/", ["./skills/"]):
                 errors.append("Claude plugin must load the shared skills directory")
+        marketplace_path = root / ".claude-plugin/marketplace.json"
+        if marketplace_path.is_file():
+            marketplace = read_json(marketplace_path)
+            if not isinstance(marketplace, dict):
+                raise StudioError("Claude marketplace must be an object")
+            if marketplace.get("name") != manifest.get("name") + "-marketplace":
+                errors.append("Claude marketplace name disagrees with package")
+            owner = marketplace.get("owner")
+            if not isinstance(owner, dict) or not isinstance(owner.get("name"), str) or not owner["name"].strip():
+                errors.append("Claude marketplace owner must have a nonempty name")
+            plugins = marketplace.get("plugins")
+            if not isinstance(plugins, list) or any(
+                not isinstance(entry, dict) or not isinstance(entry.get("name"), str) or not entry["name"].strip()
+                for entry in plugins
+            ):
+                raise StudioError("Claude marketplace plugins must be a list of named objects")
+            matching = [entry for entry in plugins if entry["name"] == manifest.get("name")]
+            if len(matching) != 1:
+                errors.append("Claude marketplace must contain exactly one shared-kit plugin")
+            else:
+                entry = matching[0]
+                try:
+                    source = relative(root, entry.get("source"))
+                    if source != root:
+                        errors.append("Claude marketplace plugin source must resolve to the shared package root")
+                except (StudioError, ValueError):
+                    errors.append("Claude marketplace plugin source must resolve to the shared package root")
+                if "version" in entry and entry["version"] != manifest.get("version"):
+                    errors.append("Claude marketplace plugin version disagrees with package")
         names = set()
         for skill in manifest["skills"]:
             if skill["name"] in names:

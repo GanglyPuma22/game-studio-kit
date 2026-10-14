@@ -77,16 +77,21 @@ class CorrectionTests(unittest.TestCase):
         game.mkdir()
         (game / 'scene.gd').write_text('original test content')
         receipt = self.root / 'packaging-receipt.json'
-        original = {name: sha256(staged / name) for name in ('.codex-plugin/plugin.json', 'studio-kit.json')}
+        declarations = ('.codex-plugin/plugin.json', 'studio-kit.json', '.claude-plugin/plugin.json')
+        original = {name: sha256(staged / name) for name in declarations}
+        python_original = {name: sha256(staged / name) for name in ('pyproject.toml', 'studio_tools/__init__.py')}
         env = {**os.environ, 'PYTHONPATH': '', 'STUDIO_CONFIG': ''}
         candidate_cmd = [sys.executable, str(staged / 'scripts/studio.py'), 'candidate', '--project', str(game), '--id', 'staging-test']
         before = subprocess.run(candidate_cmd, cwd=game, env=env, capture_output=True, text=True, check=True)
         subprocess.run([sys.executable, '-c', code, str(staged), '0.1.1+staging.test', str(receipt), 'a'*40], cwd=game, env=env, capture_output=True, text=True, check=True)
         self.assertEqual(read_json(staged / 'studio-kit.json')['version'], '0.1.1+staging.test')
         self.assertEqual(read_json(staged / '.codex-plugin/plugin.json')['version'], '0.1.1+staging.test')
+        self.assertEqual(read_json(staged / '.claude-plugin/plugin.json')['version'], '0.1.1+staging.test')
+        self.assertEqual(python_original, {name: sha256(staged / name) for name in python_original})
         self.assertTrue(check(staged)['ok'])
         delta = read_json(receipt)
         self.assertEqual(delta['source_revision'], 'a'*40)
+        self.assertEqual(set(delta['files']), set(declarations))
         for name in original:
             self.assertEqual(delta['files'][name]['before_sha256'], original[name])
             self.assertEqual(delta['files'][name]['after_sha256'], sha256(staged / name))
