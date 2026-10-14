@@ -797,7 +797,8 @@ class PlaytestDocumentationTests(unittest.TestCase):
 
     def test_catalog_count_agrees_with_the_manifest_everywhere(self):
         count = len(read_json(ROOT / "studio-kit.json")["skills"])
-        self.assertIn(f"!= {count}", (ROOT / "studio_tools/package.py").read_text(encoding="utf-8"))
+        self.assertIn("expected_count = 12 if has_tripo else 11",
+                      (ROOT / "studio_tools/package.py").read_text(encoding="utf-8"))
         for name in CATALOG_DOCS:
             text = (ROOT / name).read_text(encoding="utf-8")
             self.assertRegex(

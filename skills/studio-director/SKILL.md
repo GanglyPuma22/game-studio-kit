@@ -38,7 +38,7 @@ preserve unique run logs and classify completed output before reporting status.
 | Blender script to execute headlessly (bake, export, mesh repair) | `studio blender run` with an explicit `--source`, `--script` and each `--result` it must produce |
 | Provider mesh arrived, is it usable? | `studio blender inspect`: per-mesh topology, because a triangle count inside budget is not a usable mesh |
 | Mesh too dense or defective for a rig or collision | `studio blender reduce` from the intact archived original, not a second paid remesh |
-| Generated asset candidate | [studio-meshy](../studio-meshy/SKILL.md) |
+| Generated asset candidate or provider preprocessing | Follow the user's selected provider and verified operation: [studio-tripo](../studio-tripo/SKILL.md) or optional [studio-meshy](../studio-meshy/SKILL.md); local Blender first for trivial repairs. Tripo has a workflow skill only, no `studio tripo` command |
 | Heightfield, authored terrain, Gaea | [studio-terrain](../studio-terrain/SKILL.md) |
 | Nonhumanoid rig, clips, transitions | [studio-animation](../studio-animation/SKILL.md) |
 | Effects, ambience, foley, voice, music | [studio-audio](../studio-audio/SKILL.md) |

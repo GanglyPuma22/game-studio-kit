@@ -1,6 +1,6 @@
 # Game Studio Kit
 
-The eleven entrypoints live in `skills/`; shared contracts in `references/`.
+The twelve entrypoints live in `skills/`; shared contracts in `references/`.
 Read the relevant entrypoint. Resolve the toolkit from that file's location.
 Run helpers through an absolute path to `scripts/studio.py`; give an explicit
 project/output root. Installed package sources are read-only during production.
