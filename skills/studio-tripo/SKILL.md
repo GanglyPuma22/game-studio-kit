@@ -5,7 +5,10 @@ description: Route one authorized Tripo generation or model preprocessing step t
 
 # Studio Tripo
 
-Inputs: declared project/output root, approved asset brief and exact reference,
+Inputs: declared project/output root, approved asset brief and exact reference
+(for a new model in a game that requires concepts, the owner-approved concept,
+after the free-base check in
+[art direction](../studio-art-direction/references/concept-and-bases.md) found nothing usable),
 source asset when present, requested operation, owner and numerical time,
 credit, submission and geometry budgets. Read [provider workflow](references/provider-workflow.md)
 before any provider operation. Resolve the kit from this file's location;

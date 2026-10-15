@@ -23,5 +23,25 @@
   "input_route": "not_defined",
   "capabilities": {
     "godot_smoke": null
+  },
+  "art_pipeline": {
+    "concept_required_for": [
+      "new_model",
+      "look_changing_remodel"
+    ],
+    "concept_approver": null,
+    "concept_route": "not_defined",
+    "paid_image_generation": "requires_budget_record",
+    "base_licences_allowed": [
+      "CC0-1.0",
+      "CC-BY-4.0"
+    ],
+    "triangle_budgets": {},
+    "critic": {
+      "round_cap": 10,
+      "stall_rounds": null,
+      "closest_view": null,
+      "review_place": null
+    }
   }
 }

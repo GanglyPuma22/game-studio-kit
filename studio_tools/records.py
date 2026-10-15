@@ -1,6 +1,7 @@
 """Validate minimal production records and their actual artifact identities."""
 
 import math
+import os
 from .common import StudioError, relative, sha256
 
 STAGES = ["working", "exported", "imported", "reviewed", "accepted"]
@@ -27,6 +28,54 @@ def verify_file(root, item):
     for attachment in attachments:
         verify_file(root, attachment)
     return p
+
+
+# Licences a reused base mesh or texture may carry. NonCommercial, NoDerivatives,
+# ShareAlike, editorial and unclear licences are refused; a game may be stricter.
+BASE_LICENCES = {"CC0-1.0", "CC-BY-3.0", "CC-BY-4.0"}
+
+
+def _text(value):
+    return isinstance(value, str) and bool(value.strip())
+
+
+def validate_provenance(provenance, root):
+    if not isinstance(provenance, dict):
+        raise StudioError("Asset provenance must be an object")
+    concept = provenance.get("concept")
+    if concept is not None:
+        if not isinstance(concept, dict):
+            raise StudioError("provenance.concept must be an object")
+        required(concept, ["reference_id", "approved_by", "approved_at", "file"])
+        if not all(_text(concept[key]) for key in ("reference_id", "approved_by", "approved_at")):
+            raise StudioError("provenance.concept needs reference_id, approved_by and approved_at text")
+        verify_file(root, concept["file"])
+    if provenance.get("base") is not None:
+        _licensed(provenance["base"], "provenance.base", root)
+    textures = provenance.get("texture_bases")
+    if textures is not None:
+        if not isinstance(textures, list):
+            raise StudioError("provenance.texture_bases must be a list")
+        for index, texture in enumerate(textures):
+            _licensed(texture, "provenance.texture_bases[" + str(index) + "]", root)
+
+
+def _licensed(base, label, root):
+    """A found mesh or texture: retained original, source, date and an allowed licence."""
+    if not isinstance(base, dict):
+        raise StudioError(label + " must be an object")
+    required(base, ["source_url", "licence", "retrieved_at", "file"])
+    if not all(_text(base[key]) for key in ("source_url", "licence", "retrieved_at")):
+        raise StudioError(label + " needs source_url, licence and retrieved_at text")
+    licence = "-".join(base["licence"].upper().replace("_", " ").replace("-", " ").split())
+    if licence == "CC0":
+        licence = "CC0-1.0"
+    if licence not in BASE_LICENCES:
+        raise StudioError(label + " licence " + repr(base["licence"])
+                          + " is not reusable; allowed: " + ", ".join(sorted(BASE_LICENCES)))
+    if licence.startswith("CC-BY") and not _text(base.get("attribution")):
+        raise StudioError(label + " CC-BY licence requires the attribution text")
+    verify_file(root, base["file"])
 
 
 def validate_listening(listening, observer):
@@ -87,6 +136,7 @@ def validate(record, root):
         )
         if record["stage"] not in STAGES:
             raise StudioError("Unknown asset stage")
+        validate_provenance(record["provenance"], root)
         dimensions = record["dimensions_m"]
         if (
             not isinstance(dimensions, list)
@@ -101,6 +151,17 @@ def validate(record, root):
             raise StudioError("Asset needs an editable source record")
         for item in record["source"] + record["runtime"]:
             verify_file(root, item)
+        # Retained bases stay the untouched downloads; reshaping happens in new source files.
+        provenance = record["provenance"]
+        retained = ([("provenance.base", provenance["base"])] if provenance.get("base") is not None else []) + [
+            ("provenance.texture_bases[" + str(i) + "]", texture) for i, texture in enumerate(provenance.get("texture_bases") or [])]
+        for label, base in retained:
+            kept = relative(root, base["file"]["path"])
+            for item in record["source"] + record["runtime"]:
+                other = relative(root, item["path"])
+                if other == kept or os.path.samefile(other, kept):
+                    raise StudioError(label + ".file must be the untouched original, not an editable source or runtime file: "
+                                      + item["path"])
         if record["stage"] != "working" and not record["runtime"]:
             raise StudioError("Exported asset requires a runtime export")
         if record["animated"]:

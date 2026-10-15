@@ -262,6 +262,19 @@ class RevisionReportTests(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertFalse(missing.exists())
 
+    def test_unknown_enum_names_field_and_allowed_values(self):
+        self.value["evidence"][0]["inspection"] = "not-performed"
+        with self.assertRaisesRegex(StudioError, r"evidence inspection 'not-performed'; allowed: not_run, performed, unsupported"):
+            self.report()
+        self.value["evidence"][0]["inspection"] = "performed"
+        self.value["criteria"][0]["environment"] = "game"
+        with self.assertRaisesRegex(StudioError, r"criterion environment 'game'; allowed: any, blender, lab, native"):
+            self.report()
+
+    def test_undeclared_defect_subject_is_named(self):
+        self.value["defects"][0]["subjects"] = ["pocket-2"]
+        with self.assertRaisesRegex(StudioError, r"names subjects not declared by criterion 'CONTACT': pocket-2"):
+            self.report()
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,8 @@
 |---|---|---|
 | Scope, action, story feedback | studio-game-design | Ask only for a material unresolved product decision |
 | Reference fidelity and asset family | studio-art-direction | Use the host's available concept tool when authorized; record reported model only |
+| New model or look-changing remodel, when `art_pipeline.concept_required_for` lists it | studio-art-direction [concept and free base](../skills/studio-art-direction/references/concept-and-bases.md) | Owner approves the concept; CC0/CC-BY base check before Blender or a paid generator. Without `art_pipeline` this is a recommendation, not a gate |
+| Critic rounds on a visible asset | studio-review [critic loop](../skills/studio-review/references/critic-loop.md) | Round cap and owner look; `review revision` records the chain |
 | Deterministic mesh, material, scale, render | studio-blender background scripts | Native app inspection for composition/cleanup; optional matched MCP pair |
 | Reference-guided candidate generation or model preprocessing | User-selected, capability-verified [studio-tripo](../skills/studio-tripo/SKILL.md) or optional [studio-meshy](../skills/studio-meshy/SKILL.md) | Local Blender first for trivial repairs; Tripo is a workflow only, with no `studio tripo` command |
 | Nonhumanoid deformation | studio-animation in Blender | Humanoid provider rig only after its separate eligibility check |

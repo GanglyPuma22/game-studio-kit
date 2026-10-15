@@ -101,3 +101,13 @@ neither an installed manifest nor passing helper tests supplies them.
 Format and commands: [Claude plugin creation](https://code.claude.com/docs/en/plugins/create),
 [manifest reference](https://code.claude.com/docs/en/plugins-reference),
 [marketplace setup](https://code.claude.com/docs/en/plugin-marketplaces).
+
+## Use by path from a cloud clone
+
+Cloud sessions usually have the kit neither installed as a plugin nor on the
+path. Clone the reviewed version beside the game, read the skill files from that
+clone and run helpers by absolute path, for example
+`python3 /work/game-studio-kit/scripts/studio.py review revision --project <loop> --evidence review.json`.
+Record the clone's commit in the work card, because several sessions may each
+clone a different revision. Python 3.11 or newer is enough for the helpers that
+need no engine or provider.

@@ -27,6 +27,17 @@ from .validation import interval, number
 
 METHODS = {"still", "clip", "model_inspection", "scene_inspection", "live_interaction"}
 ENVIRONMENTS = {"native", "lab", "blender", "any"}
+INSPECTIONS = {"performed", "not_run", "unsupported"}
+CAPABILITIES = {"supported", "unsupported", "unknown"}
+KINDS = {"visual", "temporal", "interaction"}
+DECISIONS = {"open", "closed", "rejected"}
+
+
+def _allowed(label, value, allowed):
+    # Name the field and the values it takes, so a wrong guess is fixed in one step.
+    if value not in allowed:
+        raise StudioError(f"Unknown {label} {value!r}; allowed: " + ", ".join(sorted(allowed)))
+    return value
 
 
 def _object(value, label):
@@ -100,10 +111,10 @@ def _evidence(root, value, candidates, criteria):
         _text(value[key], key)
     for key in ("subjects", "inspected_scope", "unknowns"):
         _strings(value[key], key, nonempty=key == "subjects")
-    if value["method"] not in METHODS or value["environment"] not in ENVIRONMENTS - {"any"}:
-        raise StudioError("Unknown evidence method/environment")
-    if value["inspection"] not in {"performed", "not_run", "unsupported"} or value["capability"] not in {"supported", "unsupported", "unknown"}:
-        raise StudioError("Unknown inspection/capability")
+    _allowed("evidence method", value["method"], METHODS)
+    _allowed("evidence environment", value["environment"], ENVIRONMENTS - {"any"})
+    _allowed("evidence inspection", value["inspection"], INSPECTIONS)
+    _allowed("evidence capability", value["capability"], CAPABILITIES)
     criterion = criteria.get(value["criterion_id"])
     issues = []
     if _identity(value) not in candidates:
@@ -141,7 +152,7 @@ def _evidence(root, value, candidates, criteria):
     if handoff is not None:
         _object(handoff, "handoff")
         if _text(handoff.get("control_mode"), "handoff control_mode") not in {"exclusive", "operator_mediated"}:
-            raise StudioError("Unknown handoff control_mode")
+            raise StudioError("Unknown handoff control_mode; allowed: exclusive, operator_mediated")
         if handoff["control_mode"] == "exclusive" and (handoff.get("released") is not True or handoff.get("state_reconciled") is not True):
             operational.append("exclusive inspection control release/state reconciliation is unresolved")
             issues.extend(operational)
@@ -264,8 +275,10 @@ def assess(root, source):
         required(criterion, ["id", "kind", "subjects", "required_scope", "environment"])
         for key in ("id", "kind", "environment"):
             _text(criterion[key], "Criterion " + key)
-        if criterion["id"] in criteria or criterion["kind"] not in {"visual", "temporal", "interaction"} or criterion["environment"] not in ENVIRONMENTS:
-            raise StudioError("Duplicate/unknown criterion kind/environment")
+        if criterion["id"] in criteria:
+            raise StudioError("Duplicate criterion id " + repr(criterion["id"]))
+        _allowed("criterion kind", criterion["kind"], KINDS)
+        _allowed("criterion environment", criterion["environment"], ENVIRONMENTS)
         _strings(criterion["subjects"], "criterion subjects", nonempty=True)
         _strings(criterion["required_scope"], "required_scope", nonempty=True)
         criteria[criterion["id"]] = criterion
@@ -296,7 +309,8 @@ def assess(root, source):
         criterion = criteria[defect["criterion_id"]]
         subjects = _strings(defect["subjects"], "defect subjects", nonempty=True)
         if not set(subjects) <= set(criterion["subjects"]):
-            raise StudioError("Defect names undeclared subjects")
+            raise StudioError("Defect " + repr(defect["defect_id"]) + " names subjects not declared by criterion "
+                              + repr(criterion["id"]) + ": " + ", ".join(sorted(set(subjects) - set(criterion["subjects"]))))
         before = _identity(defect["candidate_before"])
         after = _identity(defect["candidate_after"]) if defect.get("candidate_after") else None
         before_ids = _strings(defect["before_evidence"], "before_evidence")
@@ -318,8 +332,7 @@ def assess(root, source):
                 issues.extend(label + ": " + reason for reason in recheck_issues)
         issues.extend(_lineage(root, defect, before, after, criterion["id"]))
         decision = _text(defect["root_decision"], "root_decision")
-        if decision not in {"open", "closed", "rejected"}:
-            raise StudioError("Unknown root decision")
+        _allowed("root_decision", decision, DECISIONS)
         rejected = decision == "rejected" and (isinstance(defect.get("decision_reason"), str)
                    and bool(defect["decision_reason"].strip()) and defect.get("decision_basis") in {"reference", "user_intent"})
         if decision == "rejected" and not rejected:
