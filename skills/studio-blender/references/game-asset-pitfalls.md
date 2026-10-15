@@ -4,7 +4,7 @@ Each item cost at least one review round in a production pilot. Check for them b
 
 ## Reduction and LODs
 
-- **Weld before decimating.** glTF import splits vertices at every UV seam. Decimating an unwelded import opens a crack along each seam (one creature went from 0 to 6,874 boundary edges) and can shatter a shell into hundreds of loose pieces. `blender reduce` welds first; a hand-written decimation must too. Compare `blender inspect` boundary edges and loose parts before and after every reduction.
+- **Weld before decimating.** glTF import splits vertices at every UV seam. Decimating an unwelded import opens a crack along each seam (one creature went from 0 to 6,874 boundary edges) and can shatter a shell into hundreds of loose pieces. `blender reduce` welds first; a hand-written decimation must too. Compare boundary edges (`blender inspect`) and loose-part counts before and after every reduction. `blender inspect` does not count loose parts yet; on a copy of the mesh, run `bpy.ops.mesh.separate(type='LOOSE')` in Edit Mode and count the resulting objects.
 - **Per-part budgets with a floor.** A whole-mesh Decimate on a multi-part asset collapses its small parts to single triangles at the coarse levels. Reduce each loose part on its own share, with a minimum (about 14-20 triangles for a small rock).
 - **Vertex-group protection does not protect.** Decimate with a vertex group never collapses weight-0 vertices, so "protect the face" can leave the mesh far over budget. Reduce in two passes: the protected share first, then the rest with the group inverted.
 - **Chain LODs from the previous level** and keep skin weights and the armature modifier order when the mesh is skinned. Record every level's triangle count in one receipt.

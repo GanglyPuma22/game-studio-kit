@@ -2,11 +2,9 @@
 
 import argparse
 import json
-import os
 from pathlib import Path
 import sys
-import tempfile
-from .common import StudioError, read_json, write_json, output_root, outside_package, relative
+from .common import StudioError, read_json, write_json, output_root, relative
 from .config import load
 
 
@@ -295,7 +293,6 @@ def parser():
     c.add_argument("--budget", help="Explicit clip-specific video authorization JSON")
     c.add_argument("--dense", help="Saved dense frames.json relative to project")
     c.add_argument("--evidence", help="Bound timing/action or supplemental revision evidence JSON")
-    c.add_argument("--report", help="revision only: also write the JSON report to this project-relative path")
     c.add_argument("--interval", nargs=2, type=float)
     c.add_argument("--output", default="artifacts/review-fixtures")
     c = command("candidate", True)
@@ -305,52 +302,6 @@ def parser():
     c.add_argument("--engine-version", default="4.5.1")
     c.add_argument("--output", help="Record under artifacts/: candidate.json for new, the receipt for verify")
     return p
-
-
-
-def _publish_new_json(root, name, data):
-    """Publish JSON at the project-relative `name` without ever replacing a file.
-
-    The parent is revalidated after it is created, so a directory swapped for a
-    link while the assessment ran cannot carry the write outside the project or
-    into the installed kit. The JSON is written and fsynced to a private file
-    first and published with a hard link, which fails if the target exists, so a
-    crash never leaves a truncated report at the target. Where hard links are
-    unsupported (exFAT, some network mounts) it falls back to an exclusive create
-    and removes that file if the write fails."""
-    body = json.dumps(data, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
-    target = outside_package(relative(root, name), "Revision report")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target = outside_package(relative(root, name), "Revision report")
-    if target.exists():
-        raise StudioError("--report must name a new file; it never overwrites an existing one")
-    fd, temp = tempfile.mkstemp(prefix="." + target.name + ".", suffix=".tmp", dir=target.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(body)
-            handle.flush()
-            os.fsync(handle.fileno())
-        try:
-            os.link(temp, target)
-            return
-        except FileExistsError:
-            raise StudioError("--report must name a new file; it never overwrites an existing one") from None
-        except OSError:
-            pass
-        try:
-            handle = target.open("x", encoding="utf-8")
-        except FileExistsError:
-            raise StudioError("--report must name a new file; it never overwrites an existing one") from None
-        try:
-            with handle:
-                handle.write(body)
-                handle.flush()
-                os.fsync(handle.fileno())
-        except BaseException:
-            target.unlink(missing_ok=True)
-            raise
-    finally:
-        Path(temp).unlink(missing_ok=True)
 
 
 def main(argv=None):
@@ -624,22 +575,7 @@ def dispatch(a):
             return {"qualification": qualify(config, root, needed("review"))}
         if a.operation == "revision":
             from .review_revision import assess
-            evidence = needed("evidence")
-            report = None
-            if a.report is not None:
-                # The project root here is read-only-resolved, so guard the one write:
-                # never inside the installed kit, never into a project that does not
-                # exist, and only to a new file, so no record, candidate manifest or
-                # retained evidence the report covers is replaced.
-                report = outside_package(path(a.report), "Revision report")
-                if not root.is_dir():
-                    raise StudioError("Review revision needs an existing --project")
-                if report.exists():
-                    raise StudioError("--report must name a new file; it never overwrites an existing one")
-            result = assess(root, evidence)
-            if report is not None:
-                _publish_new_json(root, a.report, result)
-            return result
+            return assess(root, needed("evidence"))
         if a.operation == "ingest":
             from .review_records import ingest
             return {"review": ingest(config, root, needed("run"), needed("review"))}

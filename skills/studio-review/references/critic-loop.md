@@ -58,7 +58,7 @@ The critic is never the builder. Give it a fresh context with: the criteria rows
 
 ## Recording the loop
 
-Map each round into a `review-revision` record: candidate manifests, one evidence row per criterion and subject, and defects linked to before and after evidence with the critic's and root's rechecks. `python <KIT>/scripts/studio.py review revision --project <loop> --evidence roundN/review.json --report roundN/review-report.json` checks the linkage and writes the report to a new file beside the record; `--report` never overwrites, so use a new path each run (the round folder works). A critic `partly` recheck stays `open` in the record. Keep the owner's verdict out of the record until the owner has looked.
+Map each round into a `review-revision` record: candidate manifests, one evidence row per criterion and subject, and defects linked to before and after evidence with the critic's and root's rechecks. `python <KIT>/scripts/studio.py review revision --project <loop> --evidence roundN/review.json` checks the linkage and prints the report as JSON; to keep it, save that output to a new file in the round folder (for example `roundN/review-report.json`), so each round has its own. A critic `partly` recheck stays `open` in the record. Keep the owner's verdict out of the record until the owner has looked.
 
 The record's schema is narrower than the loop's vocabulary, so translate when recording and keep the loop-only fields (`pass_rule`, `reference_ids`, `metric`, `owner`, `views`) in the game's criteria file:
 
@@ -71,7 +71,8 @@ The record's schema is narrower than the loop's vocabulary, so translate when re
 | evidence `clip`, orbit and approach clips (in-game clips too) | method `clip`, with `media`, `interval` and `duration_seconds`; for a temporal row also `temporal_inspection: true`, without which the report never counts the row as covered |
 | evidence `mesh_test`, `metric` for a budget or an owner-calibrated metric | method `model_inspection`; retain the tool's output file, and put the tool, command, value, threshold and who calibrated it in `location` |
 | an uncalibrated number | not an evidence row of its own (it cannot decide the row, rule 4): retain the tool output and cite it in the `location` or `unknowns` of the still or clip row that does decide it |
-| evidence `in_game` | environment `native` (method `still` or `clip`) |
+| evidence `in_game` for a visual or temporal row | environment `native` (method `still` or `clip`, as above) |
+| an interaction row (placement, use, reacting to the player) | criterion `kind: interaction`, `environment: native`; evidence method `clip` or `live_interaction` with `input_route` (`ordinary` or `human`), `context` and `actions`, plus `temporal_inspection: true` for a clip. A still cannot close an interaction row |
 | a `critic.json` recheck | the defect's `critic_recheck`; its `evidence` lists the IDs of the defect's `after_evidence` rows (the critic names the row IDs it was given, not file paths), and its `inspected_scope`, `unknowns` and candidate identity carry over as written |
 | verdict `not_judged`, `not_applicable` | `inspection: not_run` with the reason and owner in `unknowns`; the report counts these as gaps |
 
@@ -83,4 +84,4 @@ Keep one log per lane: date, area, what the kit made harder or could not express
 
 ## Pre-critic checks worth running every round
 
-These are cheap and catch builder bugs before a critic run is spent: loose-part counts and boundary edges before and after any reduction (`blender inspect`), near-black texels inside UV islands after a bake, a UV test pattern after writing any painted texture, a per-mesh diff against the previous round, and the runtime file size against its budget. See [Blender pitfalls](../../studio-blender/references/game-asset-pitfalls.md).
+These are cheap and catch builder bugs before a critic run is spent: boundary edges (`blender inspect`) and loose-part counts (see the Blender pitfalls) before and after any reduction, near-black texels inside UV islands after a bake, a UV test pattern after writing any painted texture, a per-mesh diff against the previous round, and the runtime file size against its budget. See [Blender pitfalls](../../studio-blender/references/game-asset-pitfalls.md).

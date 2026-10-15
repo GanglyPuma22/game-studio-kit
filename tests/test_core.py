@@ -430,6 +430,19 @@ class RecordTests(TempCase):
         with self.assertRaisesRegex(StudioError, "approved_by"):
             validate(a, self.root)
         a["provenance"]["concept"]["approved_by"] = "owner"
+        a["source"] = [file_record(self.root, base)]
+        with self.assertRaisesRegex(StudioError, "untouched original"):
+            validate(a, self.root)
+        linked = self.root / "linked.glb"
+        try:
+            linked.hardlink_to(base)
+        except OSError:
+            pass
+        else:
+            a["source"] = [file_record(self.root, linked)]
+            with self.assertRaisesRegex(StudioError, "untouched original"):
+                validate(a, self.root)
+        a["source"] = [file_record(self.root, source)]
         concept.write_bytes(b"changed concept")
         with self.assertRaisesRegex(StudioError, "Hash mismatch"):
             validate(a, self.root)
