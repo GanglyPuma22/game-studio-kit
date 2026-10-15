@@ -34,14 +34,14 @@ Capture from the exported runtime file re-imported, not from the editable source
 
 ## Independent critic
 
-The critic is never the builder. Give it a fresh context with: the criteria rows it judges, the image and clip paths, the approved concept, the previous round's open defects to recheck, these judging rules, and the output template. It judges only what the evidence shows, gives each row `pass`, `fail` or `not_judged` with the image and location, measures where it can, names what it could not judge and why, and writes `critic.json`. A shared brief file plus one round path per critic works well when several assets are reviewed in parallel; group assets by family per critic.
+The critic is never the builder. Give it a fresh context with: the criteria rows it judges, the image and clip paths, the approved concept, the previous round's open defects to recheck, these judging rules, and the output template. It judges only what the evidence shows, gives each row `pass`, `fail`, `not_judged` (the evidence could not show it) or `not_applicable` (the row's `owner` is someone else and this round cannot reach it; name that owner) with the image and location, measures where it can, names what it could not judge and why, and writes `critic.json`. A shared brief file plus one round path per critic works well when several assets are reviewed in parallel; group assets by family per critic.
 
 ## Judging rules
 
 1. Judge against an absolute reference (the approved concept, an owner-approved still or a reference photo set), not only the previous round. A candidate can win every relative comparison and still miss the look the owner wants.
 2. Only declared criterion ids can fail. A concern without an id is a note for the owner. A lane that needs a new check asks the criteria owner to add it.
 3. Close-up checks are judged at 1:1 game pixels from the closest view the player camera can reach (`closest_view`: resolution, FOV, eye height, distance). Upscaled or magnified crops are not evidence for a fail.
-4. Numbers are evidence, not pass rules, unless the owner calibrated them. A row fails only when the critic can point at the defect in a game-distance image or a clip.
+4. Numbers are evidence, not pass rules, unless the owner calibrated them. A visual row fails only when the critic can point at the defect in a game-distance image or a clip. Budgets and owner-calibrated metrics fail on the measurement itself, with the tool and value cited.
 5. Gloss, wet, glass and translucent materials are judged only in a sky-lit scene (a lit 3D viewer or the game), never on a flat backdrop.
 6. Motion rows (LOD pop, far fade, animation, shimmer) are judged from clips or frame strips. Do not mark them not judged when a clip can be made.
 7. "Better than last shown" is a verdict that can go to the owner, with the open rows named, so one open defect does not hold back an asset the owner would want to see.
@@ -53,7 +53,7 @@ The critic is never the builder. Give it a fresh context with: the criteria rows
 
 - Stop when the planned rows pass, or when the only remaining blockers belong to another owner: name that owner and tell the person.
 - `round_cap` (kit default 10): after that many rounds without a pass, stop, put the best round in front of the owner with the failing rows and their measured gaps, and move on.
-- `stall_rounds` (optional): once only one row is failing, it gets at most this many more rounds before the best round goes to the owner. A row that fails the same way three rounds running is likely one the critic cannot judge from the evidence it gets; log it rather than loop on it.
+- `stall_rounds` (optional): once only one row is failing, it gets at most this many more rounds before the best round goes to the owner. Unset means no stall limit. Separately, as a diagnostic that stops nothing, a row that fails the same way across several rounds is worth checking for a criterion the critic cannot judge from the evidence it gets; log it in the friction log.
 - Best rounds go to the game's one review place (`review_place`, for example a 3D model viewer the owner uses), not a new page per asset.
 
 ## Recording the loop

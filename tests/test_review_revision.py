@@ -305,6 +305,12 @@ class RevisionReportTests(unittest.TestCase):
                                    "--report", "before-candidate.json"]), 1)
         self.assertIn("new file", err.getvalue())
         self.assertEqual(manifest.read_bytes(), kept)
+        broken = dict(self.value, schema_version=2)
+        write_json(self.root / "broken.json", broken)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["review", "revision", "--project", str(self.root), "--evidence", "broken.json",
+                                   "--report", "reports/failed.json"]), 1)
+        self.assertFalse((self.root / "reports/failed.json").exists())
 
     def test_cli_report_refuses_the_installed_kit(self):
         import contextlib

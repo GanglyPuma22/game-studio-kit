@@ -582,10 +582,21 @@ def dispatch(a):
                 # The project root here is read-only-resolved, so guard the one write:
                 # never inside the installed kit, and only to a new file, so no record,
                 # candidate manifest or retained evidence the report covers is replaced.
+                # The destination is claimed with an exclusive create before assessing, so a
+                # concurrent writer cannot slip in between the check and the write.
                 report = outside_package(path(a.report), "Revision report")
-                if report.exists():
-                    raise StudioError("--report must name a new file; it never overwrites an existing one")
-            result = assess(root, evidence)
+                report.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    with report.open("x"):
+                        pass
+                except FileExistsError:
+                    raise StudioError("--report must name a new file; it never overwrites an existing one") from None
+            try:
+                result = assess(root, evidence)
+            except BaseException:
+                if report is not None:
+                    report.unlink(missing_ok=True)
+                raise
             if report is not None:
                 write_json(report, result)
             return result
