@@ -151,14 +151,16 @@ def validate(record, root):
             raise StudioError("Asset needs an editable source record")
         for item in record["source"] + record["runtime"]:
             verify_file(root, item)
-        base = record["provenance"].get("base")
-        if base is not None:
-            # The retained base stays the untouched download; reshaping happens in a new source file.
+        # Retained bases stay the untouched downloads; reshaping happens in new source files.
+        provenance = record["provenance"]
+        retained = ([("provenance.base", provenance["base"])] if provenance.get("base") is not None else []) + [
+            ("provenance.texture_bases[" + str(i) + "]", texture) for i, texture in enumerate(provenance.get("texture_bases") or [])]
+        for label, base in retained:
             kept = relative(root, base["file"]["path"])
             for item in record["source"] + record["runtime"]:
                 other = relative(root, item["path"])
                 if other == kept or os.path.samefile(other, kept):
-                    raise StudioError("provenance.base.file must be the untouched original, not an editable source or runtime file: "
+                    raise StudioError(label + ".file must be the untouched original, not an editable source or runtime file: "
                                       + item["path"])
         if record["stage"] != "working" and not record["runtime"]:
             raise StudioError("Exported asset requires a runtime export")

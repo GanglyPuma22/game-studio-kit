@@ -451,6 +451,10 @@ class RecordTests(TempCase):
             validate(a, self.root)
         a["provenance"]["texture_bases"][0]["licence"] = "CC0"
         validate(a, self.root)
+        a["runtime"] = [file_record(self.root, texture)]
+        with self.assertRaisesRegex(StudioError, r"texture_bases\[0\]\.file must be the untouched original"):
+            validate(a, self.root)
+        a["runtime"] = []
         concept.write_bytes(b"changed concept")
         with self.assertRaisesRegex(StudioError, "Hash mismatch"):
             validate(a, self.root)
