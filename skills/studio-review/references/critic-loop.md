@@ -68,12 +68,13 @@ The record's schema is narrower than the loop's vocabulary, so translate when re
 | `authoritative: engine` / `lab` / `either` | criterion `environment: native` / `lab` (or `blender` for Blender renders) / `any` |
 | evidence `still`, orbit stills, `frame_strip` for a visual row | method `still` (a frame strip is several retained stills) |
 | evidence `frame_strip` for a temporal row | method `scene_inspection` with `temporal_inspection: true`, `interval` and `duration_seconds` of the source clip, `context` naming the clip, and `actions` listing the frame times inspected |
-| evidence `clip`, orbit and approach clips | method `clip`, with `media`, `interval` and `duration_seconds` |
-| evidence `mesh_test`, `metric` | method `model_inspection`; retain the tool's output file, and put the tool, command, value and threshold in `location` |
+| evidence `clip`, orbit and approach clips (in-game clips too) | method `clip`, with `media`, `interval` and `duration_seconds`; for a temporal row also `temporal_inspection: true`, without which the report never counts the row as covered |
+| evidence `mesh_test`, `metric` for a budget or an owner-calibrated metric | method `model_inspection`; retain the tool's output file, and put the tool, command, value, threshold and who calibrated it in `location` |
+| an uncalibrated number | not an evidence row of its own (it cannot decide the row, rule 4): retain the tool output and cite it in the `location` or `unknowns` of the still or clip row that does decide it |
 | evidence `in_game` | environment `native` (method `still` or `clip`) |
 | verdict `not_judged`, `not_applicable` | `inspection: not_run` with the reason and owner in `unknowns`; the report counts these as gaps |
 
-A `metric`, `mesh_test` or `interactive_viewer` evidence method and a `not_applicable` state are not in the schema yet; until they are, the translation above is lossless for the facts but the report shows such rows as incomplete.
+The record cannot tell a calibrated metric from an uncalibrated one, so that check happens here, at translation: only budgets and owner-calibrated metrics become `model_inspection` rows that can support closure. A dedicated metric method and a `not_applicable` state are not in the schema yet; until they are, `not_judged` and `not_applicable` rows show in the report as gaps, which is what they are.
 
 ## Friction log
 

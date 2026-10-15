@@ -600,7 +600,7 @@ def dispatch(a):
             from .review_revision import assess
             evidence = needed("evidence")
             report = None
-            if a.report:
+            if a.report is not None:
                 # The project root here is read-only-resolved, so guard the one write:
                 # never inside the installed kit, never into a project that does not
                 # exist, and only to a new file, so no record, candidate manifest or

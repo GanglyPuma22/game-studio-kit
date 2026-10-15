@@ -316,6 +316,10 @@ class RevisionReportTests(unittest.TestCase):
             self.assertEqual(main(["review", "revision", "--project", str(missing), "--evidence", "review.json",
                                    "--report", "reports/r.json"]), 1)
         self.assertFalse(missing.exists())
+        with contextlib.redirect_stderr(io.StringIO()) as err, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["review", "revision", "--project", str(self.root), "--evidence", "review.json",
+                                   "--report", ""]), 1)
+        self.assertIn("nonempty", err.getvalue())
 
     def test_report_publish_never_replaces_and_cleans_up(self):
         from studio_tools.cli import _publish_new_json

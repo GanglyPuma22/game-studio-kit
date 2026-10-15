@@ -36,8 +36,14 @@
   "rechecks": [
     {
       "defect_id": "D0",
+      "observer": "independent-critic",
+      "status": "performed",
       "verdict": "met",
+      "candidate_id": "asset-round1",
+      "content_digest": "",
       "evidence": ["sheets/cmp_close.jpg"],
+      "inspected_scope": ["close"],
+      "unknowns": [],
       "observation": ""
     }
   ],
@@ -46,6 +52,7 @@
   "overall": "continue",
   "allowed_values": {
     "verdict": ["pass", "fail", "not_judged", "not_applicable"],
+    "recheck_status": ["performed", "not_run"],
     "recheck_verdict": ["met", "partly", "not_met"],
     "overall": ["continue", "show_owner", "better_than_last_shown", "blocked_by_other_owner"]
   }
