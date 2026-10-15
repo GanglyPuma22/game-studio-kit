@@ -1,6 +1,6 @@
 # Approved concept first, then a free base if one fits
 
-Two steps come before any modelling of a new asset or a remodel that changes how an asset looks: an owner-approved concept image, and a short check for an openly licensed base mesh or texture. Both exist because modelling is the expensive step. A model built against a style nickname or a builder's private idea gets judged against a target nobody agreed on, and critic rounds then measure drift from nothing. A base that already carries the right silhouette saves hours that a from-scratch build spends getting there.
+A game opts in by listing cases in `art_pipeline.concept_required_for` (the [project template](../../../templates/project.json) lists new models and look-changing remodels). For an opted-in case, two steps come before any modelling: an owner-approved concept image, and a short check for an openly licensed base mesh or texture. Both exist because modelling is the expensive step. A model built against a style nickname or a builder's private idea gets judged against a target nobody agreed on, and critic rounds then measure drift from nothing. A base that already carries the right silhouette saves hours that a from-scratch build spends getting there.
 
 The project record's `art_pipeline` block holds the per-game values these steps need: who approves, which image route is allowed, which licences are acceptable and the budgets a base must be reshaped to ([project template](../../../templates/project.json)). A game that leaves a value unset has not decided it; ask for the decision rather than assuming one.
 
@@ -28,7 +28,7 @@ Keep the approved image as a project reference with its ID, version, hash, appro
 
 ## 5. Look for a free base
 
-Before modelling from scratch, spend a short, bounded look on openly licensed sources such as Poly Haven, ambientCG, Quaternius, Kenney, or Sketchfab filtered to CC0 and CC-BY. Decide case by case for this one asset; do not bulk-download or build a library.
+Before modelling from scratch, spend a short, bounded look on openly licensed sources such as Poly Haven, ambientCG, Quaternius, Kenney, or Sketchfab filtered to CC0 and CC-BY. Decide case by case for this one asset; do not bulk-download or build a library. Some hosts (cloud containers behind a proxy) cannot reach these sites; fetch from a host that can, into the project's reference folder with hashes, and say which host fetched it.
 
 - Prefer CC0. Use CC-BY only with the attribution recorded exactly as the licence requires, and carried into the game's credits.
 - Skip anything NonCommercial, NoDerivatives, editorial-only, "free for personal use", scraped or with an unclear licence. When the licence page and the download disagree, skip it.
