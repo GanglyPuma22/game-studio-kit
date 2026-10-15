@@ -58,7 +58,7 @@ The critic is never the builder. Give it a fresh context with: the criteria rows
 
 ## Recording the loop
 
-Map each round into a `review-revision` record: candidate manifests, one evidence row per criterion and subject, and defects linked to before and after evidence with the critic's and root's rechecks. `python <KIT>/scripts/studio.py review revision --project <loop> --evidence review.json --report review-report.json` checks the linkage and keeps the report beside the record. A critic `partly` recheck stays `open` in the record. Keep the owner's verdict out of the record until the owner has looked.
+Map each round into a `review-revision` record: candidate manifests, one evidence row per criterion and subject, and defects linked to before and after evidence with the critic's and root's rechecks. `python <KIT>/scripts/studio.py review revision --project <loop> --evidence review.json --report review-report.json` checks the linkage and writes the report to a new file beside the record. A critic `partly` recheck stays `open` in the record. Keep the owner's verdict out of the record until the owner has looked.
 
 ## Friction log
 

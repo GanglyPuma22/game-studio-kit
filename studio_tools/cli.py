@@ -580,10 +580,11 @@ def dispatch(a):
             report = None
             if a.report:
                 # The project root here is read-only-resolved, so guard the one write:
-                # never inside the installed kit, never over the record it reports on.
+                # never inside the installed kit, and only to a new file, so no record,
+                # candidate manifest or retained evidence the report covers is replaced.
                 report = outside_package(path(a.report), "Revision report")
-                if report == path(evidence):
-                    raise StudioError("--report must differ from --evidence")
+                if report.exists():
+                    raise StudioError("--report must name a new file; it never overwrites an existing one")
             result = assess(root, evidence)
             if report is not None:
                 write_json(report, result)

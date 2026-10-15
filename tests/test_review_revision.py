@@ -298,6 +298,13 @@ class RevisionReportTests(unittest.TestCase):
             self.assertEqual(main(["review", "revision", "--project", str(self.root), "--evidence", "review.json",
                                    "--report", "./review.json"]), 1)
         self.assertEqual((self.root / "review.json").read_bytes(), before)
+        manifest = self.root / "before-candidate.json"
+        kept = manifest.read_bytes()
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(main(["review", "revision", "--project", str(self.root), "--evidence", "review.json",
+                                   "--report", "before-candidate.json"]), 1)
+        self.assertIn("new file", err.getvalue())
+        self.assertEqual(manifest.read_bytes(), kept)
 
     def test_cli_report_refuses_the_installed_kit(self):
         import contextlib

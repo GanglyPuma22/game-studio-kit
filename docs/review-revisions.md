@@ -14,7 +14,7 @@ Use matched views/routes to compare revisions and allow bounded exploratory revi
 
 An independent critic may inspect actual artifacts or receive temporary exclusive desktop control when the user's authorization and runtime capabilities permit it. Only one operator acts at a time. Record the app/candidate, allowed actions, checkpoint, time window, release and state reconciliation; the critic inspects rather than edits and returns evidence-linked findings. The root verifies findings and owns integration. This protocol does not implement an OS lock or displace another project's active operator. When direct control is unavailable, label operator-mediated review explicitly.
 
-The [critic loop](../skills/studio-review/references/critic-loop.md) describes how asset rounds, critic output ([template](../templates/critic.json)) and judging rules map into this record. Use `--report <path>` to keep the JSON result next to the record.
+The [critic loop](../skills/studio-review/references/critic-loop.md) describes how asset rounds, critic output ([template](../templates/critic.json)) and judging rules map into this record. Use `--report <path>` to keep the JSON result next to the record; it must name a new file and is refused inside the installed kit.
 
 ## Schema 1: `kind: review-revision`
 
