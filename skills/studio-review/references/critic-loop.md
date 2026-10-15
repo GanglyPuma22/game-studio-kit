@@ -2,7 +2,7 @@
 
 A game opts in to this loop for anything a player looks at: models, ground and scatter, materials, creatures. The kit does not run it by itself, and a project without `art_pipeline.critic` keeps its own review practice. Once opted in, a builder runs it before showing the owner, so the owner's time goes to work that already clears the game's declared checks. It feeds [`review revision`](../../../docs/review-revisions.md) records; it does not grant acceptance, which stays with [acceptance](../../../references/acceptance.md) and the owner.
 
-Per-game values live in the project record's `art_pipeline.critic` block ([project template](../../../templates/project.json)): `round_cap`, `stall_rounds`, `closest_view` and `review_place`. An unset value is undecided, not zero.
+Per-game values live in the project record's `art_pipeline.critic` block ([project template](../../../templates/project.json)): `round_cap`, `stall_rounds`, `closest_view` and `review_place`. An unset value is undecided, not zero, except `round_cap`, which falls back to 10.
 
 ## Criteria
 
@@ -52,7 +52,7 @@ The critic is never the builder. Give it a fresh context with: the criteria rows
 ## When to stop
 
 - Stop when the planned rows pass, or when the only remaining blockers belong to another owner: name that owner and tell the person.
-- `round_cap` (kit default 10): after that many rounds without a pass, stop, put the best round in front of the owner with the failing rows and their measured gaps, and move on.
+- `round_cap` (10 when the critic block leaves it out; the template sets 10): after that many rounds without a pass, stop, put the best round in front of the owner with the failing rows and their measured gaps, and move on.
 - `stall_rounds` (optional): once only one row is failing, it gets at most this many more rounds before the best round goes to the owner. Unset means no stall limit. Separately, as a diagnostic that stops nothing, a row that fails the same way across several rounds is worth checking for a criterion the critic cannot judge from the evidence it gets; log it in the friction log.
 - Best rounds go to the game's one review place (`review_place`, for example a 3D model viewer the owner uses), not a new page per asset.
 

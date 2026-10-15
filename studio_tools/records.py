@@ -50,22 +50,32 @@ def validate_provenance(provenance, root):
         if not all(_text(concept[key]) for key in ("reference_id", "approved_by", "approved_at")):
             raise StudioError("provenance.concept needs reference_id, approved_by and approved_at text")
         verify_file(root, concept["file"])
-    base = provenance.get("base")
-    if base is not None:
-        if not isinstance(base, dict):
-            raise StudioError("provenance.base must be an object")
-        required(base, ["source_url", "licence", "retrieved_at", "file"])
-        if not all(_text(base[key]) for key in ("source_url", "licence", "retrieved_at")):
-            raise StudioError("provenance.base needs source_url, licence and retrieved_at text")
-        licence = "-".join(base["licence"].upper().replace("_", " ").replace("-", " ").split())
-        if licence == "CC0":
-            licence = "CC0-1.0"
-        if licence not in BASE_LICENCES:
-            raise StudioError("provenance.base licence " + repr(base["licence"])
-                              + " is not reusable; allowed: " + ", ".join(sorted(BASE_LICENCES)))
-        if licence.startswith("CC-BY") and not _text(base.get("attribution")):
-            raise StudioError("provenance.base CC-BY licence requires the attribution text")
-        verify_file(root, base["file"])
+    if provenance.get("base") is not None:
+        _licensed(provenance["base"], "provenance.base", root)
+    textures = provenance.get("texture_bases")
+    if textures is not None:
+        if not isinstance(textures, list):
+            raise StudioError("provenance.texture_bases must be a list")
+        for index, texture in enumerate(textures):
+            _licensed(texture, "provenance.texture_bases[" + str(index) + "]", root)
+
+
+def _licensed(base, label, root):
+    """A found mesh or texture: retained original, source, date and an allowed licence."""
+    if not isinstance(base, dict):
+        raise StudioError(label + " must be an object")
+    required(base, ["source_url", "licence", "retrieved_at", "file"])
+    if not all(_text(base[key]) for key in ("source_url", "licence", "retrieved_at")):
+        raise StudioError(label + " needs source_url, licence and retrieved_at text")
+    licence = "-".join(base["licence"].upper().replace("_", " ").replace("-", " ").split())
+    if licence == "CC0":
+        licence = "CC0-1.0"
+    if licence not in BASE_LICENCES:
+        raise StudioError(label + " licence " + repr(base["licence"])
+                          + " is not reusable; allowed: " + ", ".join(sorted(BASE_LICENCES)))
+    if licence.startswith("CC-BY") and not _text(base.get("attribution")):
+        raise StudioError(label + " CC-BY licence requires the attribution text")
+    verify_file(root, base["file"])
 
 
 def validate_listening(listening, observer):

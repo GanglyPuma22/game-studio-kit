@@ -443,6 +443,14 @@ class RecordTests(TempCase):
             with self.assertRaisesRegex(StudioError, "untouched original"):
                 validate(a, self.root)
         a["source"] = [file_record(self.root, source)]
+        texture = self.root / "bark.png"
+        texture.write_bytes(b"fake texture")
+        a["provenance"]["texture_bases"] = [{"source_url": "https://example.org/t", "licence": "CC-BY-NC-4.0",
+                                             "retrieved_at": "2026-01-01", "file": file_record(self.root, texture)}]
+        with self.assertRaisesRegex(StudioError, r"texture_bases\[0\] licence"):
+            validate(a, self.root)
+        a["provenance"]["texture_bases"][0]["licence"] = "CC0"
+        validate(a, self.root)
         concept.write_bytes(b"changed concept")
         with self.assertRaisesRegex(StudioError, "Hash mismatch"):
             validate(a, self.root)
