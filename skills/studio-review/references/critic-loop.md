@@ -60,6 +60,20 @@ The critic is never the builder. Give it a fresh context with: the criteria rows
 
 Map each round into a `review-revision` record: candidate manifests, one evidence row per criterion and subject, and defects linked to before and after evidence with the critic's and root's rechecks. `python <KIT>/scripts/studio.py review revision --project <loop> --evidence review.json --report review-report.json` checks the linkage and writes the report to a new file beside the record. A critic `partly` recheck stays `open` in the record. Keep the owner's verdict out of the record until the owner has looked.
 
+The record's schema is narrower than the loop's vocabulary, so translate when recording and keep the loop-only fields (`pass_rule`, `reference_ids`, `metric`, `owner`, `views`) in the game's criteria file:
+
+| Loop | `review-revision` record |
+|---|---|
+| criterion row | `kind` (`visual` for stills, `temporal` for motion rows), `subjects`, `required_scope` from the row's `views`, `environment` |
+| `authoritative: engine` / `lab` / `either` | criterion `environment: native` / `lab` (or `blender` for Blender renders) / `any` |
+| evidence `still`, `frame_strip`, orbit stills | method `still` (a frame strip is several retained stills) |
+| evidence `clip`, orbit and approach clips | method `clip`, with `media`, `interval` and `duration_seconds` |
+| evidence `mesh_test`, `metric` | method `model_inspection`; retain the tool's output file, and put the tool, command, value and threshold in `location` |
+| evidence `in_game` | environment `native` (method `still` or `clip`) |
+| verdict `not_judged`, `not_applicable` | `inspection: not_run` with the reason and owner in `unknowns`; the report counts these as gaps |
+
+A `metric`, `mesh_test` or `interactive_viewer` evidence method and a `not_applicable` state are not in the schema yet; until they are, the translation above is lossless for the facts but the report shows such rows as incomplete.
+
 ## Friction log
 
 Keep one log per lane: date, area, what the kit made harder or could not express, and the improvement idea. Send it back to the kit owner; that is how the kit improves.

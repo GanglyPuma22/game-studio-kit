@@ -309,8 +309,25 @@ class RevisionReportTests(unittest.TestCase):
         write_json(self.root / "broken.json", broken)
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(["review", "revision", "--project", str(self.root), "--evidence", "broken.json",
-                                   "--report", "reports/failed.json"]), 1)
-        self.assertFalse((self.root / "reports/failed.json").exists())
+                                   "--report", "failed/report.json"]), 1)
+        self.assertFalse((self.root / "failed").exists())
+        missing = self.root / "mistyped-project"
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["review", "revision", "--project", str(missing), "--evidence", "review.json",
+                                   "--report", "reports/r.json"]), 1)
+        self.assertFalse(missing.exists())
+
+    def test_report_publish_never_replaces_and_cleans_up(self):
+        from studio_tools.cli import _publish_new_json
+        target = self.root / "out" / "report.json"
+        _publish_new_json(target, {"a": 1})
+        with self.assertRaisesRegex(StudioError, "new file"):
+            _publish_new_json(target, {"a": 2})
+        self.assertIn('"a": 1', target.read_text())
+        with patch("studio_tools.cli.write_json", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                _publish_new_json(self.root / "out" / "second.json", {"a": 3})
+        self.assertEqual(sorted(p.name for p in (self.root / "out").iterdir()), ["report.json"])
 
     def test_cli_report_refuses_the_installed_kit(self):
         import contextlib

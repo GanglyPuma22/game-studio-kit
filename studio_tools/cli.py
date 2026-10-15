@@ -305,6 +305,25 @@ def parser():
     return p
 
 
+
+def _publish_new_json(target, data):
+    """Write JSON to a temporary file, then hard-link it into place; the link fails
+    if the target appeared meanwhile, so an existing file is never replaced and a
+    failed write leaves nothing behind at the target."""
+    import os
+    import tempfile
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=target.name + ".", suffix=".tmp", dir=target.parent)
+    os.close(fd)
+    try:
+        write_json(tmp, data)
+        try:
+            os.link(tmp, target)
+        except FileExistsError:
+            raise StudioError("--report must name a new file; it never overwrites an existing one") from None
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
@@ -580,25 +599,17 @@ def dispatch(a):
             report = None
             if a.report:
                 # The project root here is read-only-resolved, so guard the one write:
-                # never inside the installed kit, and only to a new file, so no record,
-                # candidate manifest or retained evidence the report covers is replaced.
-                # The destination is claimed with an exclusive create before assessing, so a
-                # concurrent writer cannot slip in between the check and the write.
+                # never inside the installed kit, never into a project that does not
+                # exist, and only to a new file, so no record, candidate manifest or
+                # retained evidence the report covers is replaced.
                 report = outside_package(path(a.report), "Revision report")
-                report.parent.mkdir(parents=True, exist_ok=True)
-                try:
-                    with report.open("x"):
-                        pass
-                except FileExistsError:
-                    raise StudioError("--report must name a new file; it never overwrites an existing one") from None
-            try:
-                result = assess(root, evidence)
-            except BaseException:
-                if report is not None:
-                    report.unlink(missing_ok=True)
-                raise
+                if not root.is_dir():
+                    raise StudioError("Review revision needs an existing --project")
+                if report.exists():
+                    raise StudioError("--report must name a new file; it never overwrites an existing one")
+            result = assess(root, evidence)
             if report is not None:
-                write_json(report, result)
+                _publish_new_json(report, result)
             return result
         if a.operation == "ingest":
             from .review_records import ingest
