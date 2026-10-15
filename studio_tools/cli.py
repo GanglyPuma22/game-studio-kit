@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
-from .common import StudioError, read_json, write_json, output_root, relative
+from .common import StudioError, read_json, write_json, output_root, outside_package, relative
 from .config import load
 
 
@@ -576,9 +576,17 @@ def dispatch(a):
             return {"qualification": qualify(config, root, needed("review"))}
         if a.operation == "revision":
             from .review_revision import assess
-            result = assess(root, needed("evidence"))
+            evidence = needed("evidence")
+            report = None
             if a.report:
-                write_json(path(a.report), result)
+                # The project root here is read-only-resolved, so guard the one write:
+                # never inside the installed kit, never over the record it reports on.
+                report = outside_package(path(a.report), "Revision report")
+                if report == path(evidence):
+                    raise StudioError("--report must differ from --evidence")
+            result = assess(root, evidence)
+            if report is not None:
+                write_json(report, result)
             return result
         if a.operation == "ingest":
             from .review_records import ingest

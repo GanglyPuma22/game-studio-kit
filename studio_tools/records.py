@@ -54,8 +54,8 @@ def validate_provenance(provenance, root):
         if not isinstance(base, dict):
             raise StudioError("provenance.base must be an object")
         required(base, ["source_url", "licence", "retrieved_at", "file"])
-        if not _text(base["source_url"]) or not _text(base["licence"]):
-            raise StudioError("provenance.base needs source_url and licence text")
+        if not all(_text(base[key]) for key in ("source_url", "licence", "retrieved_at")):
+            raise StudioError("provenance.base needs source_url, licence and retrieved_at text")
         licence = "-".join(base["licence"].upper().replace("_", " ").replace("-", " ").split())
         if licence == "CC0":
             licence = "CC0-1.0"

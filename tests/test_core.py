@@ -421,6 +421,11 @@ class RecordTests(TempCase):
             with self.subTest(licence=licence), self.assertRaisesRegex(StudioError, "not reusable"):
                 validate(a, self.root)
         a["provenance"]["base"]["licence"] = "CC0-1.0"
+        for bad in ([], {}, 20260101, " "):
+            a["provenance"]["base"]["retrieved_at"] = bad
+            with self.subTest(retrieved_at=bad), self.assertRaisesRegex(StudioError, "retrieved_at"):
+                validate(a, self.root)
+        a["provenance"]["base"]["retrieved_at"] = "2026-01-01"
         a["provenance"]["concept"]["approved_by"] = " "
         with self.assertRaisesRegex(StudioError, "approved_by"):
             validate(a, self.root)

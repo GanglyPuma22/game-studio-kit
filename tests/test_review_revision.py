@@ -293,6 +293,25 @@ class RevisionReportTests(unittest.TestCase):
             self.assertEqual(main(["review", "revision", "--project", str(self.root), "--evidence", "review.json",
                                    "--report", "../escape.json"]), 1)
         self.assertFalse((self.root.parent / "escape.json").exists())
+        before = (self.root / "review.json").read_bytes()
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["review", "revision", "--project", str(self.root), "--evidence", "review.json",
+                                   "--report", "./review.json"]), 1)
+        self.assertEqual((self.root / "review.json").read_bytes(), before)
+
+    def test_cli_report_refuses_the_installed_kit(self):
+        import contextlib
+        import io
+        from studio_tools.cli import main
+        from studio_tools.common import PACKAGE
+        target = PACKAGE / "studio-kit.json"
+        before = target.read_bytes()
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            code = main(["review", "revision", "--project", str(PACKAGE), "--evidence", "studio-kit.json",
+                         "--report", "studio-kit.json"])
+        self.assertEqual(code, 1)
+        self.assertIn("outside the installed kit", err.getvalue())
+        self.assertEqual(target.read_bytes(), before)
 
 
 if __name__ == "__main__":
