@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 from .common import StudioError, read_json, write_json, output_root, outside_package, relative
@@ -307,22 +308,24 @@ def parser():
 
 
 def _publish_new_json(target, data):
-    """Write JSON to a temporary file, then hard-link it into place; the link fails
-    if the target appeared meanwhile, so an existing file is never replaced and a
-    failed write leaves nothing behind at the target."""
-    import os
-    import tempfile
+    """Create the target exclusively and write JSON into it, so an existing file is
+    never replaced (including one created by another process meanwhile), and a
+    failed write removes the file this call created. Portable: no hard links."""
     target.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=target.name + ".", suffix=".tmp", dir=target.parent)
-    os.close(fd)
     try:
-        write_json(tmp, data)
-        try:
-            os.link(tmp, target)
-        except FileExistsError:
-            raise StudioError("--report must name a new file; it never overwrites an existing one") from None
-    finally:
-        Path(tmp).unlink(missing_ok=True)
+        handle = target.open("x", encoding="utf-8")
+    except FileExistsError:
+        raise StudioError("--report must name a new file; it never overwrites an existing one") from None
+    try:
+        with handle:
+            json.dump(data, handle, indent=2, ensure_ascii=False, allow_nan=False)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+    except BaseException:
+        target.unlink(missing_ok=True)
+        raise
+
 
 def main(argv=None):
     args = parser().parse_args(argv)

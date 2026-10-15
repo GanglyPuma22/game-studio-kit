@@ -324,7 +324,7 @@ class RevisionReportTests(unittest.TestCase):
         with self.assertRaisesRegex(StudioError, "new file"):
             _publish_new_json(target, {"a": 2})
         self.assertIn('"a": 1', target.read_text())
-        with patch("studio_tools.cli.write_json", side_effect=OSError("disk full")):
+        with patch("studio_tools.cli.json.dump", side_effect=OSError("disk full")):
             with self.assertRaises(OSError):
                 _publish_new_json(self.root / "out" / "second.json", {"a": 3})
         self.assertEqual(sorted(p.name for p in (self.root / "out").iterdir()), ["report.json"])

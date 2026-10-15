@@ -58,7 +58,7 @@ The critic is never the builder. Give it a fresh context with: the criteria rows
 
 ## Recording the loop
 
-Map each round into a `review-revision` record: candidate manifests, one evidence row per criterion and subject, and defects linked to before and after evidence with the critic's and root's rechecks. `python <KIT>/scripts/studio.py review revision --project <loop> --evidence review.json --report review-report.json` checks the linkage and writes the report to a new file beside the record. A critic `partly` recheck stays `open` in the record. Keep the owner's verdict out of the record until the owner has looked.
+Map each round into a `review-revision` record: candidate manifests, one evidence row per criterion and subject, and defects linked to before and after evidence with the critic's and root's rechecks. `python <KIT>/scripts/studio.py review revision --project <loop> --evidence roundN/review.json --report roundN/review-report.json` checks the linkage and writes the report to a new file beside the record; `--report` never overwrites, so use a new path each run (the round folder works). A critic `partly` recheck stays `open` in the record. Keep the owner's verdict out of the record until the owner has looked.
 
 The record's schema is narrower than the loop's vocabulary, so translate when recording and keep the loop-only fields (`pass_rule`, `reference_ids`, `metric`, `owner`, `views`) in the game's criteria file:
 
@@ -66,7 +66,8 @@ The record's schema is narrower than the loop's vocabulary, so translate when re
 |---|---|
 | criterion row | `kind` (`visual` for stills, `temporal` for motion rows), `subjects`, `required_scope` from the row's `views`, `environment` |
 | `authoritative: engine` / `lab` / `either` | criterion `environment: native` / `lab` (or `blender` for Blender renders) / `any` |
-| evidence `still`, `frame_strip`, orbit stills | method `still` (a frame strip is several retained stills) |
+| evidence `still`, orbit stills, `frame_strip` for a visual row | method `still` (a frame strip is several retained stills) |
+| evidence `frame_strip` for a temporal row | method `scene_inspection` with `temporal_inspection: true`, `interval` and `duration_seconds` of the source clip, `context` naming the clip, and `actions` listing the frame times inspected |
 | evidence `clip`, orbit and approach clips | method `clip`, with `media`, `interval` and `duration_seconds` |
 | evidence `mesh_test`, `metric` | method `model_inspection`; retain the tool's output file, and put the tool, command, value and threshold in `location` |
 | evidence `in_game` | environment `native` (method `still` or `clip`) |
