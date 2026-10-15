@@ -41,7 +41,7 @@
       "verdict": "met",
       "candidate_id": "asset-round1",
       "content_digest": "",
-      "evidence": ["sheets/cmp_close.jpg"],
+      "evidence": ["after-close-1"],
       "inspected_scope": ["close"],
       "unknowns": [],
       "observation": ""

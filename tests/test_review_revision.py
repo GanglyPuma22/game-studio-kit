@@ -324,14 +324,27 @@ class RevisionReportTests(unittest.TestCase):
     def test_report_publish_never_replaces_and_cleans_up(self):
         from studio_tools.cli import _publish_new_json
         target = self.root / "out" / "report.json"
-        _publish_new_json(target, {"a": 1})
+        _publish_new_json(self.root, "out/report.json", {"a": 1})
         with self.assertRaisesRegex(StudioError, "new file"):
-            _publish_new_json(target, {"a": 2})
+            _publish_new_json(self.root, "out/report.json", {"a": 2})
         self.assertIn('"a": 1', target.read_text())
-        with patch("studio_tools.cli.json.dump", side_effect=OSError("disk full")):
+        with patch("studio_tools.cli.os.fsync", side_effect=OSError("disk full")):
             with self.assertRaises(OSError):
-                _publish_new_json(self.root / "out" / "second.json", {"a": 3})
+                _publish_new_json(self.root, "out/second.json", {"a": 3})
         self.assertEqual(sorted(p.name for p in (self.root / "out").iterdir()), ["report.json"])
+        with patch("studio_tools.cli.os.link", side_effect=PermissionError("no hard links")):
+            _publish_new_json(self.root, "out/third.json", {"a": 4})
+        self.assertIn('"a": 4', (self.root / "out" / "third.json").read_text())
+        self.assertEqual(sorted(p.name for p in (self.root / "out").iterdir()), ["report.json", "third.json"])
+
+    def test_report_publish_refuses_a_parent_linked_out_of_the_project(self):
+        import tempfile
+        from studio_tools.cli import _publish_new_json
+        with tempfile.TemporaryDirectory() as outside:
+            (self.root / "linked").symlink_to(outside, target_is_directory=True)
+            with self.assertRaisesRegex(StudioError, "escapes"):
+                _publish_new_json(self.root, "linked/report.json", {"a": 1})
+            self.assertEqual(list(Path(outside).iterdir()), [])
 
     def test_cli_report_refuses_the_installed_kit(self):
         import contextlib

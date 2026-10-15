@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import tempfile
 from .common import StudioError, read_json, write_json, output_root, outside_package, relative
 from .config import load
 
@@ -307,24 +308,49 @@ def parser():
 
 
 
-def _publish_new_json(target, data):
-    """Create the target exclusively and write JSON into it, so an existing file is
-    never replaced (including one created by another process meanwhile), and a
-    failed write removes the file this call created. Portable: no hard links."""
+def _publish_new_json(root, name, data):
+    """Publish JSON at the project-relative `name` without ever replacing a file.
+
+    The parent is revalidated after it is created, so a directory swapped for a
+    link while the assessment ran cannot carry the write outside the project or
+    into the installed kit. The JSON is written and fsynced to a private file
+    first and published with a hard link, which fails if the target exists, so a
+    crash never leaves a truncated report at the target. Where hard links are
+    unsupported (exFAT, some network mounts) it falls back to an exclusive create
+    and removes that file if the write fails."""
+    body = json.dumps(data, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+    target = outside_package(relative(root, name), "Revision report")
     target.parent.mkdir(parents=True, exist_ok=True)
+    target = outside_package(relative(root, name), "Revision report")
+    if target.exists():
+        raise StudioError("--report must name a new file; it never overwrites an existing one")
+    fd, temp = tempfile.mkstemp(prefix="." + target.name + ".", suffix=".tmp", dir=target.parent)
     try:
-        handle = target.open("x", encoding="utf-8")
-    except FileExistsError:
-        raise StudioError("--report must name a new file; it never overwrites an existing one") from None
-    try:
-        with handle:
-            json.dump(data, handle, indent=2, ensure_ascii=False, allow_nan=False)
-            handle.write("\n")
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(body)
             handle.flush()
             os.fsync(handle.fileno())
-    except BaseException:
-        target.unlink(missing_ok=True)
-        raise
+        try:
+            os.link(temp, target)
+            return
+        except FileExistsError:
+            raise StudioError("--report must name a new file; it never overwrites an existing one") from None
+        except OSError:
+            pass
+        try:
+            handle = target.open("x", encoding="utf-8")
+        except FileExistsError:
+            raise StudioError("--report must name a new file; it never overwrites an existing one") from None
+        try:
+            with handle:
+                handle.write(body)
+                handle.flush()
+                os.fsync(handle.fileno())
+        except BaseException:
+            target.unlink(missing_ok=True)
+            raise
+    finally:
+        Path(temp).unlink(missing_ok=True)
 
 
 def main(argv=None):
@@ -612,7 +638,7 @@ def dispatch(a):
                     raise StudioError("--report must name a new file; it never overwrites an existing one")
             result = assess(root, evidence)
             if report is not None:
-                _publish_new_json(report, result)
+                _publish_new_json(root, a.report, result)
             return result
         if a.operation == "ingest":
             from .review_records import ingest
