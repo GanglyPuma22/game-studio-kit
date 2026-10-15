@@ -18,6 +18,12 @@
       "evidence": [
         {"path": "sheets/cmp_close.jpg", "location": "left panel, upper third"}
       ],
+      "method": "still",
+      "environment": "lab",
+      "inspection": "performed",
+      "capability": "supported",
+      "inspected_scope": ["close"],
+      "unknowns": [],
       "measurements": {},
       "not_judged_reason": "",
       "owner": null
@@ -52,6 +58,10 @@
   "overall": "continue",
   "allowed_values": {
     "verdict": ["pass", "fail", "not_judged", "not_applicable"],
+    "method": ["still", "clip", "model_inspection", "scene_inspection", "live_interaction"],
+    "environment": ["native", "lab", "blender"],
+    "inspection": ["performed", "not_run", "unsupported"],
+    "capability": ["supported", "unsupported", "unknown"],
     "recheck_status": ["performed", "not_run"],
     "recheck_verdict": ["met", "partly", "not_met"],
     "overall": ["continue", "show_owner", "better_than_last_shown", "blocked_by_other_owner"]
