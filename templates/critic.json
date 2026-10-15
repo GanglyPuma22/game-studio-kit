@@ -20,12 +20,12 @@
       ],
       "method": "still",
       "environment": "lab",
-      "inspection": "performed",
-      "capability": "supported",
-      "inspected_scope": ["close"],
-      "unknowns": [],
+      "inspection": "not_run",
+      "capability": "unknown",
+      "inspected_scope": [],
+      "unknowns": ["close view not captured this round"],
       "measurements": {},
-      "not_judged_reason": "",
+      "not_judged_reason": "close view not captured this round",
       "owner": null
     }
   ],

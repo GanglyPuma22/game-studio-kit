@@ -64,7 +64,7 @@ The record's schema is narrower than the loop's vocabulary, so translate when re
 
 | Loop | `review-revision` record |
 |---|---|
-| criterion row | `kind` (`visual` for stills, `temporal` for motion rows), `subjects`, `required_scope` from the row's `views`, `environment` |
+| criterion row | `kind` (`visual` for stills and for budget or calibrated-metric rows judged from `mesh_test`/`metric` evidence, `temporal` for motion rows, `interaction` as below), `subjects`, `required_scope` from the row's `views`, `environment` |
 | `authoritative: engine` / `lab` / `either` | criterion `environment: native` / `lab` (or `blender` for Blender renders) / `any` |
 | evidence `still`, orbit stills, `frame_strip` for a visual row | method `still` (a frame strip is several retained stills) |
 | evidence `frame_strip` for a temporal row | method `scene_inspection` with `temporal_inspection: true`, `interval` and `duration_seconds` of the source clip, `context` naming the clip, and `actions` listing the frame times inspected |
@@ -75,7 +75,7 @@ The record's schema is narrower than the loop's vocabulary, so translate when re
 | an interaction row (placement, use, reacting to the player) | criterion `kind: interaction`, `environment: native`; evidence method `clip` or `live_interaction` with `input_route` (`ordinary` or `human`), `context` and `actions`, plus `temporal_inspection: true` for a clip. A still cannot close an interaction row |
 | a `critic.json` verdict | one evidence row per verdict; its `method`, `environment`, `inspection`, `capability`, `inspected_scope` (the views the critic actually looked at, not the row's required `views`) and `unknowns` carry over as written |
 | a `critic.json` recheck | the defect's `critic_recheck`; its `evidence` lists the IDs of the defect's `after_evidence` rows (the critic names the row IDs it was given, not file paths), and its `inspected_scope`, `unknowns` and candidate identity carry over as written |
-| verdict `not_judged`, `not_applicable` | `inspection: not_run` with the reason and owner in `unknowns`; the report counts these as gaps |
+| verdict `not_judged`, `not_applicable` | `inspection: not_run` and `inspected_scope: []` whatever the verdict entry says, with the reason and owner in `unknowns`; the report counts these as gaps |
 
 The record cannot tell a calibrated metric from an uncalibrated one, so that check happens here, at translation: only budgets and owner-calibrated metrics become `model_inspection` rows that can support closure. A dedicated metric method and a `not_applicable` state are not in the schema yet; until they are, `not_judged` and `not_applicable` rows show in the report as gaps, which is what they are.
 
