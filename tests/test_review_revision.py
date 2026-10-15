@@ -262,6 +262,38 @@ class RevisionReportTests(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertFalse(missing.exists())
 
+    def test_unknown_enum_names_field_and_allowed_values(self):
+        self.value["evidence"][0]["inspection"] = "not-performed"
+        with self.assertRaisesRegex(StudioError, r"evidence inspection 'not-performed'; allowed: not_run, performed, unsupported"):
+            self.report()
+        self.value["evidence"][0]["inspection"] = "performed"
+        self.value["criteria"][0]["environment"] = "game"
+        with self.assertRaisesRegex(StudioError, r"criterion environment 'game'; allowed: any, blender, lab, native"):
+            self.report()
+
+    def test_undeclared_defect_subject_is_named(self):
+        self.value["defects"][0]["subjects"] = ["pocket-2"]
+        with self.assertRaisesRegex(StudioError, r"names subjects not declared by criterion 'CONTACT': pocket-2"):
+            self.report()
+
+    def test_cli_report_writes_result_beside_record(self):
+        import contextlib
+        import io
+        import json
+        from studio_tools.cli import main
+        write_json(self.root / "review.json", self.value)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = main(["review", "revision", "--project", str(self.root), "--evidence", "review.json",
+                         "--report", "reports/review-report.json"])
+        self.assertEqual(code, 0)
+        saved = json.loads((self.root / "reports/review-report.json").read_text())
+        self.assertEqual(saved, json.loads(out.getvalue()))
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["review", "revision", "--project", str(self.root), "--evidence", "review.json",
+                                   "--report", "../escape.json"]), 1)
+        self.assertFalse((self.root.parent / "escape.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

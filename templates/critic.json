@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "kind": "critic-round",
+  "round": "round1",
+  "critic": "independent-critic",
+  "builder": "asset-builder",
+  "candidate": {
+    "candidate_id": "asset-round1",
+    "content_digest": ""
+  },
+  "manifest_checked": false,
+  "concept_reference_id": null,
+  "verdicts": [
+    {
+      "criterion_id": "M1",
+      "subject": "asset-id",
+      "verdict": "not_judged",
+      "evidence": [
+        {"path": "sheets/cmp_close.jpg", "location": "left panel, upper third"}
+      ],
+      "measurements": {},
+      "not_judged_reason": "",
+      "owner": null
+    }
+  ],
+  "defects": [
+    {
+      "defect_id": "D1",
+      "criterion_id": "M1",
+      "subject": "asset-id",
+      "observed_defect": "",
+      "requested_outcome": "",
+      "evidence": ["sheets/cmp_close.jpg"]
+    }
+  ],
+  "rechecks": [
+    {
+      "defect_id": "D0",
+      "verdict": "met",
+      "evidence": ["sheets/cmp_close.jpg"],
+      "observation": ""
+    }
+  ],
+  "notes_for_owner": [],
+  "could_not_judge": [],
+  "overall": "continue",
+  "allowed_values": {
+    "verdict": ["pass", "fail", "not_judged", "not_applicable"],
+    "recheck_verdict": ["met", "partly", "not_met"],
+    "overall": ["continue", "show_owner", "better_than_last_shown", "blocked_by_other_owner"]
+  }
+}

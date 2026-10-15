@@ -11,4 +11,11 @@ The functional profile is Blender 5.0.1 → glTF 2.0 GLB → Godot 4.5.1 standar
 | Procedural nodes / stylized contour | Bake to textures or implement a reviewed Godot shader; never imply automatic equivalence |
 | Emission | Runtime exposure/glow and target-renderer support |
 
+Two engine behaviours that only an engine render shows:
+
+- In Godot 4, `StandardMaterial3D`'s detail normal replaces the base normal where the detail mask is on; it does not layer on top. Adding micro-grain that way silently erases a baked relief. Use a custom shader with a whiteout (or similar) normal blend, or keep the detail mask well under 1.
+- A shader that writes `DEPTH` is depth-tested against the value it writes, so a far-plane write never passes and the surface does not draw. A boolean cut that looks right in Blender can vanish in the engine.
+
+For anything that depends on a custom shader, transparency, depth or fog, engine stills are the authoritative review evidence; lab renders can pass what the engine draws wrong. Give asset reviews the game's own environment pieces where they matter (water plane, sky, anti-aliasing mode), because some defects only appear against them.
+
 Keep runtime materials project-owned so reimport does not erase intentional overrides. Test mip/distance behavior, texture memory and material slots on the target renderer. Reimport clips separately from their playback rules: [AnimationTree](https://docs.godotengine.org/en/stable/tutorials/animation/animation_tree.html). Review the actual mix using named [audio buses](https://docs.godotengine.org/en/stable/tutorials/audio/audio_buses.html).

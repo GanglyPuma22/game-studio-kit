@@ -391,6 +391,44 @@ class RecordTests(TempCase):
         with self.assertRaisesRegex(StudioError, "clip metadata"):
             validate(a, self.root)
 
+    def test_asset_concept_and_base_provenance(self):
+        source = self.root / "source.blend"
+        source.write_bytes(b"fake source")
+        concept = self.root / "concept.png"
+        concept.write_bytes(b"fake concept")
+        base = self.root / "base.glb"
+        base.write_bytes(b"fake base")
+        a = {
+            "schema_version": 1, "kind": "asset", "asset_id": "a", "stage": "working",
+            "source": [file_record(self.root, source)], "runtime": [], "units": "metres",
+            "dimensions_m": [1, 1, 1], "pivot": "ground", "materials": [], "animated": False,
+            "provenance": {
+                "rights": "derived",
+                "concept": {"reference_id": "concept-a", "approved_by": "owner",
+                            "approved_at": "2026-01-01", "file": file_record(self.root, concept)},
+                "base": {"source_url": "https://example.org/a", "licence": "CC0",
+                         "retrieved_at": "2026-01-01", "file": file_record(self.root, base)},
+            },
+        }
+        self.assertTrue(validate(a, self.root)["ok"])
+        a["provenance"]["base"]["licence"] = "CC BY 4.0"
+        with self.assertRaisesRegex(StudioError, "attribution"):
+            validate(a, self.root)
+        a["provenance"]["base"]["attribution"] = "A by B, CC BY 4.0"
+        self.assertTrue(validate(a, self.root)["ok"])
+        for licence in ("CC-BY-NC-4.0", "CC BY-ND 4.0", "CC-BY-SA-4.0", "editorial", "unknown"):
+            a["provenance"]["base"]["licence"] = licence
+            with self.subTest(licence=licence), self.assertRaisesRegex(StudioError, "not reusable"):
+                validate(a, self.root)
+        a["provenance"]["base"]["licence"] = "CC0-1.0"
+        a["provenance"]["concept"]["approved_by"] = " "
+        with self.assertRaisesRegex(StudioError, "approved_by"):
+            validate(a, self.root)
+        a["provenance"]["concept"]["approved_by"] = "owner"
+        concept.write_bytes(b"changed concept")
+        with self.assertRaisesRegex(StudioError, "Hash mismatch"):
+            validate(a, self.root)
+
     def test_portable_paths(self):
         for name in ["../outside", "C:/secret", "/tmp/secret", "a\\b", "a:file"]:
             with self.assertRaises(StudioError):

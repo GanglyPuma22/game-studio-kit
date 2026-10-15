@@ -29,6 +29,44 @@ def verify_file(root, item):
     return p
 
 
+# Licences a reused base mesh or texture may carry. NonCommercial, NoDerivatives,
+# ShareAlike, editorial and unclear licences are refused; a game may be stricter.
+BASE_LICENCES = {"CC0-1.0", "CC-BY-3.0", "CC-BY-4.0"}
+
+
+def _text(value):
+    return isinstance(value, str) and bool(value.strip())
+
+
+def validate_provenance(provenance, root):
+    if not isinstance(provenance, dict):
+        raise StudioError("Asset provenance must be an object")
+    concept = provenance.get("concept")
+    if concept is not None:
+        if not isinstance(concept, dict):
+            raise StudioError("provenance.concept must be an object")
+        required(concept, ["reference_id", "approved_by", "approved_at", "file"])
+        if not all(_text(concept[key]) for key in ("reference_id", "approved_by", "approved_at")):
+            raise StudioError("provenance.concept needs reference_id, approved_by and approved_at text")
+        verify_file(root, concept["file"])
+    base = provenance.get("base")
+    if base is not None:
+        if not isinstance(base, dict):
+            raise StudioError("provenance.base must be an object")
+        required(base, ["source_url", "licence", "retrieved_at", "file"])
+        if not _text(base["source_url"]) or not _text(base["licence"]):
+            raise StudioError("provenance.base needs source_url and licence text")
+        licence = "-".join(base["licence"].upper().replace("_", " ").replace("-", " ").split())
+        if licence == "CC0":
+            licence = "CC0-1.0"
+        if licence not in BASE_LICENCES:
+            raise StudioError("provenance.base licence " + repr(base["licence"])
+                              + " is not reusable; allowed: " + ", ".join(sorted(BASE_LICENCES)))
+        if licence.startswith("CC-BY") and not _text(base.get("attribution")):
+            raise StudioError("provenance.base CC-BY licence requires the attribution text")
+        verify_file(root, base["file"])
+
+
 def validate_listening(listening, observer):
     if not isinstance(listening, dict) or listening.get("performed") is not True:
         raise StudioError("Listening pass requires actual listening evidence")
@@ -87,6 +125,7 @@ def validate(record, root):
         )
         if record["stage"] not in STAGES:
             raise StudioError("Unknown asset stage")
+        validate_provenance(record["provenance"], root)
         dimensions = record["dimensions_m"]
         if (
             not isinstance(dimensions, list)

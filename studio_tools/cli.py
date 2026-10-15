@@ -293,6 +293,7 @@ def parser():
     c.add_argument("--budget", help="Explicit clip-specific video authorization JSON")
     c.add_argument("--dense", help="Saved dense frames.json relative to project")
     c.add_argument("--evidence", help="Bound timing/action or supplemental revision evidence JSON")
+    c.add_argument("--report", help="revision only: also write the JSON report to this project-relative path")
     c.add_argument("--interval", nargs=2, type=float)
     c.add_argument("--output", default="artifacts/review-fixtures")
     c = command("candidate", True)
@@ -575,7 +576,10 @@ def dispatch(a):
             return {"qualification": qualify(config, root, needed("review"))}
         if a.operation == "revision":
             from .review_revision import assess
-            return assess(root, needed("evidence"))
+            result = assess(root, needed("evidence"))
+            if a.report:
+                write_json(path(a.report), result)
+            return result
         if a.operation == "ingest":
             from .review_records import ingest
             return {"review": ingest(config, root, needed("run"), needed("review"))}

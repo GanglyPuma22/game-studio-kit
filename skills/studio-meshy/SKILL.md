@@ -5,7 +5,7 @@ description: Generate or transform a game-asset candidate with Meshy using durab
 
 # Studio Meshy
 
-Inputs: reference/prompt and rights, approved asset brief, desired operation, work-card budget, configured credential, output root and unique task-record path. Read [supported provider profiles](references/api.md) only for this route.
+Inputs: reference/prompt and rights (for a new model, the owner-approved concept, after the free-base check in [art direction](../studio-art-direction/references/concept-and-bases.md) found nothing usable), approved asset brief, desired operation, work-card budget, configured credential, output root and unique task-record path. Read [supported provider profiles](references/api.md) only for this route.
 
 Before asking the human to approve spend, check what the account has left. `studio meshy balance` is read-only: it makes one GET, writes no record and prints the number:
 
