@@ -1,11 +1,11 @@
 # Swing and grapple traversal gyms
 
-Read alongside [studio-gym](../SKILL.md) when the game's main verb is a grapple, a swing or ODM-style gear: two hooks fired at anchors, reeled in with gas, carrying the player at speed between tall structures or creatures. Traversal of this kind is a feel problem first. The physics can be correct while the controls are unplayable, and the gym is where both get measured.
+Read alongside [studio-gym](../SKILL.md) when the game's main verb is a grapple, a rope or a swing: hooks fired at anchors, reeled in or swung on, carrying the player at speed between tall structures or large moving targets. Traversal of this kind is a feel problem first. The physics can be correct while the controls are unplayable, and the gym is where both get measured.
 
 What studios have said about it, in short ([sources](sources.md)):
 
 - Swinging traversal is built around **anchor geometry metrics**: building heights, street widths and spacing were set so a web always has something to attach to. "If you don't have something to swing from, you can't swing."
-- Control is simplified from the realistic model. An early fully manual ODM control scheme was found too hard to operate and was moved, in the developers' words, "like manual to automatic".
+- Control is simplified from the realistic model. An early fully manual two-hook control scheme was found too hard to operate and was moved, in the developers' words, "like manual to automatic".
 - The camera carries the sense of speed: field of view and follow distance rise with speed, pitch follows the arc, and each new attachment briefly kicks the field of view.
 - Input friction matters as much as physics. A traversal ability bound to an awkward button combination went unused until it became one press.
 - Climbing onto a much larger moving enemy needs both sides to read what is happening, which is its own design problem, separate from swinging.
@@ -18,13 +18,13 @@ Add these rows to step 1, with the current numbers read from code:
 |---|---|
 | Fire hook (left, right, both) | Search radius, aim cone, maximum rope length, travel time, what counts as a valid anchor |
 | Target assist | How a candidate is scored (angle from aim, distance, surface type), lock persistence, override input |
-| Reel and boost | Reel speed, boost force, gas per second, gas capacity, refill rule |
+| Reel and boost | Reel speed, boost force, any resource it spends (per second, capacity, refill rule) |
 | Swing | Gravity used during a swing, damping, rope stiffness or fixed length, input steering force |
 | Release | Speed retained, the angle range that sends the player up versus forward |
 | Wall contact | Run, slide, kick-off speed and angle; what happens when the rope wraps a corner |
-| Strike or nape cut | Approach speed window, hit volume size, angle window, slow-motion or hit-stop timing |
+| Strike from the swing | Approach speed window, hit volume size, angle window, slow-motion or hit-stop timing |
 | Camera | Field of view and follow distance against speed, roll with the rope, collision behaviour at speed |
-| Failure | What happens with no anchor in range, out of gas, rope snagged, hook on a moving target |
+| Failure | What happens with no anchor in range, out of the boost resource, rope snagged, hook on a moving target |
 
 ## Rooms to add
 
@@ -65,8 +65,8 @@ Add these rows to step 1, with the current numbers read from code:
 - **Metrics.** Speed, field of view, follow distance, camera roll, camera collision events.
 
 ### Resource and failure room
-- **Geometry.** A course longer than one tank of gas, with a refill point.
-- **Questions.** What a player sees and does as gas runs out; what the fall looks and sounds like; recovery from a fall.
+- **Geometry.** A course longer than one full boost resource, with a refill point. Skip it when traversal spends nothing.
+- **Questions.** What a player sees and does as the resource runs out; what the fall looks and sounds like; recovery from a fall.
 
 ## Checks
 

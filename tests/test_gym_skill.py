@@ -37,7 +37,7 @@ class GymSkillTests(unittest.TestCase):
     def test_traversal_and_godot_tailoring_are_reachable(self):
         skill = SKILL.read_text(encoding="utf-8")
         for name in ("room-catalog.md", "godot-gym.md", "checks-and-capture.md",
-                     "swing-traversal.md", "worked-example-planet.md", "sources.md"):
+                     "swing-traversal.md", "sources.md"):
             self.assertIn(f"(references/{name})", skill)
 
     def test_plan_template_carries_the_fields_the_skill_names(self):

@@ -47,13 +47,13 @@ Write each room into the gym plan as `id`, `family`, `questions` (each with `met
 2. **Sound, environment, interactions and creatures.** Rooms that need content placed or a small game hook added behind a flag (a surface tag, a creature spawn call).
 3. **Checks and the automatic run.** A pass/fail check per question, one driven route through every room, input record and replay.
 
-For a traversal-heavy game with a grapple, swing or ODM-style gear, read [swing and grapple traversal](references/swing-traversal.md): it adds anchor, rope, momentum and camera-at-speed rooms that a walking game does not need.
+For a traversal-heavy game built on a grapple, rope or swing, read [swing and grapple traversal](references/swing-traversal.md): it adds anchor, rope, momentum and camera-at-speed rooms that a walking game does not need.
 
 ## Step 3: choose layout and tooling
 
 Lay the gym out as a **hub and spokes**: a hub with a room menu, each room reachable by one keypress or click that teleports the player to the room's start, and a reset key that returns to the current room's start. The player arrives with the game's real character, camera and HUD. Decide early:
 
-- **Where the gym lives.** A separate scene is simplest when the game has flat ground and a scene loader. When the world itself is unusual (a moving or spherical planet, a streamed open world, large-world coordinates), place the rooms inside the real world near the spawn on their own greybox slabs that follow the world's frame, so the same precision, gravity and streaming code runs. See the [worked example](references/worked-example-planet.md).
+- **Where the gym lives.** A separate scene is simplest when the game has flat ground and a scene loader. When the world itself is unusual (a moving or spherical planet, a streamed open world, large-world coordinates), place the rooms inside the real world near the spawn on their own greybox slabs that follow the world's frame, so the same precision, gravity and streaming code runs. A gym in an empty flat scene beside such a world tests none of the code that makes the world hard.
 - **How it starts.** One default-off launch flag and one [launch profile](../../templates/launch-profile.json) for the gym, so a person and a harness start the same build the same way. The gym never loads in a normal launch.
 - **Greybox conventions.** A 1 m grid texture, colour meaning fixed across rooms (walkable, not walkable, hazard, interactable, landing target), every metric printed on the geometry itself ("40°", "3.0 m gap"), and a 1.8 m human-scale marker in every room.
 - **The metrics HUD.** One toggle. It shows the inventory's numbers live: speed, vertical speed, grounded and why not, slope under the feet, the reason a jump or action was refused, water depth and its multiplier, surface tag, last landing impact, who has control (on foot, vehicle), frame time. It reads the game's own state; it never computes a parallel answer.
@@ -80,7 +80,7 @@ Report each room as built, checked (automated check passing), and observed (a pe
 |---|---|
 | On-foot exploration | Slope and step ladders, jump yard, surface strip with footsteps, water depth ramp, interaction room, camera rooms |
 | Vehicle or ship flight | Speed lanes with distance markers, landing pads by slope, altitude bands, obstacle courses, boarding and exit, crash and recovery |
-| Grapple, swing or ODM traversal | Anchor field, swing arcs, momentum lanes, target-assist room, camera at speed ([swing and grapple traversal](references/swing-traversal.md)) |
+| Grapple, rope or swing traversal | Anchor field, swing arcs, momentum lanes, target-assist room, camera at speed ([swing and grapple traversal](references/swing-traversal.md)) |
 | Combat | Target dummies with readable hit volumes, timing window room, enemy approach angles, crowd density room |
 | Large or procedural world | Streaming edge room, precision far from origin, the seams between generated tiles |
 

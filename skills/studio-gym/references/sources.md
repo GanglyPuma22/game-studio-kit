@@ -33,7 +33,7 @@ Read alongside [studio-gym](../SKILL.md). Studios rarely publish their gym layou
 - Doug Sheahan, "Concrete Jungle Gym: Building Traversal in Marvel's Spider-Man", GDC 2019 (abstract only). https://gdcvault.com/play/1026084/Concrete-Jungle-Gym-Building-Traversal
 - "Don't mean a thing if you ain't got that swing" (Game Developer): anchor geometry metrics, release timing, camera roll and field of view. https://www.gamedeveloper.com/design/don-t-mean-a-thing-if-you-ain-t-got-that-swing-in-i-spider-man-i-
 - "How Spider-Man 2's traversal physics sling a faster superhero fantasy" (Game Developer): input friction found in playtests. https://www.gamedeveloper.com/programming/how-spider-man-2-s-traversal-physics-sling-a-faster-superhero-fantasy
-- Push Square interview on Attack on Titan: Wings of Freedom: ODM controls simplified from a fully manual scheme. https://www.pushsquare.com/news/2016/08/interview_talking_attack_on_titan_wings_of_freedom_with_koei_tecmo
+- Push Square interview on Attack on Titan: Wings of Freedom: two-hook controls simplified from a fully manual scheme. https://www.pushsquare.com/news/2016/08/interview_talking_attack_on_titan_wings_of_freedom_with_koei_tecmo
 - Chin Xiang Chong, "The Evolution of Rodeo in Titanfall", GDC 2017 (abstract only): climbing onto a much larger enemy. https://gdcvault.com/play/1024094/The-Evolution-of-Rodeo-in
 
-No published numbers were found for ODM anchor radius, rope length or target assist, or for studio flight and vehicle test areas. The rooms for those are inferred practice.
+No published numbers were found for grapple anchor radius, rope length or target assist, or for studio flight and vehicle test areas. The rooms for those are inferred practice.
