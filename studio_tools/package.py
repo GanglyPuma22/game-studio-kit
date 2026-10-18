@@ -18,6 +18,13 @@ REQUIRED_SKILLS = {
 }
 
 
+# YAML 1.2's double-quoted escapes, with the hex lengths it requires.
+_DOUBLE_QUOTED = (
+    r'"(?:[^"\\]|\\(?:[0abtnvfre "/\\N_LP\t]'
+    r'|x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}))*"'
+)
+
+
 def _valid_yaml_scalar(text):
     """A one-line YAML scalar that parses as the whole string, without a YAML library.
 
@@ -26,7 +33,7 @@ def _valid_yaml_scalar(text):
     an inner quote by doubling it.
     """
     if text.startswith('"'):
-        return re.fullmatch(r'"(?:[^"\\]|\\.)*"', text) is not None
+        return re.fullmatch(_DOUBLE_QUOTED, text) is not None
     if text.startswith("'"):
         return re.fullmatch(r"'(?:[^']|'')*'", text) is not None
     if text[0] in "-?:,[]{}#&*!|>%@`":

@@ -69,6 +69,7 @@ class GymSkillTests(unittest.TestCase):
             self.assertEqual(set(status), {"ok", "content_digest", "content_identity_method", "evidence"})
         self.assertEqual(plan["schema_version"], 2)
         self.assertIn("byte-hashed", plan["$comment"])
+        self.assertIn("content_digest_after_exit", plan["$comment"])
         for key in ("metric", "expected", "tolerance", "source"):
             self.assertIn(key, room["questions"][0])
 

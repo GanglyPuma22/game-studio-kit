@@ -81,11 +81,11 @@ class TripoPackageTests(unittest.TestCase):
 
     def test_quoted_descriptions_are_validated_not_exempted(self):
         path = "skills/studio-gym/SKILL.md"
-        for bad in ('"Build a game: safely', "'Build a game's gym'"):
+        for bad in ('"Build a game: safely', "'Build a game's gym'", '"Build\\q"', '"Build\\u12xy"'):
             (self.root / path).write_text(
                 f"---\nname: studio-gym\ndescription: {bad}\n---\n", encoding="utf-8")
             self.assert_failure("description is not a valid one-line YAML scalar: " + path)
-        for good in ('"Build a game: safely"', "'Build a game''s gym: rooms'"):
+        for good in ('"Build a game: safely"', "'Build a game''s gym: rooms'", '"Tab\\t and \\u00e9"'):
             (self.root / path).write_text(
                 f"---\nname: studio-gym\ndescription: {good}\n---\n", encoding="utf-8")
             self.assertEqual(self.result(), {"ok": True, "errors": []})

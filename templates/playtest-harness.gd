@@ -97,7 +97,10 @@ func _physics_process(delta: float) -> bool:
 			state["released"] = true
 			_record("release", action)
 	_sample()
-	if _seconds >= MAX_SECONDS or _route_complete():
+	# Input finishing is not the experiment finishing: a stopping distance or a
+	# jump apex is still changing after the last release, so the report waits
+	# for _measurement_ready() as well.
+	if _seconds >= MAX_SECONDS or (_route_complete() and _measurement_ready()):
 		_report()
 		return true
 	return false
@@ -150,6 +153,12 @@ func _assertions() -> Dictionary:
 		"route_ran": _events.size() > 0,
 	}
 
+## Fill in (optional): true once every measurement has settled, for example
+## the character has stopped or passed its apex. Called each tick after the last
+## step is released; the report waits for it, up to MAX_SECONDS.
+func _measurement_ready() -> bool:
+	return true
+
 ## Fill in (optional): measured numbers this route reports, such as a jump apex
 ## or a stopping distance, keyed by name. They are written to the report's
 ## `metrics` so two builds can be compared; they never decide `ok`.
@@ -168,6 +177,9 @@ func _report() -> void:
 	# was released means the declared route never finished, and a report saying
 	# ok would describe an experiment that did not run.
 	checks["route_completed"] = _route_complete()
+	# A ceiling reached before the measurements settled would report numbers
+	# taken mid-motion as if they were the result.
+	checks["measurement_settled"] = _measurement_ready()
 	var failed: PackedStringArray = []
 	for name in checks.keys():
 		if not bool(checks[name]):

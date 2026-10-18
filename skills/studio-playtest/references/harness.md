@@ -36,6 +36,10 @@ this.
 5. **`_metrics()`** — optional measured numbers (an apex height, a stopping
    distance) keyed by name. They are written to the report's `metrics` for
    comparing builds and never decide `ok`; that stays with `_assertions()`.
+   When a number keeps changing after the last input is released, return
+   false from **`_measurement_ready()`** until it has settled; the report
+   waits for it, and a run that reaches `MAX_SECONDS` first fails the built-in
+   `measurement_settled` check.
 6. **`MAX_SECONDS`** — the harness quits itself. `--max-minutes` is the kit's
    backstop for a harness that hangs, not the plan for how long the run takes.
    Reaching the ceiling before every step is released fails the run through a
