@@ -6,6 +6,18 @@ from urllib.parse import unquote, urlsplit
 from .common import read_json, relative, StudioError, sha256
 
 
+# The base catalogue by name. The count alone cannot prove these are present,
+# because any other well-formed skill would reach the same number.
+REQUIRED_SKILLS = {
+    name: f"skills/{name}/SKILL.md"
+    for name in (
+        "studio-director", "studio-game-design", "studio-art-direction", "studio-blender",
+        "studio-meshy", "studio-terrain", "studio-animation", "studio-audio", "studio-godot",
+        "studio-playtest", "studio-gym", "studio-review",
+    )
+}
+
+
 def check(root):
     root = Path(root).resolve()
     errors = []
@@ -74,6 +86,17 @@ def check(root):
                 r"^name: " + re.escape(skill["name"]) + r"$", front, re.M
             ) or not re.search(r"^description: .+", front, re.M):
                 errors.append("invalid skill metadata: " + skill["path"])
+                continue
+            # A YAML plain scalar ends at ": " or " #", so hosts that parse the
+            # frontmatter as YAML would refuse or truncate such a description.
+            description = re.search(r"^description: (.+)$", front, re.M).group(1)
+            if description[0] not in "'\"" and (": " in description or " #" in description):
+                errors.append("description is not a valid YAML plain scalar: " + skill["path"])
+        for name, path in REQUIRED_SKILLS.items():
+            if name not in names:
+                errors.append("missing required skill declaration: " + name)
+            elif any(skill["name"] == name and skill["path"] != path for skill in manifest["skills"]):
+                errors.append(name + " must use its canonical skill path")
         tripo_path = "skills/studio-tripo/SKILL.md"
         tripo_reference = "skills/studio-tripo/references/provider-workflow.md"
         has_tripo = "studio-tripo" in names

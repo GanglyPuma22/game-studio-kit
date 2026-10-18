@@ -1,6 +1,6 @@
 ---
 name: studio-gym
-description: Plan and build a gameplay gym for a specific game: inventory every player verb and system with its current numbers, map each to a greybox room with a measurable expected value, lay the rooms out with a metrics HUD and teleport hub, and wire automated room checks and playtest capture through `studio playtest start` and `studio launch`.
+description: Plan and build a gameplay gym for a specific game, inventorying every player verb and system with its current numbers, mapping each to a greybox room with a measurable expected value, laying the rooms out with a metrics HUD and teleport hub, and wiring automated room checks and playtest capture through `studio playtest start`, with `studio launch` only for project-owned scripts that write their own results.
 ---
 
 # Studio gym
@@ -15,7 +15,7 @@ Run the absolute [helper entrypoint](../../scripts/studio.py) with an explicit g
 
 - **Run the real code.** The gym places geometry, measures and teleports. It never forks the player controller, ship, audio or interaction code to make a room work. A gym that tests a copy of the movement policy documents the copy.
 - **Greybox must pass through the game's own rules.** If the game only treats certified or registered surfaces as floor, the gym registers its slabs through that same route. When plain geometry is not floor, not landable or has no surface tag, that is a finding about the game, recorded as a gap, not something the gym quietly special-cases.
-- **Every room states its expected value before it is built.** The value comes from the inventory's current numbers ("walk limit 45°, so 44° climbs and 46° slides"). A room without an expected value is scenery.
+- **Every room states its expected value before it is built.** The value comes from the inventory's current numbers ("walk limit 45°, so 44° climbs and 46° does not"). What happens past a limit (slide, block or fall) also comes from the controller, never from what games usually do. A room without an expected value is scenery.
 - **Bracket every threshold.** Put geometry just below, at and just above each limit. The interesting behaviour lives at the edge, and a single "45° ramp" cannot tell a correct limit from one that is 10° off.
 - **Gaps are the first deliverable.** The first build exposes what the game cannot do yet: no step-up, no swimming, one surface type for every footstep, no way to place a creature at a chosen spot. Each gap goes in the plan's `gaps` list with the room that exposed it. Game changes that close a gap are separate, default-off work, not part of the gym.
 - **The gym is not the canonical route.** A feature observed in the gym runs; it is not installed until a person meets it on the canonical route ([studio-playtest](../studio-playtest/SKILL.md)). A gym observation can feed a review, but it never sets a feature row to `human_verdict: accepted` on its own.
@@ -66,13 +66,13 @@ For Godot, read [Godot gym tooling](references/godot-gym.md): scene structure, C
 
 Turn each room question into a check and each room into a route. [Checks and capture](references/checks-and-capture.md) covers the full pattern; the essentials:
 
-- **Room checks.** A driven harness from [the harness template](../../templates/playtest-harness.gd) per room or per stage, pressing the project's real input actions and asserting named booleans such as `climbs_44_deg` and `slides_46_deg`. Run it with `playtest start --session driven`, or with `launch` when one script must return one verdict. A check that passes has shown wiring, not feel.
-- **Metric snapshots.** The harness also writes the measured numbers (jump apex, time to top speed, stopping distance, landing impact) to a declared result file. Compare each against the plan's expected value and tolerance, and against the previous build's snapshot, so a tuning change shows up as a moved number instead of a vague "feels different".
+- **Room checks.** A driven harness from [the harness template](../../templates/playtest-harness.gd) per room or per stage, pressing the project's real input actions and asserting named booleans such as `climbs_44_deg` and `refused_46_deg`. Run it with `playtest start --session driven`, which supplies the report path the template needs. `studio launch` and `batch` do not supply that path, so use them only for a project-owned script that writes its own declared result. A check that passes has shown wiring, not feel.
+- **Metric snapshots.** The harness also writes the measured numbers (jump apex, time to top speed, stopping distance, landing impact) in its report. Compare each against the plan's expected value and tolerance, and against the previous build's snapshot, so a tuning change shows up as a moved number instead of a vague "feels different".
 - **One route through every room.** Stage 3 adds a driven route that visits each room in order and writes one report, so the whole gym runs as a regression check before a merge.
 - **Performance per room.** Record frame time while each room runs. A gym room that costs 30 ms on its own will not cost less in the full game.
 - **Human sessions on the gym route.** Play the gym with `playtest start --session handoff` or `attended` for feel, camera and sound. Capture video with the metrics HUD visible and the event log running, so a moment in the video can be matched to a logged event and a number.
 
-Report each room as built, checked (automated check passing), and observed (a person played it), separately. Return the plan, the gap list with the room that exposed each gap, the run directories and the question still open.
+Report each room as built, checked (automated check passing), and observed (a person played it), separately, each with the content digest of the build it was established on. A status from an older build is stale until it is run again. Return the plan, the gap list with the room that exposed each gap, the run directories and the question still open.
 
 ## Tailoring by game
 

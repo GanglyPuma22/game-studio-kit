@@ -7,18 +7,18 @@ Read alongside [studio-gym](../SKILL.md) when the game runs on Godot 4.x. This f
 Keep the gym in its own folder (for example `res://scripts/gameplay_gym/`) with one entry node, one builder per room and one HUD. The game's entry script adds the gym node only when a launch flag is present:
 
 ```gdscript
-const GYM := preload("res://scripts/gameplay_gym/gym_root.gd")
+const GYM_SCRIPT := "res://scripts/gameplay_gym/gym_root.gd"
 
 func _ready() -> void:
     if "--gameplay-gym" in OS.get_cmdline_user_args():
-        var gym := GYM.new()
+        var gym: Node = load(GYM_SCRIPT).new()
         gym.name = "GameplayGym"
         add_child(gym)
 ```
 
-User arguments arrive after `--` on the engine command line, which is where a [launch profile](../../../templates/launch-profile.json)'s `feature_flags` put them. With no flag, nothing in the gym folder is instantiated.
+User arguments arrive after `--` on the engine command line, which is where a [launch profile](../../../templates/launch-profile.json)'s `feature_flags` put them. Use `load()` inside the flagged branch, not a `preload` constant: `preload` compiles the gym script whenever the entry script compiles, so an error in gym code would break normal launches too. With no flag, nothing in the gym folder is loaded.
 
-Prefer `preload` of script paths over `class_name` for gym scripts when the project's play route does not rebuild the global class cache (an exported or pre-imported build launched without the editor). A new `class_name` that the cache never learned about fails only on that machine.
+Refer to gym scripts by path (`load` at the entry, `preload` between gym scripts) rather than `class_name` when the project's play route does not rebuild the global class cache (an exported or pre-imported build launched without the editor). A new `class_name` that the cache never learned about fails only on that machine.
 
 **Build rooms from data.** Write each room as a dictionary or JSON entry whose numbers are the gym plan's numbers (ramp angles, step heights, gap widths, pad slopes), and have one builder turn it into nodes. Then the geometry, the labels and the expected values come from one place, and changing a room means changing a number, not dragging a mesh.
 
@@ -54,8 +54,8 @@ Prefer `preload` of script paths over `class_name` for gym scripts when the proj
 ## Checks, replay and performance in the engine
 
 - **Room checks.** Copy [the harness template](../../../templates/playtest-harness.gd) per room or stage. It already drives real input actions both as polled state and as `InputEventAction` events, stamps samples with `Engine.get_physics_frames()` and `Time.get_ticks_usec()`, and fails through the log and exit code. Teleport to the room's start, run the steps, and assert the room's questions. Run with `playtest start --session driven --script res://tests/<room>_harness.gd`.
-- **Metric snapshot.** Write measured numbers to a JSON file declared with `--result`, next to the harness report the kit already supplies.
+- **Metric snapshot.** Add measured numbers to the harness report under a `metrics` key. A separate file must sit outside `artifacts/playtests/<label>/`, for example `artifacts/gym-results/<label>.json` declared with `--result`, because the kit refuses results inside the run directory it owns.
 - **Poll, then time out.** Assert by checking each physics frame until the condition holds or a frame limit passes, not after a fixed delay or on the input's own frame. A check pinned to one frame breaks the first time the game moves its update later in the tick.
 - **Test frameworks.** GUT and GdUnit4 both exist; GdUnit4's scene runner can simulate input actions. With GUT's input sender and `use_accumulated_input` on, assertions can run before the input lands; wait a few extra frames or call `Input.flush_buffered_events()`. Use whichever the project already runs, as [testing and performance](../../studio-godot/references/testing-and-performance.md) advises, and launch it through `launch --mode test`.
-- **Input record and replay.** Record `InputEventAction` presses and releases with their physics frame number into JSON; replay by feeding the same events through `Input.parse_input_event()` on the same frames. Replay is only repeatable with a fixed physics tick, seeded random number generators and no wall-clock timers in gameplay code. Record the seed and tick with the recording.
-- **Frame time per room.** `Performance.get_monitor(Performance.TIME_PROCESS)` and `TIME_PHYSICS_PROCESS`, plus `RenderingServer.get_rendering_info()` draw and primitive counts, sampled on entering and leaving each room and written as events, not per frame.
+- **Input record and replay.** Record input events with their physics frame number into JSON: `InputEventAction` with its `strength`, plus the raw events gameplay reads (`InputEventMouseMotion` relative motion, `InputEventJoypadMotion` axis values). Replay by feeding the same events through `Input.parse_input_event()` on the same frames. A recorder that keeps only action presses and releases is faithful only for digital routes. Replay is only repeatable with a fixed physics tick, seeded random number generators and no wall-clock timers in gameplay code. Record the seed and tick with the recording.
+- **Frame time per room.** `Performance.get_monitor(Performance.TIME_PROCESS)` and `TIME_PHYSICS_PROCESS`, plus `RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)` and `get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME)` (each call takes one selector), sampled on entering and leaving each room and written as events, not per frame.

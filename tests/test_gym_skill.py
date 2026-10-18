@@ -34,6 +34,20 @@ class GymSkillTests(unittest.TestCase):
         self.assertIn("not_established", skill)
         self.assertIn("Run the real code.", skill)
 
+    def test_the_harness_route_matches_what_the_kit_supplies(self):
+        # Only a driven playtest passes the template its report path, and the
+        # kit refuses declared results inside the run directory it owns.
+        checks = (REFERENCES / "checks-and-capture.md").read_text(encoding="utf-8")
+        godot = (REFERENCES / "godot-gym.md").read_text(encoding="utf-8")
+        self.assertIn("rather than batching room harnesses", checks)
+        for text in (checks, godot):
+            self.assertIn("artifacts/gym-results/<label>.json", text)
+            self.assertNotIn("next to the harness report", text)
+        # The gym entry must not compile gym code into normal launches.
+        self.assertIn("load(GYM_SCRIPT)", godot)
+        self.assertNotIn('const GYM := preload', godot)
+        self.assertIn("RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME", godot)
+
     def test_traversal_and_godot_tailoring_are_reachable(self):
         skill = SKILL.read_text(encoding="utf-8")
         for name in ("room-catalog.md", "godot-gym.md", "checks-and-capture.md",
@@ -50,6 +64,9 @@ class GymSkillTests(unittest.TestCase):
             self.assertIn(key, row)
         room = plan["rooms"][0]
         self.assertEqual(set(room["status"]), {"built", "checked", "observed"})
+        # A status is bound to the build it was established on.
+        for status in room["status"].values():
+            self.assertEqual(set(status), {"ok", "content_digest", "evidence"})
         for key in ("metric", "expected", "tolerance", "source"):
             self.assertIn(key, room["questions"][0])
 
