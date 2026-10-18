@@ -31,6 +31,16 @@ Each item cost at least one review round in a production pilot. Check for them b
 - **Intended embeds are not clipping.** Fins, wing roots and leg sockets sit inside the body by design and produce hundreds of overlapping triangle pairs at rest. Measure clearance against a rest-pose baseline, list intended embeds (part pairs or vertex groups), count a part's faces that newly touch the body per clip frame, and attach x-ray stills of the joins.
 - **Vertices outside is not enough.** A vertex can sit outside the body while its triangle still cuts the skin; re-check with a BVH after any push-out fix. Lifting attached-part root vertices a few millimetres off the decimated skin is a cheap standard step.
 
+## Separate parts: clipping and floating
+
+Models built from many separate parts (leaves, blades, plates, grains, spines) clip and float far more than a reviewer can see in stills. Both have measured review rows ([critic loop](../../studio-review/references/critic-loop.md)); build so they pass the first time.
+
+- **Seat roots, don't hover.** Seat each root a few millimetres into a socket, ridge or boss on its parent, never above the surface with a safety gap. Put any hinge inside the socket so folding keeps the root covered.
+- **Test each piece while placing it.** Keep a BVH per placed piece (plus a box index). Build the candidate, drop only the part of it that sits inside its parent, and keep it only if it crosses nothing else; otherwise retry with a new angle or skip it. Test the candidate at every LOD level it will appear in, against that level's placed pieces. Thin sibling pieces (leaves of one stem) must test against each other, not share one ignore group.
+- **One plan, every LOD.** Record pieces once and mesh each LOD from that record. Lower levels should be subsets of the same pieces, or the same pieces with fewer sides; scaling pieces up or resampling a curved stem into fewer points moves them off their parent or into each other. Keep a stem's full path at every level and drop sides instead.
+- **Clean-up pass on the real export.** After building, export every LOD the way the game will load it and run both checks. Tag each piece as it is meshed so a reported part maps back to its piece, then drop the smaller piece of each clipping pair (a leaf before its stem, the later-placed piece before the earlier) and any piece left floating. Repeat until both pass. Checking a stand-in file instead of the real export lets clips through, because triangulation and welding differ.
+- **Know what counts as closed.** A useful split is the share of boundary edges: closed parts (tubes, domes, grains) have few, open sheets (blades, leaves) have many. A terrain grid has few boundary edges too; treat a wide sheet spanning the model's footprint at its base as ground, which plants may sit in.
+
 ## Headless Blender in containers
 
 Some cloud containers have Blender only as the pip `bpy` module, with no `blender` executable. The kit's `blender` commands need an executable that accepts `--background ... --python <script> -- <args>`; until the kit ships a module route, a small shim script that parses those arguments and runs the script under the module's Python lets them run unchanged. Record that the shim was used in the work card.
