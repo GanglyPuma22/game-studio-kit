@@ -794,6 +794,9 @@ class PlaytestDocumentationTests(unittest.TestCase):
         # A normal scene launch sets current_scene; without it a game reading
         # get_tree().current_scene fails in a way no player would see.
         self.assertIn("current_scene = _scene", template)
+        # Measured numbers have a place in the report without deciding ok.
+        self.assertIn("func _metrics() -> Dictionary:", template)
+        self.assertIn('"metrics": _metrics(),', template)
 
     def test_catalog_count_agrees_with_the_manifest_everywhere(self):
         count = len(read_json(ROOT / "studio-kit.json")["skills"])

@@ -150,6 +150,12 @@ func _assertions() -> Dictionary:
 		"route_ran": _events.size() > 0,
 	}
 
+## Fill in (optional): measured numbers this route reports, such as a jump apex
+## or a stopping distance, keyed by name. They are written to the report's
+## `metrics` so two builds can be compared; they never decide `ok`.
+func _metrics() -> Dictionary:
+	return {}
+
 func _report() -> void:
 	for index in ROUTE.size():
 		var state: Dictionary = _steps[index]
@@ -175,6 +181,7 @@ func _report() -> void:
 		"route": ROUTE,
 		"events": _events,
 		"checks": checks,
+		"metrics": _metrics(),
 		# Injected input cannot establish any of these, so they are declared
 		# not_run here rather than left for a reader to assume.
 		"ordinary_input_review": "not_run",

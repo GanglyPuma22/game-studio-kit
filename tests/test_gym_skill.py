@@ -66,7 +66,9 @@ class GymSkillTests(unittest.TestCase):
         self.assertEqual(set(room["status"]), {"built", "checked", "observed"})
         # A status is bound to the build it was established on.
         for status in room["status"].values():
-            self.assertEqual(set(status), {"ok", "content_digest", "evidence"})
+            self.assertEqual(set(status), {"ok", "content_digest", "content_identity_method", "evidence"})
+        self.assertEqual(plan["schema_version"], 2)
+        self.assertIn("byte-hashed", plan["$comment"])
         for key in ("metric", "expected", "tolerance", "source"):
             self.assertIn(key, room["questions"][0])
 

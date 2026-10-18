@@ -72,7 +72,7 @@ Turn each room question into a check and each room into a route. [Checks and cap
 - **Performance per room.** Record frame time while each room runs. A gym room that costs 30 ms on its own will not cost less in the full game.
 - **Human sessions on the gym route.** Play the gym with `playtest start --session handoff` or `attended` for feel, camera and sound. Capture video with the metrics HUD visible and the event log running, so a moment in the video can be matched to a logged event and a number.
 
-Report each room as built, checked (automated check passing), and observed (a person played it), separately, each with the content digest of the build it was established on. A status from an older build is stale until it is run again. Return the plan, the gap list with the room that exposed each gap, the run directories and the question still open.
+Report each room as built, checked (automated check passing), and observed (a person played it), separately, each with the content digest and identity method of the build it was established on. Start the sessions with `--content-identity strict`: a status from a cached run or an older build is stale until it is run again. Return the plan, the gap list with the room that exposed each gap, the run directories and the question still open.
 
 ## Tailoring by game
 

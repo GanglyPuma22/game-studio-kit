@@ -77,7 +77,18 @@ class TripoPackageTests(unittest.TestCase):
         path = "skills/studio-gym/SKILL.md"
         (self.root / path).write_text(
             "---\nname: studio-gym\ndescription: Build a gym for a game: rooms.\n---\n", encoding="utf-8")
-        self.assert_failure("description is not a valid YAML plain scalar: " + path)
+        self.assert_failure("description is not a valid one-line YAML scalar: " + path)
+
+    def test_quoted_descriptions_are_validated_not_exempted(self):
+        path = "skills/studio-gym/SKILL.md"
+        for bad in ('"Build a game: safely', "'Build a game's gym'"):
+            (self.root / path).write_text(
+                f"---\nname: studio-gym\ndescription: {bad}\n---\n", encoding="utf-8")
+            self.assert_failure("description is not a valid one-line YAML scalar: " + path)
+        for good in ('"Build a game: safely"', "'Build a game''s gym: rooms'"):
+            (self.root / path).write_text(
+                f"---\nname: studio-gym\ndescription: {good}\n---\n", encoding="utf-8")
+            self.assertEqual(self.result(), {"ok": True, "errors": []})
 
     def test_tripo_replacing_a_base_skill_does_not_pass_with_twelve(self):
         self.add_tripo()

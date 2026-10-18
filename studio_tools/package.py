@@ -18,6 +18,22 @@ REQUIRED_SKILLS = {
 }
 
 
+def _valid_yaml_scalar(text):
+    """A one-line YAML scalar that parses as the whole string, without a YAML library.
+
+    A plain scalar ends at ": " or " #" and cannot start with an indicator. A double-quoted one must close at its
+    last character with every inner quote escaped; a single-quoted one escapes
+    an inner quote by doubling it.
+    """
+    if text.startswith('"'):
+        return re.fullmatch(r'"(?:[^"\\]|\\.)*"', text) is not None
+    if text.startswith("'"):
+        return re.fullmatch(r"'(?:[^']|'')*'", text) is not None
+    if text[0] in "-?:,[]{}#&*!|>%@`":
+        return False
+    return ": " not in text and " #" not in text and not text.endswith(":")
+
+
 def check(root):
     root = Path(root).resolve()
     errors = []
@@ -89,9 +105,9 @@ def check(root):
                 continue
             # A YAML plain scalar ends at ": " or " #", so hosts that parse the
             # frontmatter as YAML would refuse or truncate such a description.
-            description = re.search(r"^description: (.+)$", front, re.M).group(1)
-            if description[0] not in "'\"" and (": " in description or " #" in description):
-                errors.append("description is not a valid YAML plain scalar: " + skill["path"])
+            description = re.search(r"^description: (.+)$", front, re.M).group(1).rstrip()
+            if not _valid_yaml_scalar(description):
+                errors.append("description is not a valid one-line YAML scalar: " + skill["path"])
         for name, path in REQUIRED_SKILLS.items():
             if name not in names:
                 errors.append("missing required skill declaration: " + name)
