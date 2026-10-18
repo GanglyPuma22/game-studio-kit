@@ -77,7 +77,7 @@ def check(root):
         tripo_path = "skills/studio-tripo/SKILL.md"
         tripo_reference = "skills/studio-tripo/references/provider-workflow.md"
         has_tripo = "studio-tripo" in names
-        expected_count = 12 if has_tripo else 11
+        expected_count = 13 if has_tripo else 12
         if len(names) != expected_count:
             errors.append(f"expected {expected_count} distinct studio entrypoints")
         if has_tripo:

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "game-studio-kit",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "skills": [
     {
       "name": "studio-director",
@@ -48,6 +48,10 @@
       "path": "skills/studio-playtest/SKILL.md"
     },
     {
+      "name": "studio-gym",
+      "path": "skills/studio-gym/SKILL.md"
+    },
+    {
       "name": "studio-review",
       "path": "skills/studio-review/SKILL.md"
     }
@@ -74,6 +78,12 @@
     "skills/studio-godot/references/physics-and-precision.md",
     "skills/studio-godot/references/testing-and-performance.md",
     "skills/studio-playtest/references/harness.md",
+    "skills/studio-gym/references/room-catalog.md",
+    "skills/studio-gym/references/godot-gym.md",
+    "skills/studio-gym/references/checks-and-capture.md",
+    "skills/studio-gym/references/swing-traversal.md",
+    "skills/studio-gym/references/worked-example-planet.md",
+    "skills/studio-gym/references/sources.md",
     "skills/studio-tripo/references/provider-workflow.md",
     "skills/studio-review/references/validation-loop.md",
     "skills/studio-review/references/critic-loop.md",
@@ -136,6 +146,7 @@
     "studio_tools/validation.py",
     "templates/asset.json",
     "templates/batch-plan.json",
+    "templates/gym-plan.json",
     "templates/launch-profile.json",
     "templates/audio-cues.json",
     "templates/candidate.json",

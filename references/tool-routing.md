@@ -12,12 +12,13 @@
 | Heightfield | studio-terrain local generator | Gaea UI graph plus installation-verified build recipe |
 | Timed functional cue | studio-audio local PCM | ElevenLabs effects/speech/music with rights and budget |
 | Import and gameplay response | studio-godot | Ordinary player-input native review |
+| Gameplay gym: verb inventory, measured rooms, room checks | [studio-gym](../skills/studio-gym/SKILL.md) | Gym observation is wiring and feel at the edges; canonical-route play still decides acceptance |
 | Continuous recording and video analysis | studio-review [operational loop](../skills/studio-review/references/validation-loop.md), explicit FFmpeg and Gemini adapters | Native host permission and original-fixture detection remain separate gates |
 | Visual/motion/audio verdict | studio-review and actual host tools | Precise native/manual handoff if computer use/capture/listening unavailable |
 
 `doctor` is offline-first. An executable's `ready` means it answered a version query; operations remain unverified until executed. Credential presence is not authentication, entitlement, balance or provider readiness. The helper always reports host computer use as unverified: the active agent must inspect its actual tool list and perform a bounded native app operation to establish it.
 
-Each output has one writer. Only one operator controls the visible desktop. Delegation is optional and follows host/user authorization; the twelve skills are not twelve persistent agents. Save the editable source before a mode switch and track who owns any launched process. Do not reuse another project's environment assumptions.
+Each output has one writer. Only one operator controls the visible desktop. Delegation is optional and follows host/user authorization; the thirteen skills are not thirteen persistent agents. Save the editable source before a mode switch and track who owns any launched process. Do not reuse another project's environment assumptions.
 
 
 | Concrete request | Staged reads and advancement |

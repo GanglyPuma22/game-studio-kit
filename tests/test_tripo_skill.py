@@ -55,22 +55,22 @@ class TripoPackageTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertTrue(any(message in error for error in result["errors"]), result)
 
-    def test_legacy_eleven_without_tripo_still_passes(self):
+    def test_base_twelve_without_tripo_still_passes(self):
         self.assertEqual(self.result(), {"ok": True, "errors": []})
 
-    def test_twelve_with_declared_skill_and_workflow_passes(self):
+    def test_thirteen_with_declared_skill_and_workflow_passes(self):
         self.add_tripo()
         self.assertEqual(self.result(), {"ok": True, "errors": []})
 
-    def test_arbitrary_twelfth_skill_does_not_enable_optional_count(self):
+    def test_arbitrary_extra_skill_does_not_enable_optional_count(self):
         self.manifest["skills"].append({"name": "studio-other", "path": "skills/studio-other/SKILL.md"})
         self.skill_file("studio-other", "skills/studio-other/SKILL.md")
-        self.assert_failure("expected 11 distinct")
+        self.assert_failure("expected 12 distinct")
 
-    def test_tripo_replacing_a_base_skill_does_not_pass_with_eleven(self):
+    def test_tripo_replacing_a_base_skill_does_not_pass_with_twelve(self):
         self.add_tripo()
         self.manifest["skills"].pop(0)
-        self.assert_failure("expected 12 distinct")
+        self.assert_failure("expected 13 distinct")
 
     def test_missing_tripo_skill_fails(self):
         self.add_tripo()
