@@ -45,6 +45,7 @@ preserve unique run logs and classify completed output before reporting status.
 | Import, runtime composition and bounded wiring | [studio-godot](../studio-godot/SKILL.md) |
 | Several launches known before the first one starts | `studio batch --plan <file>` instead of repeated `launch` calls, unless a run's arguments depend on the previous run's verdict |
 | Playing a build to see how it feels; route and session choice | [studio-playtest](../studio-playtest/SKILL.md) |
+| Test space for every player verb: inventory, greybox rooms with measured limits, room checks | [studio-gym](../studio-gym/SKILL.md) |
 | Native appearance/input/motion/mix acceptance | [studio-review](../studio-review/SKILL.md) |
 | Overnight, unattended or production-contract run | [overnight-run](references/overnight-run.md) |
 

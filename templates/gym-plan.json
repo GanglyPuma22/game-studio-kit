@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "kind": "gym-plan",
+  "$comment": "One gameplay gym plan per project, kept in the project (for example tools/gym-plan.json) and updated after every round. inventory rows come from source, with owner as path:line and numbers copied from code. Every inventory row maps to at least one room question or carries not_in_gym. Each room question has an expected value and tolerance written before the room is built. status per room is built, checked and observed, reported separately: checked means an automated check passes, observed means a person played it. Gym observations never set a feature manifest row to accepted. gaps record what the game cannot do yet and the room that exposed each one; closing a gap is separate default-off game work. key_registry lists every key already taken by the game and its labs before gym keys are chosen. See skills/studio-gym/SKILL.md.",
+  "game": "",
+  "engine": {
+    "name": "godot",
+    "version": "",
+    "precision": "single",
+    "physics_backend": "",
+    "physics_ticks_per_second": 60
+  },
+  "entry": {
+    "placement": "separate-scene",
+    "launch_flag": "--gameplay-gym",
+    "launch_profile": "tools/play-gym.json",
+    "scene": ""
+  },
+  "inventory": [
+    {
+      "verb": "walk",
+      "input": ["move_forward", "move_back", "move_left", "move_right"],
+      "owner": "res://scripts/player/controller.gd:0",
+      "numbers": {"walk_speed_mps": 0, "floor_max_angle_deg": 45},
+      "states": [],
+      "feedback": [],
+      "touches": [],
+      "isolated_today": false,
+      "not_in_gym": null
+    }
+  ],
+  "rooms": [
+    {
+      "id": "slope-ladder",
+      "family": "movement",
+      "build_stage": 1,
+      "geometry": {"ramps_deg": [10, 20, 30, 40, 44, 46, 50, 60]},
+      "questions": [
+        {
+          "id": "climbs_below_limit",
+          "metric": "grounded while climbing the 44 deg ramp",
+          "expected": true,
+          "tolerance": null,
+          "source": "walk.numbers.floor_max_angle_deg"
+        }
+      ],
+      "check": "res://tests/gym/slope_ladder_harness.gd",
+      "status": {"built": false, "checked": false, "observed": false},
+      "measured": {},
+      "golden": null
+    }
+  ],
+  "gaps": [
+    {
+      "gap": "",
+      "exposed_by": "",
+      "needs": "",
+      "status": "open"
+    }
+  ],
+  "key_registry": {
+    "taken": [],
+    "gym": []
+  },
+  "open_question": ""
+}
