@@ -36,7 +36,18 @@ def _valid_yaml_scalar(text):
     if not text:
         return False
     if text.startswith('"'):
-        return re.fullmatch(_DOUBLE_QUOTED, text) is not None
+        if re.fullmatch(_DOUBLE_QUOTED, text) is None:
+            return False
+        # A \u or \U escape must name a Unicode scalar: no surrogates, nothing
+        # past U+10FFFF. Each match consumes one whole escape, so an escaped
+        # backslash before "u" is not read as one.
+        for escape in re.finditer(r"\\(?:u([0-9A-Fa-f]{4})|U([0-9A-Fa-f]{8})|.)", text[1:-1]):
+            digits = escape.group(1) or escape.group(2)
+            if digits:
+                point = int(digits, 16)
+                if 0xD800 <= point <= 0xDFFF or point > 0x10FFFF:
+                    return False
+        return True
     if text.startswith("'"):
         return re.fullmatch(r"'(?:[^']|'')*'", text) is not None
     # "-", "?" and ":" may open a plain scalar when a non-space follows them.
