@@ -90,6 +90,17 @@ class TripoPackageTests(unittest.TestCase):
                 f"---\nname: studio-gym\ndescription: {good}\n---\n", encoding="utf-8")
             self.assertEqual(self.result(), {"ok": True, "errors": []})
 
+    def test_plain_descriptions_follow_the_indicator_lookahead(self):
+        path = "skills/studio-gym/SKILL.md"
+        for bad in ("   ", "- list item", "? key", ": value", "-"):
+            (self.root / path).write_text(
+                f"---\nname: studio-gym\ndescription: {bad}\n---\n", encoding="utf-8")
+            self.assert_failure("description is not a valid one-line YAML scalar: " + path)
+        for good in ("-based workflows", "?help", ":colon start"):
+            (self.root / path).write_text(
+                f"---\nname: studio-gym\ndescription: {good}\n---\n", encoding="utf-8")
+            self.assertEqual(self.result(), {"ok": True, "errors": []})
+
     def test_tripo_replacing_a_base_skill_does_not_pass_with_twelve(self):
         self.add_tripo()
         self.manifest["skills"].pop(0)

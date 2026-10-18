@@ -799,7 +799,7 @@ class PlaytestDocumentationTests(unittest.TestCase):
         self.assertIn('"metrics": _metrics(),', template)
         # Metrics wait for the experiment to settle, not just the last release.
         self.assertIn("_route_complete() and _measurement_ready()", template)
-        self.assertIn('checks["measurement_settled"] = _measurement_ready()', template)
+        self.assertIn('checks["measurement_settled"] = _route_complete() and _measurement_ready()', template)
 
     def test_catalog_count_agrees_with_the_manifest_everywhere(self):
         count = len(read_json(ROOT / "studio-kit.json")["skills"])

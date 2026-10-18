@@ -28,15 +28,21 @@ _DOUBLE_QUOTED = (
 def _valid_yaml_scalar(text):
     """A one-line YAML scalar that parses as the whole string, without a YAML library.
 
-    A plain scalar ends at ": " or " #" and cannot start with an indicator. A double-quoted one must close at its
+    A plain scalar ends at ": " or " #" and cannot start with an indicator
+    ("-", "?" or ":" only when a space or the end follows). A double-quoted one must close at its
     last character with every inner quote escaped; a single-quoted one escapes
     an inner quote by doubling it.
     """
+    if not text:
+        return False
     if text.startswith('"'):
         return re.fullmatch(_DOUBLE_QUOTED, text) is not None
     if text.startswith("'"):
         return re.fullmatch(r"'(?:[^']|'')*'", text) is not None
-    if text[0] in "-?:,[]{}#&*!|>%@`":
+    # "-", "?" and ":" may open a plain scalar when a non-space follows them.
+    if text[0] in ",[]{}#&*!|>%@`" or (
+        text[0] in "-?:" and (len(text) == 1 or text[1] in " \t")
+    ):
         return False
     return ": " not in text and " #" not in text and not text.endswith(":")
 

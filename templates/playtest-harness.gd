@@ -178,8 +178,9 @@ func _report() -> void:
 	# ok would describe an experiment that did not run.
 	checks["route_completed"] = _route_complete()
 	# A ceiling reached before the measurements settled would report numbers
-	# taken mid-motion as if they were the result.
-	checks["measurement_settled"] = _measurement_ready()
+	# taken mid-motion as if they were the result. The hook only runs once the
+	# route finished, so a truncated route fails here without calling it.
+	checks["measurement_settled"] = _route_complete() and _measurement_ready()
 	var failed: PackedStringArray = []
 	for name in checks.keys():
 		if not bool(checks[name]):

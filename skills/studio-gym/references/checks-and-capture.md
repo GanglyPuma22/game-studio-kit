@@ -10,7 +10,7 @@ Read alongside [studio-gym](../SKILL.md). This is step 4: turning room questions
 | Metric snapshot | The same harness writing measured numbers | A tuning value moved or stayed put between builds | Whether the new value is better |
 | Gym session | A person playing the gym route, HUD on, log running | How the verb feels at its edges | That the canonical route reaches it |
 
-Report a room as **built**, **checked** and **observed** separately. A room that passes its check and was never played is checked, not observed. Each status records the `content_digest` and `content_identity_method` from the run's `playtest.json` and the receipts. Only a run started with `--content-identity strict` (method `byte-hashed`) whose `exit.json` shows the build stayed still (later digest byte-hashed and equal, change diagnostic false, as [studio-playtest](../../studio-playtest/SKILL.md) describes) makes a status current; a cached run, or one from an older digest, is stale until it runs again.
+Report a room as **built**, **checked** and **observed** separately. A room that passes its check and was never played is checked, not observed. Each status records the `content_digest` and `content_identity_method` from the run's `playtest.json` and the receipts. Only a run started with `--content-identity strict` (method `byte-hashed`) whose `exit.json` shows the build stayed still (later digest byte-hashed and equal, change diagnostic false, and for an attended session `engine_running_at_collect` false, since null means the session's end was not established, as [studio-playtest](../../studio-playtest/SKILL.md) describes) makes a status current; a cached run, or one from an older digest, is stale until it runs again.
 
 ## Room checks
 
