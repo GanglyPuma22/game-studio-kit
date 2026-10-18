@@ -67,6 +67,18 @@ class TripoPackageTests(unittest.TestCase):
         self.skill_file("studio-other", "skills/studio-other/SKILL.md")
         self.assert_failure("expected 12 distinct")
 
+    def test_a_base_skill_replaced_by_another_name_fails(self):
+        self.manifest["skills"] = [s for s in self.manifest["skills"] if s["name"] != "studio-gym"]
+        self.manifest["skills"].append({"name": "studio-other", "path": "skills/studio-other/SKILL.md"})
+        self.skill_file("studio-other", "skills/studio-other/SKILL.md")
+        self.assert_failure("missing required skill declaration: studio-gym")
+
+    def test_description_must_be_a_yaml_plain_scalar(self):
+        path = "skills/studio-gym/SKILL.md"
+        (self.root / path).write_text(
+            "---\nname: studio-gym\ndescription: Build a gym for a game: rooms.\n---\n", encoding="utf-8")
+        self.assert_failure("description is not a valid YAML plain scalar: " + path)
+
     def test_tripo_replacing_a_base_skill_does_not_pass_with_twelve(self):
         self.add_tripo()
         self.manifest["skills"].pop(0)

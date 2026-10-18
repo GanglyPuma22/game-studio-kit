@@ -10,21 +10,21 @@ Read alongside [studio-gym](../SKILL.md). This is step 4: turning room questions
 | Metric snapshot | The same harness writing measured numbers | A tuning value moved or stayed put between builds | Whether the new value is better |
 | Gym session | A person playing the gym route, HUD on, log running | How the verb feels at its edges | That the canonical route reaches it |
 
-Report a room as **built**, **checked** and **observed** separately. A room that passes its check and was never played is checked, not observed.
+Report a room as **built**, **checked** and **observed** separately. A room that passes its check and was never played is checked, not observed. Each status records the `content_digest` from the run's `playtest.json` and the receipts; after a change to the game, a status from an older digest is stale until it runs again.
 
 ## Room checks
 
 - One harness per room or per build stage, from [the harness template](../../../templates/playtest-harness.gd), filled in as [harness](../../studio-playtest/references/harness.md) describes. Drive the project's real input actions; never call movement functions directly.
-- Each assertion is one room question, named for the claim: `climbs_44_deg`, `slides_46_deg`, `step_0_3_climbed`, `wading_slows_to_0_75`, `lands_on_20_deg_pad`.
+- Each assertion is one room question, named for the claim: `climbs_44_deg`, `refused_46_deg`, `step_0_3_climbed`, `wading_slows_to_0_75`, `lands_on_20_deg_pad`.
 - Assert by polling each physics frame until the condition holds or a frame limit passes. A fixed delay or a same-frame check breaks when the game moves its update later in the tick.
 - A check that fails once and passes on a re-run is not a pass. Re-run it once to confirm, record both results, and treat a second failure as real. Do not mute or skip a check to get a clean run; a check that is wrong gets fixed or removed with a note in the plan.
-- Run a single room with `playtest start --session driven --script res://tests/<room>_harness.gd`, and several known up front with `batch --plan <file>` ([studio-godot](../../studio-godot/SKILL.md)). Do not poll for completion; both commands block until the engine exits.
+- Run each room with `playtest start --session driven --script res://tests/<room>_harness.gd`. Only a driven playtest supplies the `--studio-playtest=<report>` argument the template writes to, so to run many rooms in one go, write one route harness that visits them all rather than batching room harnesses. `batch --plan <file>` and `launch` suit project-owned scripts that take their own result path through the passthrough and declare it with `--result` ([studio-godot](../../studio-godot/SKILL.md)). Do not poll for completion; these commands block until the engine exits.
 
 Most checks can run in a minimal world (one room, the player, the system under test) and finish in seconds. Keep those the majority, and reserve the full-world route for the integration pass. A large catalogue of quick isolated checks with a few slow integrated ones is what kept a big studio's gameplay suite fast enough to run on every change ([sources](sources.md)).
 
 ## Metric snapshots and golden values
 
-- The harness writes the measured numbers per question to a JSON file declared with `--result`: jump apex, standing and running distance, time to top speed, stopping distance, highest step climbed, slope where sliding starts, landing impact, wading multiplier at each depth.
+- The harness writes the measured numbers per question into its own report, under a `metrics` key next to `checks`; the kit supplies that report's path and hashes it into `exit.json`. A separate file is also fine if it is declared with `--result` at a project path outside the playtest run directory, such as `artifacts/gym-results/<label>.json`, because the kit refuses a result inside `artifacts/playtests/<label>/`. Numbers worth recording: jump apex, standing and running distance, time to top speed, stopping distance, highest step climbed, slope where sliding starts, landing impact, wading multiplier at each depth.
 - Compare each number with the plan's `expected` and `tolerance`, then with the last accepted snapshot. Store accepted snapshots in the project (for example `tests/gym-golden/<room>.json`) with the build identity, physics backend and tick rate they were measured on.
 - Update a golden value only when the tuning change was intended, in the same change that moved it, so the history shows why. A moved number with no tuning change is a regression report.
 
@@ -34,7 +34,7 @@ Build stage 3 adds a driven route that teleports through every room in order, ru
 
 ## Input record and replay
 
-Record a person's gym session as input events per physics frame with the seed and tick rate, and replay it on a later build. Replay turns "this felt different" into the same inputs producing a different trajectory. It only holds when the physics tick is fixed, random generators are seeded and gameplay code reads no wall clock; record any of those that is not true next to the recording.
+Record a person's gym session as input events per physics frame with the seed and tick rate, including analog strengths and raw events (mouse motion, stick axes, trigger pressure) whenever gameplay reads them, and replay it on a later build. Replay turns "this felt different" into the same inputs producing a different trajectory. It only holds when the physics tick is fixed, random generators are seeded and gameplay code reads no wall clock; record any of those that is not true next to the recording. A recorder that keeps only digital action presses replays only digital routes faithfully; say so when that is all it keeps.
 
 ## Human sessions on the gym
 

@@ -22,10 +22,10 @@ Each entry gives the questions, the geometry, the metrics the HUD or harness rea
 - **Expected.** The inventory's speeds; when the controller has no acceleration curve, time to top speed is one tick, which is itself a design finding.
 
 ### Slope ladder
-- **Questions.** Where does walkable stop? What happens just past it: slide, stop, or stand?
+- **Questions.** Where does walkable stop? What happens just past it: slide, block, or fall?
 - **Geometry.** Ramps at 10°, 20°, 30°, `<limit>`−5°, `<limit>`−1°, `<limit>`+1°, `<limit>`+5° and 60°, each long enough to reach full speed on it, labelled with its angle. Add one descending ramp set for snap and launch-off-crest behaviour.
 - **Metrics.** Slope under the feet, grounded and the reason when not, speed on the slope.
-- **Expected.** "`<limit>`−1° climbs, `<limit>`+1° slides."
+- **Expected.** "`<limit>`−1° climbs; at `<limit>`+1° the controller does what its code says." Read that outcome (slide, block or fall) from the controller or the design; in Godot, `floor_max_angle` only decides whether a surface counts as floor or wall.
 
 ### Step ladder
 - **Questions.** The highest step the player walks up without jumping; what snaps down; what blocks.
