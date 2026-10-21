@@ -1,0 +1,64 @@
+{
+  "focused_tests": {
+    "tests": 8,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "blender_integration": true
+  },
+  "full_suite": {
+    "tests": 1131,
+    "failures": 8,
+    "errors": 8,
+    "skipped": 23
+  },
+  "baseline_reproductions": {
+    "baseline": "97b3397d550e0043966ff9190e5cb1dd2062b412",
+    "selected": [
+      "test_cleanroom_host.ExecuteTests.test_a_symlinked_artifacts_directory_is_refused_before_anything_runs",
+      "test_cleanroom_host.HostPreflightTests.test_active_hours_window_walks_the_utc_timeline_across_a_dst_transition",
+      "test_launch_evidence.OwnedLaunchTests.test_engine_replaced_after_verification_refuses_to_start",
+      "test_launch_evidence.OwnedLaunchTests.test_engine_replaced_during_the_launch_is_not_completed",
+      "test_launch_evidence.OwnedLaunchTests.test_scrub_prefixes_match_case_insensitively_only_on_windows",
+      "test_launch_profiles.ProfilePlaceholderTests.test_a_passthrough_brace_that_is_not_a_placeholder_is_left_alone",
+      "test_playtest.ProjectRevisionTests.test_a_project_outside_any_checkout_reports_no_commit",
+      "test_process_identity.PrelaunchSnapshotTests.test_the_engine_is_rehashed_after_the_prelaunch_snapshot",
+      "test_blender_run.BlenderRunOrderingTests.test_an_executable_replaced_between_identity_and_launch_does_not_start",
+      "test_blender_run.BlenderRunTests.test_cli_run_writes_receipts_without_argv_or_environment_values",
+      "test_launch_evidence.OwnedLaunchTests.test_cutoff_with_sub_second_remaining_still_launches",
+      "test_launch_evidence.OwnedLaunchTests.test_self_contained_engine_is_refused_before_launch",
+      "test_mesh_topology.ReduceTests.test_a_blender_replaced_while_it_ran_is_not_ok",
+      "test_mesh_topology.ReduceTests.test_a_blender_that_changed_before_launch_never_starts",
+      "test_playtest.LauncherTests.test_launcher_is_runnable_and_names_the_session_it_documents"
+    ],
+    "returncode": 1,
+    "seconds": 10.344,
+    "failures": [
+      "test_cleanroom_host.ExecuteTests.test_a_symlinked_artifacts_directory_is_refused_before_anything_runs",
+      "test_cleanroom_host.HostPreflightTests.test_active_hours_window_walks_the_utc_timeline_across_a_dst_transition",
+      "test_launch_evidence.OwnedLaunchTests.test_engine_replaced_after_verification_refuses_to_start",
+      "test_launch_evidence.OwnedLaunchTests.test_engine_replaced_during_the_launch_is_not_completed",
+      "test_launch_evidence.OwnedLaunchTests.test_scrub_prefixes_match_case_insensitively_only_on_windows",
+      "test_launch_profiles.ProfilePlaceholderTests.test_a_passthrough_brace_that_is_not_a_placeholder_is_left_alone",
+      "test_playtest.ProjectRevisionTests.test_a_project_outside_any_checkout_reports_no_commit",
+      "test_process_identity.PrelaunchSnapshotTests.test_the_engine_is_rehashed_after_the_prelaunch_snapshot",
+      "test_blender_run.BlenderRunOrderingTests.test_an_executable_replaced_between_identity_and_launch_does_not_start",
+      "test_blender_run.BlenderRunTests.test_cli_run_writes_receipts_without_argv_or_environment_values",
+      "test_launch_evidence.OwnedLaunchTests.test_cutoff_with_sub_second_remaining_still_launches",
+      "test_launch_evidence.OwnedLaunchTests.test_self_contained_engine_is_refused_before_launch",
+      "test_mesh_topology.ReduceTests.test_a_blender_replaced_while_it_ran_is_not_ok",
+      "test_mesh_topology.ReduceTests.test_a_blender_that_changed_before_launch_never_starts",
+      "test_playtest.LauncherTests.test_launcher_is_runnable_and_names_the_session_it_documents"
+    ]
+  },
+  "new_failure": "test_pr1_corrections.CorrectionTests.test_resource_manifest_covers_required_runtime_and_templates",
+  "new_failure_action": "Unapplied register-model-qa.patch supplied under codex-out/model-qa; new-files-only rule preserves the existing manifest.",
+  "package_check": "PASS",
+  "skill_validation": "PASS",
+  "parity": {
+    "files": 18,
+    "result": "PASS",
+    "scope": "M12 floating identities; static M13 severity and pair identities"
+  },
+  "final_identity": "Numerical checks and all published proofs rerun against final LF source bytes."
+}

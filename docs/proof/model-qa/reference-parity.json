@@ -1,0 +1,544 @@
+{
+  "result": "PASS",
+  "port_sha256": {
+    "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+    "__main__.py": "a3da323a0497db3c87b691c74ed8f9f0951c29b54b1487e67d4d6b64880492a6",
+    "attachment.py": "0cfc5a583443a6b500e87a9a89f85e7111becc3fafa2f491e767d42ea15de30c",
+    "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+    "ecology.py": "618e9b9a8a2128123bc43b48e9724d04e9c22985bebc05429d80808eb1e76af3",
+    "geometry.py": "b0cab3fa0aba883b0e7dc86bb11cd324c53930010dcb4cc848cf2970511b9f7a",
+    "gltf_pose.py": "049c36f4a3f363e5b645b81000a0dfb040b35f8b8a62ad447d1ecf32f3558cde",
+    "report.py": "bad1eb8fd056c2a4915f09837212562b5b54eba4a93ae32e3123c0c638024e69",
+    "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+    "worker.py": "5dbf68d95a924dd29072429f5c1c11244d384ea5a9ef535cdb36929875f1e551"
+  },
+  "reference_sha256": {
+    "reference_static": "6def63d804548d83db9f52645a61212bdfd0e461b4a1d5e16c52695eb1fb98da",
+    "reference_skin": "a45ac3d2bf055cd5b80a362cd98205f73aa6e626de6654d8ba6ec930571229c2",
+    "reference_clip": "bbbbe8598b4259461fbb8056d36c4ba9188ed124d0bf392f1912f261767424a4"
+  },
+  "files": [
+    {
+      "input": "specimen-a/model-lod0.glb",
+      "sha256": "4af1bb8de22e7d182da1ad895eb988f2975170f26015c77ae937774a0a6f6001",
+      "M12": {
+        "reference": "PASS",
+        "port": "PASS",
+        "reference_floating": [],
+        "port_floating": [],
+        "equal": true
+      },
+      "M13": {
+        "reference": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "port": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "reference_pairs": [],
+        "port_pairs": [],
+        "equal": true
+      },
+      "part_names": []
+    },
+    {
+      "input": "specimen-a/model-lod1.glb",
+      "sha256": "d1b1c8900b1c4d0237df7bc92f8f1b4d46bd2a828d9a91bab9f893a801d410fb",
+      "M12": {
+        "reference": "PASS",
+        "port": "PASS",
+        "reference_floating": [],
+        "port_floating": [],
+        "equal": true
+      },
+      "M13": {
+        "reference": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "port": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "reference_pairs": [],
+        "port_pairs": [],
+        "equal": true
+      },
+      "part_names": []
+    },
+    {
+      "input": "specimen-a/model-lod2.glb",
+      "sha256": "a3488ca02540a3419e20fe2ba133b7d09d3657441d2a770a9996bfe4c7d23597",
+      "M12": {
+        "reference": "PASS",
+        "port": "PASS",
+        "reference_floating": [],
+        "port_floating": [],
+        "equal": true
+      },
+      "M13": {
+        "reference": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "port": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "reference_pairs": [],
+        "port_pairs": [],
+        "equal": true
+      },
+      "part_names": []
+    },
+    {
+      "input": "specimen-b/model-lod0.glb",
+      "sha256": "b0e073d97bb1df675a237fe07ca8d04988e3e7041154531a6320bf1ee7908086",
+      "M12": {
+        "reference": "PASS",
+        "port": "PASS",
+        "reference_floating": [],
+        "port_floating": [],
+        "equal": true
+      },
+      "M13": {
+        "reference": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 1
+        },
+        "port": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 1
+        },
+        "reference_pairs": [
+          [
+            56,
+            102
+          ]
+        ],
+        "port_pairs": [
+          [
+            56,
+            102
+          ]
+        ],
+        "equal": true
+      },
+      "part_names": []
+    },
+    {
+      "input": "specimen-b/model-lod1.glb",
+      "sha256": "3de5d9c195f368ad091e1e0ebdffc05a401b87ca2a63c43b8a2e5dfdca35f851",
+      "M12": {
+        "reference": "PASS",
+        "port": "PASS",
+        "reference_floating": [],
+        "port_floating": [],
+        "equal": true
+      },
+      "M13": {
+        "reference": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "port": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "reference_pairs": [],
+        "port_pairs": [],
+        "equal": true
+      },
+      "part_names": []
+    },
+    {
+      "input": "specimen-b/model-lod2.glb",
+      "sha256": "40e4c0335dac5b331e62fa64781cec91275304b4a2d0f4940170ee152b6f5eb1",
+      "M12": {
+        "reference": "PASS",
+        "port": "PASS",
+        "reference_floating": [],
+        "port_floating": [],
+        "equal": true
+      },
+      "M13": {
+        "reference": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "port": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "reference_pairs": [],
+        "port_pairs": [],
+        "equal": true
+      },
+      "part_names": []
+    },
+    {
+      "input": "specimen-c/model-lod0.glb",
+      "sha256": "33e1528b576caeaac46e35e326de70c2bf20c1647538676e6e0f0e89fe23c46c",
+      "M12": {
+        "reference": "PASS",
+        "port": "PASS",
+        "reference_floating": [],
+        "port_floating": [],
+        "equal": true
+      },
+      "M13": {
+        "reference": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "port": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "reference_pairs": [],
+        "port_pairs": [],
+        "equal": true
+      },
+      "part_names": []
+    },
+    {
+      "input": "specimen-c/model-lod1.glb",
+      "sha256": "336c16da9ee3faa9e3e3e040df383d8869e41ce073161b76ff40199d4e8d7807",
+      "M12": {
+        "reference": "PASS",
+        "port": "PASS",
+        "reference_floating": [],
+        "port_floating": [],
+        "equal": true
+      },
+      "M13": {
+        "reference": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "port": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "reference_pairs": [],
+        "port_pairs": [],
+        "equal": true
+      },
+      "part_names": []
+    },
+    {
+      "input": "specimen-c/model-lod2.glb",
+      "sha256": "0aabac4d303d67fabc00ddf614a60081a3cf6cec1132c3707697166194e99667",
+      "M12": {
+        "reference": "PASS",
+        "port": "PASS",
+        "reference_floating": [],
+        "port_floating": [],
+        "equal": true
+      },
+      "M13": {
+        "reference": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "port": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "reference_pairs": [],
+        "port_pairs": [],
+        "equal": true
+      },
+      "part_names": []
+    },
+    {
+      "input": "synthetic/clean-lod0.glb",
+      "sha256": "55a226d3db3c0033800b9ff575be53c064e1b4b4a934e2f69d190bc93ee4cc5b",
+      "M12": {
+        "reference": "PASS",
+        "port": "PASS",
+        "reference_floating": [],
+        "port_floating": [],
+        "equal": true
+      },
+      "M13": {
+        "reference": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "port": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "reference_pairs": [],
+        "port_pairs": [],
+        "equal": true
+      },
+      "part_names": []
+    },
+    {
+      "input": "synthetic/clean-lod1.glb",
+      "sha256": "55a226d3db3c0033800b9ff575be53c064e1b4b4a934e2f69d190bc93ee4cc5b",
+      "M12": {
+        "reference": "PASS",
+        "port": "PASS",
+        "reference_floating": [],
+        "port_floating": [],
+        "equal": true
+      },
+      "M13": {
+        "reference": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "port": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "reference_pairs": [],
+        "port_pairs": [],
+        "equal": true
+      },
+      "part_names": []
+    },
+    {
+      "input": "synthetic/clipping-lod0.glb",
+      "sha256": "f1e624ae18fd2ee4a51f7bc2649579a84b4ca1c99ba113b015035a5a4df5a8a2",
+      "M12": {
+        "reference": "FAIL",
+        "port": "FAIL",
+        "reference_floating": [
+          0
+        ],
+        "port_floating": [
+          0
+        ],
+        "equal": true
+      },
+      "M13": {
+        "reference": {
+          "result": "FAIL",
+          "major": 1,
+          "minor": 0
+        },
+        "port": {
+          "result": "FAIL",
+          "major": 1,
+          "minor": 0
+        },
+        "reference_pairs": [
+          [
+            0,
+            1
+          ]
+        ],
+        "port_pairs": [
+          [
+            0,
+            1
+          ]
+        ],
+        "equal": true
+      },
+      "part_names": []
+    },
+    {
+      "input": "synthetic/clipping-lod1.glb",
+      "sha256": "f1e624ae18fd2ee4a51f7bc2649579a84b4ca1c99ba113b015035a5a4df5a8a2",
+      "M12": {
+        "reference": "FAIL",
+        "port": "FAIL",
+        "reference_floating": [
+          0
+        ],
+        "port_floating": [
+          0
+        ],
+        "equal": true
+      },
+      "M13": {
+        "reference": {
+          "result": "FAIL",
+          "major": 1,
+          "minor": 0
+        },
+        "port": {
+          "result": "FAIL",
+          "major": 1,
+          "minor": 0
+        },
+        "reference_pairs": [
+          [
+            0,
+            1
+          ]
+        ],
+        "port_pairs": [
+          [
+            0,
+            1
+          ]
+        ],
+        "equal": true
+      },
+      "part_names": []
+    },
+    {
+      "input": "synthetic/dropped-lod0.glb",
+      "sha256": "b98df2eb672bde10901164d376ecc749a357080a3ddcbf325bac9cd88a13fc80",
+      "M12": {
+        "reference": "PASS",
+        "port": "PASS",
+        "reference_floating": [],
+        "port_floating": [],
+        "equal": true
+      },
+      "M13": {
+        "reference": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "port": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "reference_pairs": [],
+        "port_pairs": [],
+        "equal": true
+      },
+      "part_names": []
+    },
+    {
+      "input": "synthetic/dropped-lod1.glb",
+      "sha256": "55a226d3db3c0033800b9ff575be53c064e1b4b4a934e2f69d190bc93ee4cc5b",
+      "M12": {
+        "reference": "PASS",
+        "port": "PASS",
+        "reference_floating": [],
+        "port_floating": [],
+        "equal": true
+      },
+      "M13": {
+        "reference": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "port": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "reference_pairs": [],
+        "port_pairs": [],
+        "equal": true
+      },
+      "part_names": []
+    },
+    {
+      "input": "synthetic/floating-lod0.glb",
+      "sha256": "b15d056f32e26e2a6989c19a35153c2bfb11a3384809cd8fd6c09e6388872f85",
+      "M12": {
+        "reference": "FAIL",
+        "port": "FAIL",
+        "reference_floating": [
+          0
+        ],
+        "port_floating": [
+          0
+        ],
+        "equal": true
+      },
+      "M13": {
+        "reference": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "port": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "reference_pairs": [],
+        "port_pairs": [],
+        "equal": true
+      },
+      "part_names": []
+    },
+    {
+      "input": "synthetic/floating-lod1.glb",
+      "sha256": "b15d056f32e26e2a6989c19a35153c2bfb11a3384809cd8fd6c09e6388872f85",
+      "M12": {
+        "reference": "FAIL",
+        "port": "FAIL",
+        "reference_floating": [
+          0
+        ],
+        "port_floating": [
+          0
+        ],
+        "equal": true
+      },
+      "M13": {
+        "reference": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "port": {
+          "result": "PASS",
+          "major": 0,
+          "minor": 0
+        },
+        "reference_pairs": [],
+        "port_pairs": [],
+        "equal": true
+      },
+      "part_names": []
+    },
+    {
+      "input": "synthetic/skin-parity.glb",
+      "sha256": "d7a8c8cdf5c12efdcf442ea648792b84d92f1cd117197c27ec74e92473d997f4",
+      "M12": {
+        "reference": "FAIL",
+        "port": "FAIL",
+        "reference_floating": [
+          "tip-joint"
+        ],
+        "port_floating": [
+          "tip-joint"
+        ],
+        "equal": true
+      },
+      "M13": null,
+      "part_names": []
+    }
+  ]
+}

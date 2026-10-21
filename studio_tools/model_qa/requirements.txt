@@ -1,0 +1,7 @@
+numpy>=1.26
+trimesh>=4.0
+scipy>=1.11
+networkx>=3.0
+rtree>=1.2
+pygltflib>=1.16
+pillow>=10.0

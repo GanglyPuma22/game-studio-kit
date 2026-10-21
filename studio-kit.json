@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "game-studio-kit",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "skills": [
     {
       "name": "studio-director",
@@ -54,6 +54,10 @@
     {
       "name": "studio-review",
       "path": "skills/studio-review/SKILL.md"
+    },
+    {
+      "name": "studio-model-qa",
+      "path": "skills/studio-model-qa/SKILL.md"
     }
   ],
   "resources": [
@@ -162,7 +166,19 @@
     "studio_tools/run_policy.py",
     "references/run-policy.md",
     "templates/run-policy.json",
-    "templates/run-decision.json"
+    "templates/run-decision.json",
+    "studio_tools/model_qa/__init__.py",
+    "studio_tools/model_qa/__main__.py",
+    "studio_tools/model_qa/attachment.py",
+    "studio_tools/model_qa/clipping.py",
+    "studio_tools/model_qa/ecology.py",
+    "studio_tools/model_qa/geometry.py",
+    "studio_tools/model_qa/gltf_pose.py",
+    "studio_tools/model_qa/report.py",
+    "studio_tools/model_qa/requirements.txt",
+    "studio_tools/model_qa/silhouettes.py",
+    "studio_tools/model_qa/worker.py",
+    "docs/model-qa.md"
   ],
   "commands": [
     "check-package",
