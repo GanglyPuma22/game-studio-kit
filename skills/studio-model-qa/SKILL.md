@@ -6,7 +6,8 @@ description: Run attachment, clipping, LOD silhouette, triangle budget and ecolo
 # Model QA before review
 
 For both Claude Code and Codex: run this on **every LOD of every model** before
-uploading a round for review. A round is not done while any report row fails.
+uploading a round for review. FAIL, UNMEASURED and NOT SET rows remain open;
+N/A and INFO are explicit applicability states, never substitute PASS labels.
 
 From the kit root (or with the kit installed):
 
@@ -20,10 +21,16 @@ The folder convention is `name.glb` (or `name-lod0.glb`), `name-lod1.glb`, etc.
 Read [setup and limits](../../docs/model-qa.md) for dependencies and input scope.
 
 Read `REPORT.md`, `report.json`, the contact sheet, and any named failing parts.
-M12 permits no floating part at 3 mm. M13 permits no major clip and at most two
+The default assembly rule permits no floating part at 3 mm. A model manifest
+can declare scatter/clump ground contact, or clump overlaps as INFO; retain all
+raw counts and the declaration. Strict M13 permits no major clip and at most two
 minor clips per 100 parts. M5 compares adjacent LODs at the same camera and
 distance; keep its configured threshold and correspondence warnings visible.
-Missing measurements, dependencies, ecology or switch metadata are failures.
+Missing measurements/dependencies are UNMEASURED. Missing applicable ecology or
+switch metadata fails. Explicit non-living assets get ecology N/A; unknown budgets
+use `--budget-tris not-set`, never a made-up positive cap. Structural ecology
+completeness does not approve proposed biology. The timeout defaults to 90 seconds;
+use an explicit per-run `--timeout` when needed without weakening any measurement.
 
 Repair the model or missing evidence and rerun into a new output directory.
 Never weaken a check, change the budget or substitute an easier distance to

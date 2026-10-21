@@ -1,0 +1,63 @@
+{
+  "base_commit": "97ef8d580e9485ac06ac2caaa3f31dcc99fe79b2",
+  "versions": {
+    ".claude-plugin/plugin.json": "0.1.16",
+    ".codex-plugin/plugin.json": "0.1.16",
+    "studio-kit.json": "0.1.16",
+    "pyproject.toml": "0.1.16",
+    "studio_tools/__init__.py": "0.1.16"
+  },
+  "package_check": {
+    "ok": true,
+    "errors": []
+  },
+  "focused": {
+    "tests": 23,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "native_blender": true
+  },
+  "red_before": {
+    "tests": 11,
+    "failures": 4,
+    "errors": 7
+  },
+  "full": {
+    "tests": 1147,
+    "seconds": 835.921,
+    "failures": 7,
+    "errors": 8,
+    "skipped": 24,
+    "new_failures": [],
+    "baseline_failures": [
+      "test_blender_run.BlenderRunOrderingTests.test_an_executable_replaced_between_identity_and_launch_does_not_start",
+      "test_blender_run.BlenderRunTests.test_cli_run_writes_receipts_without_argv_or_environment_values",
+      "test_cleanroom_host.ExecuteTests.test_a_symlinked_artifacts_directory_is_refused_before_anything_runs",
+      "test_cleanroom_host.HostPreflightTests.test_active_hours_window_walks_the_utc_timeline_across_a_dst_transition",
+      "test_launch_evidence.OwnedLaunchTests.test_cutoff_with_sub_second_remaining_still_launches",
+      "test_launch_evidence.OwnedLaunchTests.test_engine_replaced_after_verification_refuses_to_start",
+      "test_launch_evidence.OwnedLaunchTests.test_engine_replaced_during_the_launch_is_not_completed",
+      "test_launch_evidence.OwnedLaunchTests.test_scrub_prefixes_match_case_insensitively_only_on_windows",
+      "test_launch_evidence.OwnedLaunchTests.test_self_contained_engine_is_refused_before_launch",
+      "test_launch_profiles.ProfilePlaceholderTests.test_a_passthrough_brace_that_is_not_a_placeholder_is_left_alone",
+      "test_mesh_topology.ReduceTests.test_a_blender_replaced_while_it_ran_is_not_ok",
+      "test_mesh_topology.ReduceTests.test_a_blender_that_changed_before_launch_never_starts",
+      "test_playtest.LauncherTests.test_launcher_is_runnable_and_names_the_session_it_documents",
+      "test_playtest.ProjectRevisionTests.test_a_project_outside_any_checkout_reports_no_commit",
+      "test_process_identity.PrelaunchSnapshotTests.test_the_engine_is_rehashed_after_the_prelaunch_snapshot"
+    ]
+  },
+  "baseline_reproduced_on_untouched_015": true,
+  "logs_sha256": {
+    "c2-red-tests.log": "79ede52353d1a37b393597afa21889e6786d3a6545b340522bd037fbed9e4fb5",
+    "c2-focused-final.log": "014cb204d926197ca769e04b51997c271efd5b4d95a89b9bc53f6c3eafb7d6ee",
+    "c2-full-tests.log": "45133056e02b66e7028306654cd8c0fd7f87be3bca632f17ae02575ae6505bd1",
+    "c2-full-final.log": "62e1b65782dad916e86ff81a27102af75d0df1fc60e67a1f338f4f25010810f9",
+    "baseline-015-selected.log": "6134ce7ca615775672e4be5a00cb4b3f3833ab0fbfbcaf54ba881425a058cd49",
+    "baseline-015-lifecycle.log": "f4c558c5e9e6329f3fcd55f692faaeb3f94043e4f1fb21e62690dbe545c1a3b8",
+    "manifest-red-test.log": "9a5920c9024e22b8c2143ec4e2b9208e06a8a5e639dd5e54474d75af6c49b15a"
+  },
+  "all_existing_tests_green": false,
+  "branch_only": true
+}

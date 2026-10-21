@@ -59,7 +59,9 @@ class InputTests(unittest.TestCase):
                 self.assertEqual(main(args), 1)
             report = json.loads((output / "report.json").read_text())
             self.assertEqual(len(report["models"][0]["checks"]), 5)
-            self.assertTrue(all(c["result"] == "FAIL" for c in report["models"][0]["checks"]))
+            self.assertEqual({c['check']: c['result'] for c in report['models'][0]['checks']},
+                             {'M12': 'UNMEASURED', 'M13': 'UNMEASURED', 'M5': 'UNMEASURED',
+                              'triangles': 'UNMEASURED', 'ecology': 'FAIL'})
             self.assertTrue((output / "contact-sheet.png").read_bytes().startswith(b"\x89PNG"))
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exc:
                 main(args)
@@ -120,7 +122,7 @@ class AttachmentTests(unittest.TestCase):
             self.assertEqual(check["poses"], 7)
             self.assertTrue(any("detach" in r["worst_pose"] for r in check["parts"]))
             g = GLTF2().load(str(path))
-            g.animations[0].samplers[0].interpolation = "STEP"
+            g.animations[0].samplers[0].interpolation = "CUSTOM"
             g.save(str(path))
             with self.assertRaisesRegex(ValueError, "LINEAR"):
                 load(path)
@@ -166,6 +168,26 @@ class EndToEndTests(unittest.TestCase):
                 self.assertEqual(results["M5"], "FAIL")
                 self.assertEqual(results["ecology"], "FAIL")
                 self.assertEqual(results["triangles"], "FAIL")
+
+    def test_declared_clump_na_and_unset_budget_are_distinct(self):
+        from model_qa_fixtures import build
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = build(root/'fixtures')/'clipping'
+            (source/'model-qa.json').write_text(json.dumps(dict(schema_version=1, structure='clump',
+                                                             ground_y_m=.2, living=False)))
+            command = [sys.executable, '-m', 'studio_tools.model_qa', str(source), '--budget-tris', 'not-set',
+                       '--out', str(root/'report'), '--switch-distances', '2', '4', '--timeout', '90']
+            done = subprocess.run(command, capture_output=True, text=True, timeout=150)
+            self.assertEqual(done.returncode, 1, done.stderr)
+            data = json.loads((root/'report/report.json').read_text())
+            self.assertEqual(data['errors'], [])
+            self.assertEqual(data['result'], 'NOT SET')
+            for model in data['models']:
+                rows = {r['check']: r for r in model['checks']}
+                self.assertEqual({c: r['result'] for c,r in rows.items()},
+                                 dict(M12='PASS', M13='INFO', M5='PASS', triangles='NOT SET', ecology='N/A'))
+                self.assertEqual(rows['M13']['details']['poses'][0]['major'], 1)
 
 
 if __name__ == "__main__":

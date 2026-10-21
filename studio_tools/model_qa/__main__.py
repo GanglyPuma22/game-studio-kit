@@ -12,14 +12,28 @@ import sys
 
 from studio_tools.common import StudioError
 from studio_tools.processes import prelaunch_baseline, run, stop_survivors
-from .report import CHECKS, row, write
+from .report import initial, write
 
 
 def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def discover(inputs):
+def read_manifest(path):
+    data = json.loads(Path(path).read_text(encoding="utf-8")) if path else {}
+    if not isinstance(data, dict) or set(data) - {"schema_version", "structure", "living", "ground_y_m"}:
+        raise ValueError("Model QA manifest needs an object with schema_version, structure, living, ground_y_m only")
+    if data.get("schema_version", 1) != 1 or data.get("structure", "assembly") not in ("assembly", "scatter", "clump"):
+        raise ValueError("Manifest schema_version must be 1; structure must be assembly, scatter or clump")
+    if "living" in data and not isinstance(data['living'], bool):
+        raise ValueError("Manifest living must be a boolean")
+    ground = data.get('ground_y_m', 0.0)
+    if isinstance(ground, bool) or not isinstance(ground, (float, int)) or not math.isfinite(ground):
+        raise ValueError("Manifest ground_y_m must be finite")
+    return {"schema_version": 1, "structure": "assembly", "ground_y_m": 0.0, **data}
+
+
+def discover(inputs, manifest=None):
     files = []
     for value in inputs:
         path = Path(value).resolve()
@@ -44,6 +58,10 @@ def discover(inputs):
     result = list(families.values())
     counts = Counter(f["name"] for f in result)
     for (parent, name), family in families.items():
+        candidate = Path(manifest).resolve() if manifest else next(
+            (p for p in (parent / (name + '.model-qa.json'), parent / 'model-qa.json') if p.is_file()), None)
+        family.update(manifest=read_manifest(candidate), manifest_path=str(candidate) if candidate else None,
+                      manifest_sha256=digest(candidate) if candidate else None)
         if counts[name] > 1:
             family["name"] = f"{parent.name}/{name}"
         family["files"].sort(key=lambda f: f["lod"])
@@ -53,8 +71,11 @@ def discover(inputs):
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("inputs", nargs="+")
-    p.add_argument("--budget-tris", type=int, required=True)
-    p.add_argument("--ecology", required=True)
+    p.add_argument("--budget-tris", type=lambda s: None if s.lower() == 'not-set' else int(s), required=True,
+                   help="Positive maximum only, or not-set; never implies a minimum")
+    p.add_argument("--ecology", help="Ecology Markdown/YAML entry, or none with --reason")
+    p.add_argument("--reason", help="Required non-living rationale when --ecology none is used")
+    p.add_argument("--manifest", help="Explicit model QA JSON manifest; otherwise use each family's sidecar")
     p.add_argument("--out", required=True)
     p.add_argument("--blender", default=os.environ.get("MODEL_QA_BLENDER") or shutil.which("blender"))
     p.add_argument("--python-site-packages", default=os.environ.get("MODEL_QA_PYTHON_SITE_PACKAGES"),
@@ -67,7 +88,7 @@ def parser():
     p.add_argument("--width", type=int, default=1920)
     p.add_argument("--height", type=int, default=1080)
     p.add_argument("--fov", type=float, default=75, help="Vertical perspective FOV in degrees")
-    p.add_argument("--timeout", type=int, default=1800, help="Total Blender worker time, 1..32400 seconds")
+    p.add_argument("--timeout", type=int, default=90, help="Total Blender worker time, default 90; 1..32400 seconds")
     return p
 
 
@@ -77,8 +98,12 @@ def main(argv=None):
     settings = {key: getattr(args, key) for key in (
         "budget_tris", "switch_distances", "max_pixel_difference", "part_match_mm", "samples", "width", "height", "fov")}
     try:
-        if args.budget_tris <= 0 or not 1 <= args.timeout <= 32400 or not 2 <= args.samples <= 120:
-            raise ValueError("Budget must be positive; timeout 1..32400; samples 2..120")
+        if (args.budget_tris is not None and args.budget_tris <= 0) or not 1 <= args.timeout <= 32400 or not 2 <= args.samples <= 120:
+            raise ValueError("Budget must be positive or not-set; timeout 1..32400; samples 2..120")
+        if args.ecology == 'none' and not (args.reason and args.reason.strip()):
+            raise ValueError("--ecology none requires --reason")
+        if args.reason and args.ecology != 'none':
+            raise ValueError("--reason is only valid with --ecology none")
         if not 16 <= args.width <= 4096 or not 16 <= args.height <= 4096:
             raise ValueError("Image dimensions must be 16..4096")
         if not math.isfinite(args.fov) or not 1 < args.fov < 179:
@@ -90,7 +115,9 @@ def main(argv=None):
         if args.switch_distances and (any(not math.isfinite(d) or d <= 0 for d in args.switch_distances)
                                       or any(a >= b for a, b in zip(args.switch_distances, args.switch_distances[1:]))):
             raise ValueError("Switch distances must be finite, positive, and strictly increasing")
-        families = discover(args.inputs)
+        families = discover(args.inputs, args.manifest)
+        if args.ecology == 'none' and any(f['manifest'].get('living') is True for f in families):
+            raise ValueError("--ecology none conflicts with manifest living: true")
         if args.switch_distances and any(len(f["files"]) != len(args.switch_distances) for f in families):
             raise ValueError("Provide exactly one distance per LOD in each family")
         out = Path(args.out).resolve()
@@ -98,9 +125,9 @@ def main(argv=None):
         out.mkdir(parents=True, exist_ok=False)
     except (ValueError, OSError) as exc:
         p.error(str(exc))
-    request = {"families": families, "settings": settings, "out": str(out),
-               "ecology": str(Path(args.ecology).resolve()),
-               "ecology_sha256": digest(args.ecology) if Path(args.ecology).is_file() else None}
+    eco_path = str(Path(args.ecology).resolve()) if args.ecology and args.ecology != 'none' else None
+    request = {"families": families, "settings": settings, "out": str(out), "ecology_reason": args.reason,
+               "ecology": eco_path, "ecology_sha256": digest(eco_path) if eco_path and Path(eco_path).is_file() else None}
     (out / "request.json").write_text(json.dumps(request, indent=2), encoding="utf-8")
     execution = {"result": "FAIL", "timeout_seconds": args.timeout}
     errors = []
@@ -144,15 +171,19 @@ def main(argv=None):
         report = json.loads(report_path.read_text(encoding="utf-8"))
         report["errors"].extend(errors)
     else:
-        report = {"schema_version": 1, "settings": settings, "errors": errors or ["Worker produced no report"], "models": [
-            {"model": family["name"], "lod": item["lod"], "file": Path(item["path"]).name, "sha256": item["sha256"],
-             "checks": [row(c, False, "0 completed measurements", {"error": "No complete worker report"}) for c in CHECKS]}
-            for family in families for item in family["files"]]}
+        report = initial(request)
+        report['errors'] = errors or ["Worker produced no report"]
+    for family in families:
+        try:
+            if family['manifest_path'] and digest(family['manifest_path']) != family['manifest_sha256']:
+                report['errors'].append('Model QA manifest changed during execution')
+        except OSError as exc:
+            report['errors'].append(f'Model QA manifest unavailable after execution: {exc}')
     write(report, out)
     execution["result"] = report["result"]
     (out / "execution.json").write_text(json.dumps(execution, indent=2), encoding="utf-8")
     print(json.dumps({"result": report["result"], "report": str(report_path), "models": len(report["models"])}))
-    return 0 if report["result"] == "PASS" else 1
+    return 0 if report["result"] in ("PASS", "N/A", "INFO") else 1
 
 
 if __name__ == "__main__":

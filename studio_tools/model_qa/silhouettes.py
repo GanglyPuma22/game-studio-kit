@@ -93,7 +93,7 @@ def contact_sheet(tiles, out):
     sheet = Image.new("RGB", (tile_width * 4, tile_height * max(1, (len(tiles) + 3) // 4)), "white")
     draw = ImageDraw.Draw(sheet)
     if not tiles:
-        draw.text((10, 10), "No silhouette evidence produced. QA failed.", fill="black")
+        draw.text((10, 10), "No silhouette evidence produced. Measurements unavailable.", fill="black")
     # One common crop, centered on the unchanged camera target, for the whole
     # sheet. Keep native pixels where they fit; never auto-fit individual LODs.
     half_width, half_height = (tile_width - 10) / 2, (tile_height - 50) / 2
