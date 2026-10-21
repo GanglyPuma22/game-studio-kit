@@ -28,7 +28,7 @@ TEMPLATE = ROOT / "templates/playtest-harness.gd"
 RECEIPTS = ("playtest.json", "exit.json", "process/process.json", "diagnostics.json")
 # check-package counts the manifest's own skills but cannot read prose, so the
 # documents that tell an agent how many entrypoints exist are checked here.
-NUMBER_WORDS = {10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen"}
+NUMBER_WORDS = {10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen", 14: "fourteen"}
 CATALOG_DOCS = ("AGENTS.md", "README.md", "docs/agent-start.md", "docs/setup-windows.md",
                 "docs/contributing.md", "references/tool-routing.md")
 CATALOG_NOUN = r"(?:skills|entrypoints|folders)"
@@ -797,8 +797,9 @@ class PlaytestDocumentationTests(unittest.TestCase):
 
     def test_catalog_count_agrees_with_the_manifest_everywhere(self):
         count = len(read_json(ROOT / "studio-kit.json")["skills"])
-        self.assertIn("expected_count = 13 if has_tripo else 12",
-                      (ROOT / "studio_tools/package.py").read_text(encoding="utf-8"))
+        from studio_tools.package import REQUIRED_SKILLS
+        names = {skill["name"] for skill in read_json(ROOT / "studio-kit.json")["skills"]}
+        self.assertEqual(names, set(REQUIRED_SKILLS) | {"studio-tripo"})
         for name in CATALOG_DOCS:
             text = (ROOT / name).read_text(encoding="utf-8")
             self.assertRegex(
