@@ -1,0 +1,2517 @@
+{
+  "input_metadata_commit": "74ebfb6ef1dabd0b6b95c6a9f8ae5411fceca273",
+  "inputs_unchanged": true,
+  "models": [
+    {
+      "family": "family-01",
+      "living": true,
+      "budget": 12000,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 2,
+        "PASS": 8
+      },
+      "report_sha256": "30467eea47b33b7d9feaf38d52856b53a327dc7e5426c54bd4a0900e83a0bc23",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "85543714fce81a3788216d9812ba2414272cb02d025981824b9a3a328951e418",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 floating / 9 parts; 19 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 19 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=2m; declared=False",
+            "triangles": "240 / 12000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": []
+        },
+        {
+          "lod": 1,
+          "sha256": "a66ea583f615491c4e476b6ae5dd7540cc99bab8c48dae23bb49756db85ca007",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 floating / 3 parts; 19 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 19 poses; structure=assembly",
+            "M5": "max XOR/union=1.000000 / 0.05; 6 missing parts; distance=6m; declared=False",
+            "triangles": "28 / 12000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-02",
+      "living": true,
+      "budget": 40000,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 13,
+        "PASS": 12
+      },
+      "report_sha256": "5f61130182a9d36c39ad25eedbd522502153957e1000fc94f6e6904afd3c2680",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "ad3c6cf7fb7d6c15c5da33cf5a989bc4f8b9b0d63f5be18a5a1ac42c892f525e",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "19 floating / 65 parts; 1 poses; 3 mm",
+            "M13": "max 1 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=62.605m; declared=False",
+            "triangles": "21311 / 40000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": []
+        },
+        {
+          "lod": 1,
+          "sha256": "76bd8c30b43bc04483088cbb2042026809f9a7fa64fb29998a7cd869a0f17894",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "FAIL",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "19 floating / 65 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.108527 / 0.05; 65 missing parts; distance=187.815m; declared=False",
+            "triangles": "4805 / 40000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": []
+        },
+        {
+          "lod": 2,
+          "sha256": "6273607a454c395489d26dc5166424bc36d93ac47ba6aa41f697cfad120137c6",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "19 floating / 65 parts; 1 poses; 3 mm",
+            "M13": "max 7 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.173913 / 0.05; 65 missing parts; distance=563.445m; declared=False",
+            "triangles": "1957 / 40000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": []
+        },
+        {
+          "lod": 3,
+          "sha256": "d6ca0b487359b2cd136f236bffc835ab5cf24e3d5a005233e3870b42426e7dd8",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "19 floating / 65 parts; 1 poses; 3 mm",
+            "M13": "max 31 major, 2 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=1.000000 / 0.05; 60 missing parts; distance=1690.33m; declared=False",
+            "triangles": "1202 / 40000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": []
+        },
+        {
+          "lod": 4,
+          "sha256": "e32b5bdac0acfeadc8e59490e4fcf13a706d3ac99f1a3dbebba2b0542bd38ca0",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 floating / 4 parts; 1 poses; 3 mm",
+            "M13": "max 6 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=1.000000 / 0.05; 65 missing parts; distance=5071m; declared=False",
+            "triangles": "8 / 40000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-03",
+      "living": false,
+      "budget": null,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 9,
+        "N/A": 4,
+        "NOT SET": 4,
+        "PASS": 3
+      },
+      "report_sha256": "feddfb5b56991b9234f9e9d17d35c84854c37c007e140d818fc2c4d2f284531a",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "0ade0cf7b4faa112b76f872b42cee7a0e22d8656937db745e255e6a228fa4e44",
+          "before": {
+            "M12": "PASS",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 10 parts; 1 poses; 3 mm",
+            "M13": "max 2 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=14.1769m; declared=False",
+            "triangles": "1344 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 1,
+          "sha256": "f3197b613a29cf9bc2df4be9e2867251c812ab7b4c472a6b62ff3c92b1aafc9b",
+          "before": {
+            "M12": "PASS",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 10 parts; 1 poses; 3 mm",
+            "M13": "max 1 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.085227 / 0.05; 5 missing parts; distance=42.5308m; declared=False",
+            "triangles": "518 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 2,
+          "sha256": "10f8aee367db7f9143dc7a109b9d26dcc51f3279c5392dfaf24e5c074984d2da",
+          "before": {
+            "M12": "PASS",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 10 parts; 1 poses; 3 mm",
+            "M13": "max 2 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.086957 / 0.05; 10 missing parts; distance=127.592m; declared=False",
+            "triangles": "278 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 3,
+          "sha256": "a4d9470138593008790485c70306dd76c47b2e1c92f40fed9d47c42175874194",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "2 floating / 10 parts; 1 poses; 3 mm",
+            "M13": "max 1 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.076923 / 0.05; 10 missing parts; distance=382.777m; declared=False",
+            "triangles": "201 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-04",
+      "living": true,
+      "budget": 2000,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 4,
+        "PASS": 16
+      },
+      "report_sha256": "cc07a3547041a8c2b3c72aff06e7f0345bc0ba4c06defb66fe712eb8cc1bcf7b",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "543e8a84937c8ea219261ad89136bb619a9de41a63971040f7ffbe852a5cb4c1",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=2.90568m; declared=False",
+            "triangles": "1769 / 2000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": []
+        },
+        {
+          "lod": 1,
+          "sha256": "20dfcea767484c1c73ce068319bc20336f6d156d74cdcc2f6218990f9bd65ef4",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.009099 / 0.05; 0 missing parts; distance=8.71703m; declared=False",
+            "triangles": "679 / 2000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": []
+        },
+        {
+          "lod": 2,
+          "sha256": "1f34fc57ca0357989ae31b8ea2a46f328f2b6f56a4f1f6410f717fbcff55d38d",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.048000 / 0.05; 0 missing parts; distance=26.1511m; declared=False",
+            "triangles": "259 / 2000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": []
+        },
+        {
+          "lod": 3,
+          "sha256": "94e920ac736d3471fedf679b4da865ff03fdb410efc6e49bace275ef17f4a152",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 1 missing parts; distance=78.4533m; declared=False",
+            "triangles": "90 / 2000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-05",
+      "living": true,
+      "budget": 5000,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 4,
+        "PASS": 16
+      },
+      "report_sha256": "ad568fd22c8534a9e4568b67115ea35aa23f0fcf9ffdb110d138c2877778dbd8",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "bce661c4e01d359df45ffad625a1bc9a7693a6b84023a3a5ec9a7523b7fd732c",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=2.13123m; declared=False",
+            "triangles": "2591 / 5000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 1,
+          "sha256": "6885abe0fd64192ca414497deadb23234a2079caa61b5407cd434187b21053fb",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.014134 / 0.05; 0 missing parts; distance=6.39368m; declared=False",
+            "triangles": "999 / 5000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 2,
+          "sha256": "b52d6ebbe796e9c0903f05a871cc66c8a55e522c7a1003f1904983c22822a24b",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.025890 / 0.05; 1 missing parts; distance=19.181m; declared=False",
+            "triangles": "380 / 5000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 3,
+          "sha256": "c478887e83865d6eeecd005e104a034491044feda5f8c9bf65f07d5d38a5bd7e",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.096774 / 0.05; 1 missing parts; distance=57.5431m; declared=False",
+            "triangles": "140 / 5000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=NOT SET"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-06",
+      "living": false,
+      "budget": null,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 4,
+        "N/A": 4,
+        "NOT SET": 4,
+        "PASS": 8
+      },
+      "report_sha256": "967d3f7434c0a39b124924370bd1d65fd7455840df57855ee76902b62b9446e2",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "84b8cd2eec429e6adb1e37ceb63d53022cea44ce2fe7f244d2dd19a25f5ac41d",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=3.66236m; declared=False",
+            "triangles": "2377 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 1,
+          "sha256": "337690de88d4c89d1385bef1a8565148c5d2d7977559fa4dba842e3ce243a1c6",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.004640 / 0.05; 0 missing parts; distance=10.9871m; declared=False",
+            "triangles": "886 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 2,
+          "sha256": "10c960e7b128e222565668b910f4ac176e06818401469887287eb92329d377a0",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.013514 / 0.05; 0 missing parts; distance=32.9612m; declared=False",
+            "triangles": "315 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 3,
+          "sha256": "8bb76b175c32684e5b9becf88626103f8c86813b923dd03d932a8015d14ba6bd",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.029412 / 0.05; 1 missing parts; distance=98.8836m; declared=False",
+            "triangles": "120 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-07",
+      "living": false,
+      "budget": null,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 8,
+        "N/A": 4,
+        "NOT SET": 4,
+        "PASS": 4
+      },
+      "report_sha256": "b39b1574bf83112caf751b7613c9db37cb30318a335340838aa82aa186e6f96e",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "1e122b8e3dffbf1e2af720c290ced3c1f5de3c64689cb1c7ee28fd4d60490b69",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 57 parts; 1 poses; 3 mm",
+            "M13": "max 6 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=10.5424m; declared=False",
+            "triangles": "2900 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 1,
+          "sha256": "8356369b4e05210778609eec5b3b0403a164050af1eef363de108aa2e66be69f",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 30 parts; 1 poses; 3 mm",
+            "M13": "max 2 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.028662 / 0.05; 42 missing parts; distance=31.6273m; declared=False",
+            "triangles": "1300 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 2,
+          "sha256": "c2f78ddc02a890f9ad8b65ae84f9700563fface12155d5f7db5fa9a7baa1d4d4",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 30 parts; 1 poses; 3 mm",
+            "M13": "max 2 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.054945 / 0.05; 29 missing parts; distance=94.882m; declared=False",
+            "triangles": "520 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 3,
+          "sha256": "064eed3cc6ccc89796d0164146609a7f856c70baf69a82ef6712a8746c1523b7",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 21 parts; 1 poses; 3 mm",
+            "M13": "max 3 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.200000 / 0.05; 25 missing parts; distance=284.646m; declared=False",
+            "triangles": "260 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-08",
+      "living": false,
+      "budget": null,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 4,
+        "N/A": 4,
+        "NOT SET": 4,
+        "PASS": 8
+      },
+      "report_sha256": "283a2869656c04aa830188fe596315690f1b887f439b7745ec27ae049ee1d7cd",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "f7460ee1315e5a59edd58b705a818c7c965ef81c49faf6b5f42a00abeb6c9e62",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=3.87642m; declared=False",
+            "triangles": "1404 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 1,
+          "sha256": "66177606729f8097aa20827a06406b3e66c7d9a628b6412dfbf8e15b8be06c3e",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.028696 / 0.05; 0 missing parts; distance=11.6293m; declared=False",
+            "triangles": "592 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 2,
+          "sha256": "85f783f40ae62708506a14677788df05eb18515db6169a3226d1e608846b81cb",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.048000 / 0.05; 0 missing parts; distance=34.8878m; declared=False",
+            "triangles": "255 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 3,
+          "sha256": "9fa2048fb182b5a153afff657b5f1be10616d8633c5315af8ea72fb95001a5f2",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.066667 / 0.05; 1 missing parts; distance=104.663m; declared=False",
+            "triangles": "116 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-09",
+      "living": false,
+      "budget": null,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 4,
+        "N/A": 4,
+        "NOT SET": 4,
+        "PASS": 8
+      },
+      "report_sha256": "c3fa20264dd3c8fd687873940940c311e2396f5ee45068eb3a9d69b0b5bb0ef3",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "a8d1d97b2ee4cc8ef91d3699045a4304755c712eafb94da3814a9e6149c823a7",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=3.82582m; declared=False",
+            "triangles": "2196 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 1,
+          "sha256": "e814cf35da727636e6804b17fe224153e1c70c7bd7d161a2962b3439def482cf",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.004645 / 0.05; 0 missing parts; distance=11.4775m; declared=False",
+            "triangles": "793 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 2,
+          "sha256": "e0a4b21ce60255fee7461be7c1dbdbd9d59a3cdb52746d475705f6d7fc40afb9",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.009146 / 0.05; 0 missing parts; distance=34.4324m; declared=False",
+            "triangles": "300 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 3,
+          "sha256": "c0fe67f7316e221cf42a68831ef71bdb3d920cd7132ff6cff9920e86933c0ac1",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.044444 / 0.05; 1 missing parts; distance=103.297m; declared=False",
+            "triangles": "110 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-10",
+      "living": false,
+      "budget": null,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 4,
+        "N/A": 4,
+        "NOT SET": 4,
+        "PASS": 8
+      },
+      "report_sha256": "ac2a68688fbd3fbef2dd44801eed87eea66bf4f17506d856e93db58bbb079814",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "53df6d25ed718f3606ca8168fb1b6bda02195c6009b4ac5d3d7e8a1a249d3ada",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=2.83373m; declared=False",
+            "triangles": "2174 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 1,
+          "sha256": "0d1c722ca990005bb7713de9f56d580a613b2b9340b6f477276264cfd12cde75",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.005651 / 0.05; 0 missing parts; distance=8.50118m; declared=False",
+            "triangles": "791 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 2,
+          "sha256": "0ffed6788c7964f13815289626435fa140cd302025a3ad6fa1c6b6016f9e2880",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.011521 / 0.05; 0 missing parts; distance=25.5035m; declared=False",
+            "triangles": "318 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 3,
+          "sha256": "226fbee52ef457f1f4d93acd71ebd6d230280588b6e34234c24ed8ed0d8d3c78",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.040000 / 0.05; 0 missing parts; distance=76.5106m; declared=False",
+            "triangles": "100 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-11",
+      "living": false,
+      "budget": null,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 4,
+        "N/A": 4,
+        "NOT SET": 4,
+        "PASS": 8
+      },
+      "report_sha256": "2e496af22c65b8865b3976a918f1d8a1abee34f0937a9f21611dc954f81c4f5d",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "37bf951bf02d7880f9d26861908278f053e46f0a88e394034e5f4b328554458e",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 4 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=10.8076m; declared=False",
+            "triangles": "2592 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 1,
+          "sha256": "b59ad7a998ce04aedd78fca05a7f3a7e296b4802f9ea24e58421dce26b3c0d59",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.043053 / 0.05; 4 missing parts; distance=32.4229m; declared=False",
+            "triangles": "948 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 2,
+          "sha256": "42167e299016b40189de79b9043af8d19c9f08a6db60e01d51209a259bd655e0",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.011236 / 0.05; 1 missing parts; distance=97.2687m; declared=False",
+            "triangles": "454 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 3,
+          "sha256": "ea9be968c67686554b380685de3bc79203d591ec8bffef1fac22194854631928",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.076923 / 0.05; 0 missing parts; distance=291.806m; declared=False",
+            "triangles": "341 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-12",
+      "living": false,
+      "budget": null,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 9,
+        "N/A": 4,
+        "NOT SET": 4,
+        "PASS": 3
+      },
+      "report_sha256": "4a95a2841472a1933bf5a171990db8574b5474b7c0463edcd5709c72b1df2f3b",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "93f11ce1b689a54968fa78602683116399e4bac4994c89f08157517c38e356a4",
+          "before": {
+            "M12": "FAIL",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "FAIL",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "32 floating / 33 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=10.9255m; declared=False",
+            "triangles": "4665 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 1,
+          "sha256": "0957e3e6dd3cd14196138f647e7547de9fe86ab0ec2a1b700567671416ca2ba7",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "32 floating / 33 parts; 1 poses; 3 mm",
+            "M13": "max 1 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.001976 / 0.05; 17 missing parts; distance=32.7765m; declared=False",
+            "triangles": "1763 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 2,
+          "sha256": "613f6db52f4c342ab4a364cbaf28d9f2d25bbc4f71dfc254c78e78649c4ef141",
+          "before": {
+            "M12": "FAIL",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "FAIL",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "32 floating / 33 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.024561 / 0.05; 4 missing parts; distance=98.3296m; declared=False",
+            "triangles": "788 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 3,
+          "sha256": "6987ae98a0bb12ff03ffd2987417411e511a0e73877b8e481b657ebfa7e5fd63",
+          "before": {
+            "M12": "FAIL",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "FAIL",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "23 floating / 24 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 9 missing parts; distance=294.989m; declared=False",
+            "triangles": "580 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-13",
+      "living": false,
+      "budget": null,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 4,
+        "N/A": 4,
+        "NOT SET": 4,
+        "PASS": 8
+      },
+      "report_sha256": "5f89ec759f46552c965cabd93492de39bc150291db659632d8bd2796b5bf6b64",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "65f60c66c307ef5866d2e734fd92fee319282160db4654db81b7101d9326c191",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=3.21157m; declared=False",
+            "triangles": "1375 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 1,
+          "sha256": "0cc1442b3dcbd0e312024a82136d3fac9fe5c21a2deb51d84b6fe380b1e5bed9",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.041012 / 0.05; 1 missing parts; distance=9.63471m; declared=False",
+            "triangles": "510 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 2,
+          "sha256": "dbc541ad2e47197ddb13acaec54c7ea9d727e9429ab779ba3a4d99921bce7507",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.066667 / 0.05; 1 missing parts; distance=28.9041m; declared=False",
+            "triangles": "194 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 3,
+          "sha256": "b3da4a5280d3637170f341029f2e3b70bfb431f14d1f87606699f8f40a4ef9c0",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.133333 / 0.05; 1 missing parts; distance=86.7124m; declared=False",
+            "triangles": "77 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-14",
+      "living": false,
+      "budget": 2000,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 3,
+        "N/A": 1,
+        "PASS": 1
+      },
+      "report_sha256": "3271fe4c00ea2ea3c026135eecf7787b5a127780240005155a0913c272c2236e",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "5e9cdce2286ed49e1fb80f3bddc2a072720b0671dd80255514d6bf4720a70fb0",
+          "before": {
+            "M12": "FAIL",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "FAIL",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "379 floating / 398 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=9.62045m; declared=False",
+            "triangles": "2549 / 2000 triangles (maximum only)",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-15",
+      "living": true,
+      "budget": 2000,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 3,
+        "PASS": 2
+      },
+      "report_sha256": "a5b2e518ecb4095d077aca6c97274147c8f3eb3ec60afc09134f7ba185b86c1f",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "c4711864c4a391e918c227f2b0923cb10a3dbc7bc2f42cf9b27f9bac7c7008f1",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "1 floating / 96 parts; 1 poses; 3 mm",
+            "M13": "max 42 major, 48 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=3.97191m; declared=False",
+            "triangles": "1536 / 2000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-16",
+      "living": true,
+      "budget": 2000,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 2,
+        "PASS": 3
+      },
+      "report_sha256": "2efe1bb8bd986c413f20ab88c1a03b43c18c82d5c70b30acdc06a89237f4f9d0",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "6f528257eab742249d36cc73d6041e31844c5c541616a5d6e91f5842d05763ba",
+          "before": {
+            "M12": "PASS",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 floating / 96 parts; 1 poses; 3 mm",
+            "M13": "max 230 major, 56 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=3.97214m; declared=False",
+            "triangles": "1536 / 2000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-17",
+      "living": true,
+      "budget": 2000,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 3,
+        "PASS": 2
+      },
+      "report_sha256": "be712996fc88e4f1ea6096d3d75607969c37e2ef81bbfc26a55b4393c35fb191",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "cced2b2db40028d17359de672aab93abec675166bf7b88cc36f0fa76729ec497",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "6 floating / 36 parts; 1 poses; 3 mm",
+            "M13": "max 10 major, 5 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=2.72434m; declared=False",
+            "triangles": "360 / 2000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-18",
+      "living": false,
+      "budget": 2000,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 3,
+        "N/A": 1,
+        "PASS": 1
+      },
+      "report_sha256": "31db9555d261ff32db564a9890c9217206f79af79ff5c626eb673ea1f9645465",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "03d50ffe985365d81006065c6a51695332e53ab7f58958bf85d93609952576e2",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "7 floating / 8 parts; 1 poses; 3 mm",
+            "M13": "max 6 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=2.05307m; declared=False",
+            "triangles": "128 / 2000 triangles (maximum only)",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-19",
+      "living": false,
+      "budget": null,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 1,
+        "N/A": 1,
+        "NOT SET": 1,
+        "PASS": 2
+      },
+      "report_sha256": "c5bef45bcfc2001f957accf25fbc31c4b5af277c0eabcc221e9f102bf5cdd9e4",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "f18d52ac556bf1bce53b7a0e22cfe76570259dd55617a1415a01ec6dae112b2b",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 12 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=9.6159m; declared=False",
+            "triangles": "12491 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-20",
+      "living": false,
+      "budget": null,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 1,
+        "N/A": 1,
+        "NOT SET": 1,
+        "PASS": 2
+      },
+      "report_sha256": "5f73aff50b5c561b1dae8200ca179ddeea6ead07fa1f7d16cf674b2f8773bd11",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "909cf6c84abd16b05de74134f3624ddfeb413d7ff8002a0b90396b40f99cf26f",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=2.22531m; declared=False",
+            "triangles": "2234 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-21",
+      "living": false,
+      "budget": null,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 1,
+        "N/A": 1,
+        "NOT SET": 1,
+        "PASS": 2
+      },
+      "report_sha256": "a8922119673e2a5856ed70f688baca20be8ba1ea48176d8ae658e213131f9ab4",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "9892f4abb1df78a6e45110200800176deae106a5608885d3a639684053e52691",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=2.64388m; declared=False",
+            "triangles": "1688 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-22",
+      "living": false,
+      "budget": null,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 1,
+        "N/A": 1,
+        "NOT SET": 1,
+        "PASS": 2
+      },
+      "report_sha256": "23b12c6a4937c2fe14f7ae385e3a8a6e143a8c9c66ff1d35e66a1b91bccde7bf",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "c1b0d5cd9c70547e6d8d839e3b15868da97d05225c71383f691a5ea7adc52a2f",
+          "before": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "NOT SET",
+            "ecology": "N/A"
+          },
+          "measurements": {
+            "M12": "0 floating / 1 parts; 1 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 1 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=2.08062m; declared=False",
+            "triangles": "2018 triangles; maximum NOT SET",
+            "ecology": "Manifest declares living: false; status=NOT SET; review=NOT SET"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-23",
+      "living": true,
+      "budget": 40000,
+      "result": "UNMEASURED",
+      "states": {
+        "PASS": 5,
+        "UNMEASURED": 15
+      },
+      "report_sha256": "0908db23e3a5688d21082ad45d93defbbdbb092cd7a899481b5deaf1d1405429",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "5d37df177dfbac6dd2140b6abd63173f1a85577abc7b6d8587aad84ff433fe6c",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "UNMEASURED",
+            "M13": "UNMEASURED",
+            "M5": "UNMEASURED",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 completed measurements",
+            "M13": "0 completed measurements",
+            "M5": "0 completed measurements",
+            "triangles": "22846 / 40000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 1,
+          "sha256": "6fd52df3d1d0f701d0f282d5c4ef0a52fabdc7a7bb228a84d7783bfaa2a15d43",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "UNMEASURED",
+            "M13": "UNMEASURED",
+            "M5": "UNMEASURED",
+            "triangles": "UNMEASURED",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 completed measurements",
+            "M13": "0 completed measurements",
+            "M5": "0 completed measurements",
+            "triangles": "unmeasured / 40000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 2,
+          "sha256": "fa2ce0e9ab150758a9320c5e2c01e1b26c640aeefcc319ccc120d694b243c517",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "UNMEASURED",
+            "M13": "UNMEASURED",
+            "M5": "UNMEASURED",
+            "triangles": "UNMEASURED",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 completed measurements",
+            "M13": "0 completed measurements",
+            "M5": "0 completed measurements",
+            "triangles": "unmeasured / 40000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 3,
+          "sha256": "92b09791f8a9168bfd4ba08699f564f5f528a7d2d509310cfd25bd5c26e5f9ad",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "UNMEASURED",
+            "M13": "UNMEASURED",
+            "M5": "UNMEASURED",
+            "triangles": "UNMEASURED",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 completed measurements",
+            "M13": "0 completed measurements",
+            "M5": "0 completed measurements",
+            "triangles": "unmeasured / 40000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=NOT SET"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-24",
+      "living": true,
+      "budget": 40000,
+      "result": "UNMEASURED",
+      "states": {
+        "FAIL": 1,
+        "PASS": 5,
+        "UNMEASURED": 14
+      },
+      "report_sha256": "3d48d4bd8945dc19dbcd235f034f44f9b3e7de72ece3adebe280031f531f7945",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "c67bab5f0a60aa5c9209440e1927757c3679513637718e8159994719c9f6e4f5",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "FAIL",
+            "M13": "UNMEASURED",
+            "M5": "UNMEASURED",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "2 floating / 720 parts; 1 poses; 3 mm",
+            "M13": "0 completed measurements",
+            "M5": "0 completed measurements",
+            "triangles": "8073 / 40000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 1,
+          "sha256": "4966cd99eff0de1e5197141e09383f309fd20c22569ed9c17da133ac3e53153d",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "UNMEASURED",
+            "M13": "UNMEASURED",
+            "M5": "UNMEASURED",
+            "triangles": "UNMEASURED",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 completed measurements",
+            "M13": "0 completed measurements",
+            "M5": "0 completed measurements",
+            "triangles": "unmeasured / 40000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 2,
+          "sha256": "93533f8a97033df5f5207a31c8328e0a102bfb649b5dccb415aa55b365b1d013",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "UNMEASURED",
+            "M13": "UNMEASURED",
+            "M5": "UNMEASURED",
+            "triangles": "UNMEASURED",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 completed measurements",
+            "M13": "0 completed measurements",
+            "M5": "0 completed measurements",
+            "triangles": "unmeasured / 40000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=NOT SET"
+          },
+          "notes": []
+        },
+        {
+          "lod": 3,
+          "sha256": "1a59e8dc6587bb6790edf9d89bbf3bcf046bba80195adcb79231a1ff8e2b6dae",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "UNMEASURED",
+            "M13": "UNMEASURED",
+            "M5": "UNMEASURED",
+            "triangles": "UNMEASURED",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 completed measurements",
+            "M13": "0 completed measurements",
+            "M5": "0 completed measurements",
+            "triangles": "unmeasured / 40000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=NOT SET"
+          },
+          "notes": []
+        }
+      ]
+    },
+    {
+      "family": "family-25",
+      "living": true,
+      "budget": 12000,
+      "result": "FAIL",
+      "states": {
+        "FAIL": 3,
+        "PASS": 12
+      },
+      "report_sha256": "b6e75370a632ed95ec09fbaea8d00a3816ee34ec93fba63bc0940444b85a1a1e",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "143729a892b8ca6f1c7000c78be578ef5f9e5c8703901e63b1e08b62f4fbb641",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 floating / 3 parts; 31 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 31 poses; structure=assembly",
+            "M5": "max XOR/union=0.000000 / 0.05; 0 missing parts; distance=2m; declared=False",
+            "triangles": "8018 / 12000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": [
+            "Morph targets were not checked"
+          ]
+        },
+        {
+          "lod": 1,
+          "sha256": "69ca51969a58aa1653588183adebbe5ba5e9d1f2c8abf8225a5b026bea4bac69",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 floating / 3 parts; 31 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 31 poses; structure=assembly",
+            "M5": "max XOR/union=0.028169 / 0.05; 0 missing parts; distance=6m; declared=False",
+            "triangles": "4006 / 12000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": [
+            "Morph targets were not checked"
+          ]
+        },
+        {
+          "lod": 2,
+          "sha256": "e5eca6b0712035920310b9d22c814db2123feee1399869090976f8958b7c7823",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "FAIL",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 floating / 3 parts; 31 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 31 poses; structure=assembly",
+            "M5": "max XOR/union=0.066667 / 0.05; 0 missing parts; distance=18m; declared=False",
+            "triangles": "2014 / 12000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": [
+            "Morph targets were not checked"
+          ]
+        }
+      ]
+    },
+    {
+      "family": "family-26",
+      "living": true,
+      "budget": 12000,
+      "result": "UNMEASURED",
+      "states": {
+        "PASS": 12,
+        "UNMEASURED": 3
+      },
+      "report_sha256": "8b106f4d765712fb0e136fe16fe22ff1d13c4976686fb45e3ff67d8995e23fd1",
+      "levels": [
+        {
+          "lod": 0,
+          "sha256": "955c18654825d479b64b73233299546eeb7db4d94f9e9d2bbf707ef99fb3a634",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "UNMEASURED",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 floating / 13 parts; 25 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 25 poses; structure=assembly",
+            "M5": "0 completed measurements",
+            "triangles": "10046 / 12000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": []
+        },
+        {
+          "lod": 1,
+          "sha256": "d0c7c10d969331a8696411994b71f6668771d430e73a8cd36a18013332c9d5fc",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "UNMEASURED",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 floating / 13 parts; 25 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 25 poses; structure=assembly",
+            "M5": "0 completed measurements",
+            "triangles": "5036 / 12000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": []
+        },
+        {
+          "lod": 2,
+          "sha256": "3cfe22d66614c4b5c1d8575186341cf9ee950d4efd517bdea741bf140e361642",
+          "before": {
+            "M12": "FAIL",
+            "M13": "FAIL",
+            "M5": "FAIL",
+            "triangles": "FAIL",
+            "ecology": "FAIL"
+          },
+          "after": {
+            "M12": "PASS",
+            "M13": "PASS",
+            "M5": "UNMEASURED",
+            "triangles": "PASS",
+            "ecology": "PASS"
+          },
+          "measurements": {
+            "M12": "0 floating / 13 parts; 25 poses; 3 mm",
+            "M13": "max 0 major, 0 minor; limit 2/100 parts; 25 poses; structure=assembly",
+            "M5": "0 completed measurements",
+            "triangles": "2536 / 12000 triangles (maximum only)",
+            "ecology": "Habitat and reasoned trait present; status=proposed; review=proposed, needs the user's OK"
+          },
+          "notes": []
+        }
+      ]
+    }
+  ],
+  "applicability": [
+    {
+      "family": "family-07",
+      "variant": "declared-clump",
+      "authority": "Provisional C2 applicability experiment; not source-owner approval",
+      "report_sha256": "3310a89fa6bd3edd822fe8c662a35b39c772e284e48139e1490e44768dd40890",
+      "result": "FAIL",
+      "levels": [
+        {
+          "lod": 0,
+          "m12_before": "PASS",
+          "m12_after": "PASS",
+          "m13_before": "FAIL",
+          "m13_after": "INFO",
+          "raw_m13_unchanged": true,
+          "ground_floating": 0,
+          "ground_part_count": 57
+        },
+        {
+          "lod": 1,
+          "m12_before": "PASS",
+          "m12_after": "PASS",
+          "m13_before": "FAIL",
+          "m13_after": "INFO",
+          "raw_m13_unchanged": true,
+          "ground_floating": 0,
+          "ground_part_count": 30
+        },
+        {
+          "lod": 2,
+          "m12_before": "PASS",
+          "m12_after": "PASS",
+          "m13_before": "FAIL",
+          "m13_after": "INFO",
+          "raw_m13_unchanged": true,
+          "ground_floating": 0,
+          "ground_part_count": 30
+        },
+        {
+          "lod": 3,
+          "m12_before": "PASS",
+          "m12_after": "PASS",
+          "m13_before": "FAIL",
+          "m13_after": "INFO",
+          "raw_m13_unchanged": true,
+          "ground_floating": 0,
+          "ground_part_count": 21
+        }
+      ]
+    },
+    {
+      "family": "family-14",
+      "variant": "declared-clump",
+      "authority": "Provisional C2 applicability experiment; not source-owner approval",
+      "report_sha256": "9fffd1fd95bc50d7410a42d9659d4e30f54554691eb662d127f55a66d5cd8393",
+      "result": "FAIL",
+      "levels": [
+        {
+          "lod": 0,
+          "m12_before": "FAIL",
+          "m12_after": "FAIL",
+          "m13_before": "PASS",
+          "m13_after": "INFO",
+          "raw_m13_unchanged": true,
+          "ground_floating": 258,
+          "ground_part_count": 398
+        }
+      ]
+    },
+    {
+      "family": "family-15",
+      "variant": "declared-clump",
+      "authority": "Provisional C2 applicability experiment; not source-owner approval",
+      "report_sha256": "f8ca585eea740cc8ec608bf4e626becf0a0d6cc51bf038c7d477a66faf00c628",
+      "result": "FAIL",
+      "levels": [
+        {
+          "lod": 0,
+          "m12_before": "FAIL",
+          "m12_after": "FAIL",
+          "m13_before": "FAIL",
+          "m13_after": "INFO",
+          "raw_m13_unchanged": true,
+          "ground_floating": 96,
+          "ground_part_count": 96
+        }
+      ]
+    },
+    {
+      "family": "family-16",
+      "variant": "declared-clump",
+      "authority": "Provisional C2 applicability experiment; not source-owner approval",
+      "report_sha256": "21290e21f8bcde3e0a0944367a25e6f2a5223751ddfcf886c0ae283b7b7168d3",
+      "result": "FAIL",
+      "levels": [
+        {
+          "lod": 0,
+          "m12_before": "PASS",
+          "m12_after": "FAIL",
+          "m13_before": "FAIL",
+          "m13_after": "INFO",
+          "raw_m13_unchanged": true,
+          "ground_floating": 96,
+          "ground_part_count": 96
+        }
+      ]
+    },
+    {
+      "family": "family-17",
+      "variant": "declared-clump",
+      "authority": "Provisional C2 applicability experiment; not source-owner approval",
+      "report_sha256": "de206ac6406452453dfe855e17b11b5914cea0a55c95a2fb4c85eac76f6e4598",
+      "result": "FAIL",
+      "levels": [
+        {
+          "lod": 0,
+          "m12_before": "FAIL",
+          "m12_after": "FAIL",
+          "m13_before": "FAIL",
+          "m13_after": "INFO",
+          "raw_m13_unchanged": true,
+          "ground_floating": 36,
+          "ground_part_count": 36
+        }
+      ]
+    },
+    {
+      "family": "family-18",
+      "variant": "declared-clump",
+      "authority": "Provisional C2 applicability experiment; not source-owner approval",
+      "report_sha256": "09f693589008def352b7fed44e784037672d7773e79dad540c3c82898aa24442",
+      "result": "FAIL",
+      "levels": [
+        {
+          "lod": 0,
+          "m12_before": "FAIL",
+          "m12_after": "FAIL",
+          "m13_before": "FAIL",
+          "m13_after": "INFO",
+          "raw_m13_unchanged": true,
+          "ground_floating": 4,
+          "ground_part_count": 8
+        }
+      ]
+    },
+    {
+      "family": "family-12",
+      "variant": "declared-scatter",
+      "authority": "Provisional C2 applicability experiment; not source-owner approval",
+      "report_sha256": "9dd2b9cb0e56de570bec0d986ad1ad6ad0228a8b0d5335d96e414485de815d7e",
+      "result": "FAIL",
+      "levels": [
+        {
+          "lod": 0,
+          "m12_before": "FAIL",
+          "m12_after": "PASS",
+          "m13_before": "PASS",
+          "m13_after": "PASS",
+          "raw_m13_unchanged": true,
+          "ground_floating": 0,
+          "ground_part_count": 33
+        },
+        {
+          "lod": 1,
+          "m12_before": "FAIL",
+          "m12_after": "PASS",
+          "m13_before": "FAIL",
+          "m13_after": "FAIL",
+          "raw_m13_unchanged": true,
+          "ground_floating": 0,
+          "ground_part_count": 33
+        },
+        {
+          "lod": 2,
+          "m12_before": "FAIL",
+          "m12_after": "PASS",
+          "m13_before": "PASS",
+          "m13_after": "PASS",
+          "raw_m13_unchanged": true,
+          "ground_floating": 0,
+          "ground_part_count": 33
+        },
+        {
+          "lod": 3,
+          "m12_before": "FAIL",
+          "m12_after": "PASS",
+          "m13_before": "PASS",
+          "m13_after": "PASS",
+          "raw_m13_unchanged": true,
+          "ground_floating": 0,
+          "ground_part_count": 24
+        }
+      ]
+    }
+  ],
+  "transitions": {
+    "M12: FAIL -> FAIL": 14,
+    "M12: FAIL -> PASS": 13,
+    "M12: FAIL -> UNMEASURED": 7,
+    "M12: PASS -> PASS": 40,
+    "M13: FAIL -> FAIL": 17,
+    "M13: FAIL -> PASS": 9,
+    "M13: FAIL -> UNMEASURED": 8,
+    "M13: PASS -> PASS": 40,
+    "M5: FAIL -> FAIL": 63,
+    "M5: FAIL -> UNMEASURED": 11,
+    "ecology: FAIL -> N/A": 42,
+    "ecology: FAIL -> PASS": 32,
+    "triangles: FAIL -> FAIL": 1,
+    "triangles: FAIL -> NOT SET": 40,
+    "triangles: FAIL -> PASS": 15,
+    "triangles: FAIL -> UNMEASURED": 6,
+    "triangles: PASS -> PASS": 12
+  }
+}

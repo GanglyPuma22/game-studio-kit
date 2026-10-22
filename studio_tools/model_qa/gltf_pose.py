@@ -1,4 +1,4 @@
-"""Linear/slerp glTF skin sampling for the attachment check."""
+"""glTF TRS skin samples: LINEAR/slerp, STEP and tangent-scaled CUBICSPLINE."""
 import numpy as np
 from pygltflib import GLTF2
 
@@ -6,7 +6,10 @@ CT = {5120: np.int8, 5121: np.uint8, 5122: np.int16, 5123: np.uint16, 5125: np.u
 NC = {'SCALAR': 1, 'VEC2': 2, 'VEC3': 3, 'VEC4': 4, 'MAT4': 16}
 
 def acc(g, i):
-    a = g.accessors[i]; bv = g.bufferViews[a.bufferView]
+    a = g.accessors[i]
+    if a.sparse:
+        raise ValueError("Sparse measured accessors are unsupported")
+    bv = g.bufferViews[a.bufferView]
     data = g.binary_blob()
     dt = np.dtype(CT[a.componentType]); n = NC[a.type]
     off = (bv.byteOffset or 0) + (a.byteOffset or 0)
@@ -15,7 +18,7 @@ def acc(g, i):
     out = np.lib.stride_tricks.as_strided(raw, shape=(a.count, dt.itemsize * n), strides=(stride, 1)).copy()
     arr = out.view(dt).reshape(a.count, n)
     if a.normalized:
-        arr = arr.astype(np.float32) / np.iinfo(dt).max
+        arr = np.maximum(arr.astype(np.float64) / np.iinfo(dt).max, -1.0)
     return arr
 
 def qmat(q):
@@ -31,8 +34,8 @@ def slerp(a, b, t):
     th = np.arccos(d); return (np.sin((1-t)*th)*a + np.sin(t*th)*b)/np.sin(th)
 
 class Model:
-    def __init__(self, path):
-        g = self.g = GLTF2().load(path)
+    def __init__(self, path, gltf=None):
+        g = self.g = gltf if gltf is not None else GLTF2().load(path)
         # every primitive of every mesh node bound to skin 0, concatenated (hide, eyes, plates ...)
         pos, jn, wt, idx = [], [], [], []
         base = 0
@@ -53,6 +56,22 @@ class Model:
         for i, n in enumerate(g.nodes):
             for c in (n.children or []): self.parent[c] = i
         self.anims = {a.name: a for a in g.animations}
+        self.sampler_data = {}
+        for name, animation in self.anims.items():
+            for i, sampler in enumerate(animation.samplers):
+                # Morph weights are intentionally not measured.
+                if not any(c.sampler == i and c.target.path != 'weights' for c in animation.channels):
+                    continue
+                ts = acc(g, sampler.input)[:, 0]
+                values = acc(g, sampler.output)
+                mode = sampler.interpolation or 'LINEAR'
+                if not len(ts) or not np.isfinite(ts).all() or np.any(np.diff(ts) <= 0) or not np.isfinite(values).all():
+                    raise ValueError("Animation needs finite values and strictly increasing times")
+                if len(values) != len(ts) * (3 if mode == 'CUBICSPLINE' else 1):
+                    raise ValueError("Animation output count does not match interpolation")
+                if mode == 'CUBICSPLINE' and len(ts) < 2:
+                    raise ValueError("CUBICSPLINE needs at least two keys")
+                self.sampler_data[name, i] = (ts, values)
 
     def local(self, i, over):
         n = self.g.nodes[i]
@@ -67,13 +86,27 @@ class Model:
         if clip is None: return over
         a = self.anims[clip]
         for ch in a.channels:
+            if ch.target.path == 'weights':
+                continue
             smp = a.samplers[ch.sampler]
-            ts = acc(self.g, smp.input)[:, 0]; vs = acc(self.g, smp.output)
-            t2 = np.clip(t, ts[0], ts[-1]); k = np.searchsorted(ts, t2)
-            k = min(max(k, 1), len(ts)-1); u = (t2-ts[k-1])/max(ts[k]-ts[k-1], 1e-9)
-            u = np.clip(u, 0, 1)
-            if ch.target.path == 'rotation': v = slerp(vs[k-1], vs[k], u)
-            else: v = vs[k-1] + u*(vs[k]-vs[k-1])
+            ts, vs = self.sampler_data[clip, ch.sampler]
+            mode = smp.interpolation or 'LINEAR'
+            t2 = np.clip(t, ts[0], ts[-1])
+            left = max(0, int(np.searchsorted(ts, t2, side='right')) - 1)
+            if mode == 'STEP' or left == len(ts)-1 or len(ts) == 1:
+                v = vs[3*left+1] if mode == 'CUBICSPLINE' else vs[left]
+            else:
+                right = left+1; dt = ts[right]-ts[left]; u = (t2-ts[left])/dt
+                if mode == 'CUBICSPLINE':
+                    v = ((2*u**3-3*u**2+1)*vs[3*left+1] + dt*(u**3-2*u**2+u)*vs[3*left+2]
+                         + (-2*u**3+3*u**2)*vs[3*right+1] + dt*(u**3-u**2)*vs[3*right])
+                elif ch.target.path == 'rotation': v = slerp(vs[left], vs[right], u)
+                else: v = vs[left] + u*(vs[right]-vs[left])
+            if ch.target.path == 'rotation':
+                norm = np.linalg.norm(v)
+                if not np.isfinite(norm) or norm < 1e-12:
+                    raise ValueError("Invalid sampled quaternion")
+                v = v / norm
             over[(ch.target.node, ch.target.path)] = v
         return over
 

@@ -5,3 +5,4 @@ networkx>=3.0
 rtree>=1.2
 pygltflib>=1.16
 pillow>=10.0
+PyYAML>=6.0

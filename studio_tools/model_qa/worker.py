@@ -17,38 +17,42 @@ def execute(request):
     import numpy as np
     import trimesh
     from studio_tools.model_qa import attachment, clipping, ecology, geometry, silhouettes
-    from studio_tools.model_qa.report import row, write, CHECKS
+    from studio_tools.model_qa.report import row, write, CHECKS, initial, budget, overlaps
 
     out = Path(request["out"])
     render_dir = out / "silhouettes"
     render_dir.mkdir()
     settings = request["settings"]
-    report = {"schema_version": 1, "result": "FAIL", "settings": settings, "models": [], "errors": [],
-              "runtime": {"blender": bpy.app.version_string, "python": sys.version.split()[0],
+    report = initial(request)
+    report['runtime'] = {"blender": bpy.app.version_string, "python": sys.version.split()[0],
                           "dependencies": {name: importlib.metadata.version(name)
-                                           for name in ("numpy", "trimesh", "scipy", "networkx", "rtree", "pygltflib", "pillow")}}}
+                                           for name in ("numpy", "trimesh", "scipy", "networkx", "rtree", "pygltflib", "pillow", "PyYAML")}}
+    write(report, out)
+    entries = iter(report['models'])
+    def record(entry, check):
+        entry['checks'] = [check if c['check'] == check['check'] else c for c in entry['checks']]
+        write(report, out)
     tiles = []
-    eco = ecology.check(request["ecology"])
     for family in request["families"]:
         loaded = []
+        manifest = family.get('manifest', {'structure': 'assembly'})
         for item in family["files"]:
-            entry = {**item, "model": family["name"], "checks": []}
-            # Keep paths local to the request; published report uses basenames and digests.
-            entry["file"] = Path(item["path"]).name
-            entry.pop("path")
-            report["models"].append(entry)
+            entry = next(entries)
             try:
                 if sha(item["path"]) != item["sha256"]:
                     raise ValueError("Input changed after the CLI hashed it")
                 tm, parts, names, skin = geometry.load(item["path"])
+                entry['notes'] = tm.metadata.get('qa_notes', [])
+                record(entry, budget(len(tm.faces), settings['budget_tris']))
                 entry["parts"] = geometry.part_inventory(parts, names)
-                attach = attachment.skinned(skin, samples=settings["samples"]) if skin else attachment.static(parts)
+                attach = attachment.measure(parts, skin, samples=settings["samples"],
+                                            structure=manifest['structure'], ground_y_m=manifest.get('ground_y_m', 0.0))
                 for r in attach["parts"]:
                     if isinstance(r["part"], int):
                         r["name"] = names[r["part"]]
                     elif "part_id" in r:
                         r["name"] = names[r["part_id"]]
-                entry["checks"].append(row("M12", attach["result"] == "PASS",
+                record(entry, row("M12", attach["result"] == "PASS",
                                             f"{attach['floating']} floating / {attach['part_count']} parts; {attach['poses']} poses; 3 mm",
                                             attach))
                 poses = [("rest", 0.0)] + ([(clip, float(t)) for clip in skin.anims
@@ -71,19 +75,13 @@ def execute(request):
                         collision["a_name"] = names[collision["a"]] if collision["a"] < len(names) else f"part-{collision['a']}"
                         collision["b_name"] = names[collision["b"]] if collision["b"] < len(names) else f"part-{collision['b']}"
                     clips.append({"pose": clip, "time": time, **check})
-                major = max(c["major"] for c in clips)
-                minor = max(c["minor"] for c in clips)
-                entry["checks"].append(row("M13", all(c["result"] == "PASS" for c in clips),
-                                            f"max {major} major, {minor} minor; limit 2/100 parts; {len(clips)} poses",
-                                            {"poses": clips}))
-                entry["checks"].append(row("triangles", len(tm.faces) <= settings["budget_tris"],
-                                            f"{len(tm.faces)} / {settings['budget_tris']} triangles"))
-                entry["checks"].append(row("ecology", eco["result"] == "PASS",
-                                            f"habitat={bool(eco['habitat'])}; reasoned traits={len(eco['traits_with_reason'])}", eco))
+                record(entry, overlaps(clips, manifest['structure']))
                 loaded.append((item, entry, tm, parts, names))
             except Exception as exc:
                 report["errors"].append(f"{family['name']} LOD{item['lod']}: {type(exc).__name__}: {exc}")
-                entry["checks"] = [row(c, False, "0 completed measurements", {"error": str(exc)}) for c in CHECKS]
+                entry['checks'] = [row(c['check'], 'UNMEASURED', 'Measurement incomplete', {'error': str(exc)})
+                                   if c['result'] == 'UNMEASURED' else c for c in entry['checks']]
+                write(report, out)
                 traceback.print_exc()
 
         distances = settings.get("switch_distances")
@@ -121,23 +119,26 @@ def execute(request):
                 passed = (declared and valid_chain and not details["disappeared_parts"] and
                           worst <= settings["max_pixel_difference"] and
                           all(v["before_pixels"] and v["after_pixels"] and not v["frame_clipped"] for v in details["views"]))
-                entry["checks"].append(row("M5", passed,
+                record(entry, row("M5", passed,
                                             f"max XOR/union={worst:.6f} / {settings['max_pixel_difference']}; "
                                             f"{len(details['disappeared_parts'])} missing parts; distance={distance:g}m; declared={declared}",
                                             details))
             except Exception as exc:
-                entry["checks"].append(row("M5", False, "0 complete four-side comparisons", {"error": str(exc), **details}))
+                record(entry, row("M5", "UNMEASURED", "0 complete four-side comparisons", {"error": str(exc), **details}))
                 report["errors"].append(f"Silhouettes {family['name']} LOD{item['lod']}: {exc}")
                 traceback.print_exc()
             previous = (item, entry, tm, parts, names)
         for item in family["files"]:
             if sha(item["path"]) != item["sha256"]:
                 report["errors"].append(f"Input changed during QA: {Path(item['path']).name}")
-    if request.get("ecology_sha256") != (sha(request["ecology"]) if Path(request["ecology"]).is_file() else None):
+    if request.get("ecology_sha256") != (sha(request["ecology"]) if request.get('ecology') and Path(request["ecology"]).is_file() else None):
         report["errors"].append("Ecology entry changed during QA")
     for model in report["models"]:
         model["checks"].sort(key=lambda r: CHECKS.index(r["check"]))
-    silhouettes.contact_sheet(tiles, out)
+    try:
+        silhouettes.contact_sheet(tiles, out)
+    except Exception as exc:
+        report['errors'].append(f'Contact sheet unmeasured: {type(exc).__name__}: {exc}')
     return write(report, out)
 
 

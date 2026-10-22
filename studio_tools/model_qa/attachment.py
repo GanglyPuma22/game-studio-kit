@@ -4,6 +4,37 @@ import trimesh
 from trimesh.proximity import ProximityQuery
 
 
+def ground(parts, ground_y_m=0.0, max_gap_mm=3.0):
+    """Each connected piece must intersect or approach the declared Y-up plane."""
+    rows = []
+    for i, part in enumerate(parts):
+        low, high = part.bounds[:, 1]
+        gap = float(max(low - ground_y_m, ground_y_m - high, 0))
+        rows.append(dict(part=i, tris=len(part.faces), gap_mm=gap * 1000,
+                         status="ok" if gap <= max_gap_mm / 1000 else "FLOATING"))
+    bad = sum(r['status'] != 'ok' for r in rows)
+    return dict(parts=rows, part_count=len(parts), floating=bad, poses=1,
+                ground_y_m=ground_y_m, max_gap_mm=max_gap_mm, result='FAIL' if bad else 'PASS')
+
+
+def measure(parts, skin=None, *, structure="assembly", ground_y_m=0.0, samples=6):
+    if structure == "assembly":
+        return skinned(skin, samples=samples) if skin else static(parts)
+    if not skin:
+        return ground(parts, ground_y_m)
+    labels = part_labels(skin)
+    results = []
+    for clip, t in [('rest', 0.0)] + [(c, float(t)) for c in skin.anims for t in np.linspace(0, skin.duration(c), samples)]:
+        positions = skin.posed(None if clip == 'rest' else clip, t)
+        # Bounds need faces too; retain the complete index space and trim unused vertices.
+        pieces = [trimesh.Trimesh(positions, skin.idx[labels == i], process=False) for i in range(int(labels.max()) + 1)]
+        for piece in pieces:
+            piece.remove_unreferenced_vertices()
+        results.append({"pose": clip, "time": t, **ground(pieces, ground_y_m)})
+    worst = max(results, key=lambda r: r['floating'])
+    return {**worst, "poses": len(results), "pose_results": results}
+
+
 def static(parts, max_gap_mm=3.0):
     """The lowest Y part anchors static models; chains of touching parts count."""
     n = len(parts)

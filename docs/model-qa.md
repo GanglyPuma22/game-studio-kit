@@ -1,7 +1,7 @@
 # Model QA
 
 Run from this repository, or install the Python package. The parent CLI uses
-only the standard library and existing kit process helpers. One owned,
+the standard library and existing kit process helpers; YAML ecology parsing also needs PyYAML. One owned,
 synchronous, headless Blender process performs the measurements and renders.
 It does not open a desktop window, save a Blender file, edit inputs, install
 dependencies, upload a review, or use a provider.
@@ -51,11 +51,14 @@ Dependencies stay optional; the kit's other commands do not import them.
   Node transforms and instances count. Static M12 anchors at the lowest Y
   part; skinned M12 anchors at the largest part by triangle count.
 - Skinned models support one skin, four joint weights, TRS transforms and
-  LINEAR/slerp animations. Rest plus six samples per clip are checked by M12
+  LINEAR/slerp, STEP and CUBICSPLINE animations. Rest plus six samples per clip are checked by M12
   and M13. `--samples` controls this finite sampling; it does not prove
   continuous-motion clearance. Multiple skins, mixed static/skinned geometry,
-  morph targets, sparse accessors, nontriangle primitives, required extensions,
-  unskinned animation and unsupported interpolation fail explicitly.
+  sparse measured accessors, nontriangle primitives, other required extensions,
+  unskinned TRS animation and unsupported interpolation remain UNMEASURED.
+  KHR_mesh_quantization is decoded with normalized integer bounds and node/skin
+  transforms. Morph targets and weight animation are ignored: the base mesh is
+  measured and each report explicitly notes that morphs were not checked.
 - Ecology needs a nonempty `Habitat` section (or `Habitat: ...`) and a
   `Traits`/`Adaptations` section with a reasoned trait. For example,
   `Low profile because it reduces wind exposure`, or a `Trait | Reason`
@@ -78,25 +81,27 @@ Dependencies stay optional; the kit's other commands do not import them.
   distance evidence. Geometry is rendered opaque; texture alpha and runtime
   fades require a separate review.
 
-`--out` must not exist. Exit 0 means every row passed; 1 means failed checks
-or execution; 2 means invalid invocation. The outputs are `report.json`,
+`--out` must not exist. Exit 0 means no FAIL, UNMEASURED or NOT SET rows;
+N/A and INFO retain their labels and are never converted to PASS. Exit 1 means
+failed/incomplete checks or execution; 2 means invalid invocation. The outputs are `report.json`,
 `REPORT.md`, `contact-sheet.png`, full PNGs in `silhouettes/`, input hashes in
 `request.json`, and execution/source/executable identity plus the owned
-process receipt/log. Missing dependencies or Blender leave failed rows and a
+process receipt/log. Missing dependencies or Blender leave UNMEASURED geometry rows and a
 red placeholder sheet, never yesterday's render. Inputs and source are
 checked for changes during execution. The request and process files contain
 local paths; publish the portable report and images, not private host receipts.
 
-The default worker timeout is 1800 seconds; `--timeout` is bounded at nine
+The default worker timeout is 90 seconds; `--timeout` is bounded at nine
 hours. There is no progress polling. On timeout/interruption the runner stops
 its owned process and preserves receipts. Unverified descendants are never
-killed by name and prevent a PASS.
+killed by name and prevent a completed result. Completed rows are checkpointed atomically, so a
+resource failure preserves measured defects and leaves unfinished rows UNMEASURED.
 
 ## Tests
 
 ```text
 python tests/model_qa_fixtures.py /new/fixture-directory
-python -m unittest discover -s tests -p test_model_qa.py -v
+python -m unittest discover -s tests -p 'test_model_qa*.py' -v
 ```
 
 Set `MODEL_QA_BLENDER` (and optionally `MODEL_QA_PYTHON_SITE_PACKAGES`) to
@@ -105,3 +110,54 @@ floating cube, crossing boxes, a disappeared LOD tip, missing ecology,
 missing switch metadata, budget failure and an animated detached part.
 Without Blender, the pure Python tests run and native tests are explicitly
 skipped. No asset-generation APIs or binary fixtures are needed.
+
+## Applicability and policy declarations (0.1.16)
+
+Each family may carry `<family>.model-qa.json`, or a shared `model-qa.json` in
+its own directory. `--manifest <file>` explicitly applies one manifest to all
+input families. Unknown fields/structures are refused, rather than silently
+falling back. The request records the file hash and interpreted declaration.
+
+```json
+{"schema_version": 1, "structure": "clump", "living": false, "ground_y_m": 0.0}
+```
+
+- `assembly` (default): original M12 connected-assembly rule and strict M13.
+- `scatter`: each connected piece must touch the declared Y-up ground plane
+  within the unchanged 3 mm tolerance, at every sampled pose. M13 stays strict.
+- `clump`: the same per-piece ground check; M13 retains all raw overlap counts
+  and pairs but labels the row INFO. This is an explicit applicability choice,
+  not a change to the crossing thresholds. A declared flat plane is not a test
+  against a terrain mesh, and deeply buried pieces still need placement review.
+- `living: false`: ecology is N/A. Alternatively use `--ecology none --reason
+  "Manufactured prop"`. A conflicting `living: true` is refused. The default
+  requires ecology evidence; it never infers non-living from missing paperwork.
+- `--budget-tris not-set`: the row is NOT SET, retaining the actual triangle
+  count. A positive value is a maximum only, independently applied to every LOD;
+  there is no implied minimum and no positive-number sentinel for unknown policy.
+
+Ecology supports the previous Markdown headings and tables plus YAML front matter:
+
+```yaml
+---
+status: proposed
+review_status: awaiting approval
+habitat:
+  where: Exposed rocky ground
+traits:
+  - feature: Low spreading crown
+    because: Reduces wind damage
+---
+```
+
+Structural completeness can PASS while status remains proposed; it grants no
+approval. `status` and `review_status` are reported separately, including NOT SET
+when absent. Placeholder habitat/reasons do not count as evidence. Install the
+optional requirements for the parent Python too when it must parse YAML while
+reporting an unavailable worker.
+
+Measurement inputs follow the [glTF interpolation specification](https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#interpolation-cubic)
+and [KHR mesh quantization](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_mesh_quantization).
+STEP keys and tangent-scaled cubic curves are evaluated at the same six samples
+per clip; rotations are normalized. No input animation or geometry is rewritten.
+The geometry reader never decodes image data or copies authored materials.
