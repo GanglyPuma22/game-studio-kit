@@ -324,6 +324,10 @@ def parser():
     c.add_argument("--evidence", help="Bound timing/action or supplemental revision evidence JSON")
     c.add_argument("--interval", nargs=2, type=float)
     c.add_argument("--output", default="artifacts/review-fixtures")
+    c = command("unimate", True)
+    c.add_argument("operation", choices=["inspect", "generate"])
+    c.add_argument("--request", required=True, help="Project-relative experimental worker request")
+    c.add_argument("--record", help="New artifacts/unimate/<run>/task.json; generate only")
     c = command("candidate", True)
     c.add_argument("operation", nargs="?", choices=["new", "verify"], default="new")
     c.add_argument("--id", help="Candidate identity for new")
@@ -618,6 +622,11 @@ def dispatch(a):
             raise StudioError("meshy " + a.operation + " needs --project")
         if not a.record:
             raise StudioError("meshy " + a.operation + " needs --record")
+    if a.command == "unimate":
+        from .adapters.unimate import execute
+
+        # Neither inspection nor a mistyped generation root creates a project.
+        return execute(config, a.project, a.operation, a.request, a.record)
     # Read-only validation does not create the project directory.
     root = (
         Path(a.project).resolve()
