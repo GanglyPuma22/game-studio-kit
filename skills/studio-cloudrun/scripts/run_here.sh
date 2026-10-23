@@ -21,8 +21,13 @@ for t in xvfb-run python3; do command -v "$t" > /dev/null || { echo "missing $t"
 mkdir -p "$DEST"; DEST=$(realpath "$DEST")
 JOB=$(mktemp -d); trap 'rm -rf "$JOB"' EXIT
 cp "$JOBFILE" "$JOB/job.json"; ln -s "$CHECKOUT" "$JOB/repo"
-{ echo "nproc $(nproc)"; echo "gpu=$(vulkaninfo --summary 2>/dev/null | grep -m1 deviceName | sed 's/.*= //' || echo unknown) (this machine)"; } > "$JOB/env.txt"
-sed -i 's/^gpu=\(.*llvmpipe.*\)/gpu=software \1/' "$JOB/env.txt"
+DEV=$(vulkaninfo --summary 2> /dev/null | grep -m1 deviceName | sed 's/.*= //')
+case "$DEV" in
+	"") GPU="gpu=unknown (no vulkaninfo; the engine log names the device)" ;;
+	*llvmpipe*|*lavapipe*|*SwiftShader*) GPU="gpu=software ($DEV, this machine)" ;;
+	*) GPU="gpu=$DEV (this machine)" ;;
+esac
+{ echo "nproc $(nproc)"; echo "$GPU"; } > "$JOB/env.txt"
 xvfb-run -a -s "-screen 0 1920x1080x24" env JOB_ROOT="$JOB" bash "$HERE/runtime_job.sh"
 RC=$?
 cp -a "$JOB/out/." "$DEST/"; cp "$JOB/progress.txt" "$DEST/progress.txt" 2>/dev/null
