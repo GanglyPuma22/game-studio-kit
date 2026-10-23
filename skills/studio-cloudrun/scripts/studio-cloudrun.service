@@ -1,0 +1,21 @@
+# systemd user unit for the cloud run queue on the service host (WSL with
+# systemd, or any Linux). Install once, after the person's go:
+#   mkdir -p ~/.config/systemd/user
+#   sed "s#@KIT@#$HOME/game-studio-kit#" studio-cloudrun.service > ~/.config/systemd/user/studio-cloudrun.service
+#   systemctl --user daemon-reload && systemctl --user enable studio-cloudrun.service
+#   loginctl enable-linger "$USER"     # keep it running with nobody logged in
+# Then each go: bash @KIT@/skills/studio-cloudrun/scripts/service.sh go
+# A clean stop (limits reached, a failed job, stop asked) stays stopped across
+# reboots until the next go; a crash restarts it.
+[Unit]
+Description=Game Studio Kit cloud run queue
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash @KIT@/skills/studio-cloudrun/scripts/service.sh run
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,22 @@
+{
+  "summary": "Instrumental music from text with ACE-Step 1.5 (XL SFT audio model + 4B planner), one track per seed, 48 kHz stereo FLAC, optional loop candidate.",
+  "kind": "music",
+  "gpu": "A100",
+  "gpus": ["A100"],
+  "text_field": "caption",
+  "limits": {"seconds": [10, 240], "max_outputs": 12},
+  "gated": false,
+  "model": {
+    "source": "https://github.com/ace-step/ACE-Step-1.5",
+    "commit": "ca1e85fe9430179831e6bc6be790c332190a3866",
+    "repos": {
+      "ACE-Step/Ace-Step1.5": "19671f406d603126926c1b7e2adc169acbcade22",
+      "ACE-Step/acestep-v15-xl-sft": "d06de46b4622f781cf07f4a013a67d591ca52819",
+      "ACE-Step/acestep-5Hz-lm-4B": "0a3ec94b557aea7d508da38b31cfe7341f6ff737"
+    },
+    "license": "Check the ACE-Step repository and each model card for commercial-use terms before shipping outputs."
+  },
+  "tested": "2026-10-22, Colab A100 40 GB: 5 x 180 s tracks, 97 s each after about 6 min setup (install 175 s, download 100 s, load 76 s); 1.49 units. Peak PyTorch memory 21.8 GiB, so L4 is not offered.",
+  "setup_summary": "clone ACE-Step 1.5 at its pinned commit; uv sync --python 3.12 from its lock",
+  "run_summary": "download the three pinned model revisions, load both models once, one track per cue and seed, keep the FLAC original, optionally an overlap-crossfade loop WAV and a wrap audition, write receipt.json"
+}

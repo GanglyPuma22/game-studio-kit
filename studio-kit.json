@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "game-studio-kit",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "skills": [
     {
       "name": "studio-director",
@@ -62,6 +62,10 @@
     {
       "name": "studio-assets",
       "path": "skills/studio-assets/SKILL.md"
+    },
+    {
+      "name": "studio-cloudrun",
+      "path": "skills/studio-cloudrun/SKILL.md"
     }
   ],
   "resources": [
@@ -185,7 +189,16 @@
     "docs/model-qa.md",
     "skills/studio-assets/references/sources.md",
     "skills/studio-assets/references/sources.json",
-    "studio_tools/assets.py"
+    "studio_tools/assets.py",
+    "skills/studio-cloudrun/references/job-format.md",
+    "skills/studio-cloudrun/references/runtime-notes.md",
+    "skills/studio-cloudrun/scripts/colab_job.sh",
+    "skills/studio-cloudrun/scripts/run_here.sh",
+    "skills/studio-cloudrun/scripts/runtime_display.sh",
+    "skills/studio-cloudrun/scripts/runtime_job.sh",
+    "skills/studio-cloudrun/scripts/service.sh",
+    "skills/studio-cloudrun/scripts/studio-cloudrun.service",
+    "studio_tools/cloudrun.py"
   ],
   "commands": [
     "check-package",
@@ -208,6 +221,7 @@
     "godot",
     "candidate",
     "review",
-    "assets"
+    "assets",
+    "cloudrun"
   ]
 }
