@@ -7,8 +7,8 @@
 # Colab login: COLAB_AUTH (default oauth2; on Aptivio, ADC is another Google
 # account with no units). Each session gets its own private CLI state file
 # ($WORK/state/<session>.json, mode 600, never copied into results) when the
-# CLI accepts one; set COLAB_SHARED_CONFIG=1 to use the CLI's default state. The job's commands run only on the
-# runtime; this host packs the commit with git archive, copies it in, polls,
+# CLI accepts one; set COLAB_SHARED_CONFIG=1 to use the CLI's default state.
+# The job's commands run only on the runtime; this host packs the commit with git archive, copies it in, polls,
 # copies OUT_DIR back and stops the runtime on exit, on error and at the cap.
 # Results: $WORK/results/<id>-<UTC time>-XXXX/ (runner.json first), and, when
 # RESULTS_REPO is set, a fresh one-commit branch studio-results/<id> there.

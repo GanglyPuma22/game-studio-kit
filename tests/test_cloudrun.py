@@ -124,7 +124,8 @@ class CloudrunCliAndScriptsTests(unittest.TestCase):
         self.assertNotIn('bash -c "$CMD"', text)
         self.assertNotIn('d["command"]', text)
         self.assertIn("git -C \"$MIRROR\" archive", text)
-        self.assertIn("colab stop", text)
+        self.assertIn('"${COLAB[@]}" stop -s "$SESSION"', text)
+        self.assertIn("trap", text)
 
 
 if __name__ == "__main__":
