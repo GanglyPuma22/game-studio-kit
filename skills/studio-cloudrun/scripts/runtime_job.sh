@@ -9,6 +9,9 @@ set -u
 JOB=${JOB_ROOT:-/content/job}
 OUT=$JOB/out; mkdir -p "$OUT"
 echo $$ > "$JOB/runner.pid"
+rm -f "$JOB/finished"
+# The host waits for this file, written on every way out (never for a log line).
+trap 'touch "$JOB/finished"' EXIT
 log() { echo "$(date -u +%T) $*" | tee -a "$JOB/progress.txt"; }
 J() { python3 -c "import json,sys;d=json.load(open('$JOB/job.json'));$1"; }
 ID=$(J 'print(d["id"])')

@@ -64,7 +64,9 @@ declare -A PIDS=()
 STOPPED=""
 say "start: $QUEUE_REPO:$QUEUE_BRANCH, $MAX_PAR at once, $MAX_JOBS jobs, $MAX_HOURS h from $(date -u -d @"$T0" +%FT%TZ); repos: $ALLOW_REPOS; refs: $ALLOW_REFS"
 push_status
-while :; do
+# Collect finished jobs and set STOPPED for any limit reached; run before every launch.
+reap() {
+	local pid rc id
 	for pid in "${!PIDS[@]}"; do
 		kill -0 "$pid" 2> /dev/null && continue
 		wait "$pid"; rc=$?; id=${PIDS[$pid]}; unset "PIDS[$pid]"
@@ -75,6 +77,10 @@ while :; do
 	[ -f "$WORK/stop" ] && STOPPED=${STOPPED:-"stop asked"}
 	[ $(( $(date +%s) - T0 )) -gt $(( MAX_HOURS * 3600 )) ] && STOPPED=${STOPPED:-"$MAX_HOURS h limit"}
 	[ "$LAUNCHED" -ge "$MAX_JOBS" ] && STOPPED=${STOPPED:-"$MAX_JOBS jobs launched"}
+	return 0
+}
+while :; do
+	reap
 	if [ -n "$STOPPED" ]; then
 		if [ ${#PIDS[@]} -eq 0 ]; then
 			echo "$STOPPED at $(date -u +%FT%TZ)" > "$WORK/stopped"; rm -f "$WORK/stop"
@@ -90,6 +96,7 @@ while :; do
 			while read -r name; do
 				[ -z "$name" ] && continue
 				grep -qxF "$name" "$DONE" && continue
+				reap; [ -n "$STOPPED" ] && break
 				[ ${#PIDS[@]} -ge "$MAX_PAR" ] || [ "$LAUNCHED" -ge "$MAX_JOBS" ] && break
 				echo "$name" >> "$DONE"
 				mkdir -p "$WORK/jobs"; cp "$QDIR/jobs/$name" "$WORK/jobs/$name" 2> /dev/null || { say "skip $name: no jobs/$name"; continue; }

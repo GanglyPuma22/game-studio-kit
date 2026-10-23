@@ -68,6 +68,8 @@ def validate(job, allow_repos=None, allow_refs=None):
     jid = job.get("id")
     if not isinstance(jid, str) or not ID_RE.match(jid):
         errors.append("id must be 3-64 lowercase letters, digits or dashes, starting with a letter or digit")
+    elif jid == "queue-status":
+        errors.append("id queue-status is the service's own status branch (studio-results/queue-status)")
     jtype = job.get("type")
     if jtype in RESERVED_TYPES:
         errors.append(f"type {jtype} is reserved ({RESERVED_TYPES[jtype]})")

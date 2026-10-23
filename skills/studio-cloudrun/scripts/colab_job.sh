@@ -69,8 +69,14 @@ for try in $(seq $(( WAIT / 5 + 1 ))); do
 	[ "$try" -gt $(( WAIT / 5 )) ] && { say "no $GPU after $WAIT min: stop"; exit 1; }
 	say "no free $GPU yet (try $try), waiting 5 min"; sleep 300
 done
-trap 'say "stopping runtime"; "${COLAB[@]}" stop -s "$SESSION" || true; rm -f "$RES/repo.tar"' EXIT
 T0=$(date +%s)
+CAP=$(( (MAXMIN + 20) * 60 ))
+# Watchdog over the whole runtime's life (start-up, copies, the job, results):
+# at the cap it stops the runtime, which ends any ssh call still hanging.
+( sleep "$CAP"; echo "[cloudrun $(date -u +%T)] watchdog: $CAP s since the runtime started, stopping it" >> "$RES/driver.log"
+  "${COLAB[@]}" stop -s "$SESSION" > /dev/null 2>&1 ) &
+WATCHDOG=$!
+trap 'kill "$WATCHDOG" 2> /dev/null; say "stopping runtime"; "${COLAB[@]}" stop -s "$SESSION" || true; rm -f "$RES/repo.tar"' EXIT
 "${COLAB[@]}" usage 2> /dev/null | head -3 >> "$RES/driver.log" || true
 for try in 1 2 3 4 5; do
 	ssh runtime 'mkdir -p /content/job/repo /content/job/out' && break
@@ -86,12 +92,11 @@ say "copied in after $(( $(date +%s) - T0 )) s"
 # --- 2. screen, then the job (detached; polled)
 ssh runtime 'bash /content/job/runtime_display.sh' >> "$RES/driver.log" 2>&1 || { say "no screen on the runtime: stop"; exit 1; }
 ssh runtime 'cd /content/job && setsid nohup bash runtime_job.sh > runner.log 2>&1 < /dev/null &'
-CAP=$(( (MAXMIN + 20) * 60 ))
 while :; do
 	sleep 60
-	P=$(ssh runtime 'tail -1 /content/job/progress.txt 2>/dev/null' || true)
+	P=$(ssh runtime 'tail -1 /content/job/progress.txt 2>/dev/null; [ -f /content/job/finished ] && echo RUNNER-FINISHED' || true)
 	echo "  $P" >> "$RES/driver.log"
-	case "$P" in *" done") break ;; esac
+	case "$P" in *RUNNER-FINISHED) break ;; esac
 	if [ $(( $(date +%s) - T0 )) -gt "$CAP" ]; then
 		say "time cap reached: stopping the job, then fetching partial results"
 		ssh runtime 'P=$(cat /content/job/runner.pid 2>/dev/null); [ -n "$P" ] && { kill -TERM -- -$P 2>/dev/null; sleep 3; kill -KILL -- -$P 2>/dev/null; }; true' || true

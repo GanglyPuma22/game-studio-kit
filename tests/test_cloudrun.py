@@ -46,6 +46,9 @@ class CloudrunJobTests(unittest.TestCase):
                 errors = cloudrun.validate(job(**{key: value}))
                 self.assertTrue(any(message in e for e in errors), errors)
 
+    def test_the_status_branch_id_is_reserved(self):
+        self.assertTrue(any("queue-status" in e for e in cloudrun.validate(job(id="queue-status"))))
+
     def test_unknown_type_is_refused(self):
         self.assertTrue(any("type must be" in e for e in cloudrun.validate(job(type="anything"))))
 
