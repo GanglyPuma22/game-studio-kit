@@ -133,7 +133,9 @@ def fixture(config, root):
     }
 
 
-def inspect(config, source, output):
+def inspect(config, source, output, *, rest_pose=False):
+    if type(rest_pose) is not bool:
+        raise StudioError("Blender inspection rest_pose must be a boolean")
     source = Path(source)
     output = Path(output)
     if not source.is_file():
@@ -143,7 +145,8 @@ def inspect(config, source, output):
         command(
             config,
             "inspect.py",
-            [app_path(config, source, "blender"), app_path(config, output, "blender")],
+            [app_path(config, source, "blender"), app_path(config, output, "blender")]
+            + (["--rest-pose"] if rest_pose else []),
         ),
         timeout=config["timeout"],
         log=output.with_suffix(".log"),

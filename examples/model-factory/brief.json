@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "synthetic-unapproved-example",
+  "version": "illustration-only",
+  "concept": null,
+  "policy": {
+    "reference": null,
+    "allow_nonliving_na": false,
+    "allow_clump_info": false
+  },
+  "ecology": {
+    "living": false,
+    "reference": null,
+    "reason": "Synthetic manufactured placeholder; no actual model or approval is supplied"
+  },
+  "size_m": null,
+  "tolerance_m": null,
+  "structure": "assembly",
+  "ground_y_m": 0,
+  "lods": [
+    {"level": 0, "maximum_triangles": null, "switch_distance_m": null},
+    {"level": 1, "maximum_triangles": null, "switch_distance_m": null}
+  ],
+  "build": {
+    "mode": "reuse",
+    "models": [
+      {"level": 0, "path": "unprovided/example-lod0.glb", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+      {"level": 1, "path": "unprovided/example-lod1.glb", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
+    ]
+  }
+}

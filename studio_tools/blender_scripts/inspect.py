@@ -51,13 +51,25 @@ def audit(meshes, numpy):
     return records
 
 
+def set_bounds_pose(rigs, rest_pose):
+    """Rest mode removes imported clip deformation; static transforms stay imported."""
+    if rest_pose:
+        for rig in rigs:
+            rig.data.pose_position = "REST"
+        bpy.context.view_layer.update()
+        return "armature_rest"
+    return "imported"
+
+
 args = sys.argv[sys.argv.index("--") + 1 :]
 source = Path(args[0])
 output = Path(args[1])
+rest_pose = "--rest-pose" in args[2:]
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=str(source))
 objects = list(bpy.context.scene.objects)
 rigs = [o for o in objects if o.type == "ARMATURE"]
+bounds_pose = set_bounds_pose(rigs, rest_pose)
 custom_shapes = {
     bone.custom_shape for rig in rigs for bone in rig.pose.bones if bone.custom_shape
 }
@@ -81,6 +93,7 @@ record = {
     "bounds_min": low,
     "bounds_max": high,
     "dimensions_m": [high[i] - low[i] for i in range(3)],
+    "bounds_pose": bounds_pose,
     "hierarchy": [
         {"name": o.name, "parent": o.parent.name if o.parent else None, "type": o.type}
         for o in objects

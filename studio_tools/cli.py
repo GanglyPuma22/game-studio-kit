@@ -34,6 +34,12 @@ def parser():
     c = command("setup")
     c.add_argument("--report")
     c.add_argument("--output")
+    c = command("model-factory", True)
+    c.add_argument("--brief", required=True, help="Project-relative version 1 model brief")
+    c.add_argument("--run-id", required=True, help="Immutable input/workflow identity for resumable diagnostics")
+    c.add_argument("--approvals", help="Project-relative exact human attestations and visual review bundle")
+    c.add_argument("--retry-failed", action="store_true", help="Preserve a failed attempt and create a new attempt")
+    c.add_argument("--cutoff-utc", help="ISO 8601 UTC cutoff checked before each operation")
     c = command("launch", True)
     c.description = (
         "Run the engine once for a project-owned script and return one verdict. "
@@ -416,6 +422,11 @@ def _assets(a):
 
 def dispatch(a):
     config = load(a.config)
+    if a.command == "model-factory":
+        from .model_factory import execute
+
+        return execute(a.project, a.brief, a.run_id, config=config, approvals=a.approvals,
+                       retry_failed=a.retry_failed, cutoff_utc=a.cutoff_utc)
     if a.command == "check-package":
         from .package import check
 
