@@ -242,7 +242,8 @@ def search(source, query, kind=None, limit=10):
         hits = [{"id": r["slug"], "page_url": "https://polyhaven.com/a/" + r["slug"]}
                 for r in data.get("results", [])[:limit]]
     elif source == "ambientcg":
-        kinds = {"textures": "Material", "models": "3DModel", "hdris": "HDRI", "decals": "Decal"}
+        kinds = {"textures": "Material", "models": "3DModel", "hdris": "HDRI", "decals": "Decal",
+                 "atlases": "Atlas"}  # Atlas: leaf sets, foliage and other alpha cut-out sheets
         t = kinds.get(kind or "textures")
         if t is None:
             raise StudioError("ambientcg kinds are " + ", ".join(kinds))
