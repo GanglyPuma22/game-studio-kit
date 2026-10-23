@@ -35,6 +35,14 @@ def verify_file(root, item):
 BASE_LICENCES = {"CC0-1.0", "CC-BY-3.0", "CC-BY-4.0"}
 
 
+def normalise_licence(value):
+    """'cc0', 'CC BY 4.0' and 'cc_by-4.0' all name one licence."""
+    if not isinstance(value, str):
+        return ""
+    licence = "-".join(value.upper().replace("_", " ").replace("-", " ").split())
+    return "CC0-1.0" if licence == "CC0" else licence
+
+
 def _text(value):
     return isinstance(value, str) and bool(value.strip())
 
@@ -67,9 +75,7 @@ def _licensed(base, label, root):
     required(base, ["source_url", "licence", "retrieved_at", "file"])
     if not all(_text(base[key]) for key in ("source_url", "licence", "retrieved_at")):
         raise StudioError(label + " needs source_url, licence and retrieved_at text")
-    licence = "-".join(base["licence"].upper().replace("_", " ").replace("-", " ").split())
-    if licence == "CC0":
-        licence = "CC0-1.0"
+    licence = normalise_licence(base["licence"])
     if licence not in BASE_LICENCES:
         raise StudioError(label + " licence " + repr(base["licence"])
                           + " is not reusable; allowed: " + ", ".join(sorted(BASE_LICENCES)))

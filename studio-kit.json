@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "game-studio-kit",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "skills": [
     {
       "name": "studio-director",
@@ -58,6 +58,10 @@
     {
       "name": "studio-model-qa",
       "path": "skills/studio-model-qa/SKILL.md"
+    },
+    {
+      "name": "studio-assets",
+      "path": "skills/studio-assets/SKILL.md"
     }
   ],
   "resources": [
@@ -178,7 +182,10 @@
     "studio_tools/model_qa/requirements.txt",
     "studio_tools/model_qa/silhouettes.py",
     "studio_tools/model_qa/worker.py",
-    "docs/model-qa.md"
+    "docs/model-qa.md",
+    "skills/studio-assets/references/sources.md",
+    "skills/studio-assets/references/sources.json",
+    "studio_tools/assets.py"
   ],
   "commands": [
     "check-package",
@@ -200,6 +207,7 @@
     "gaea",
     "godot",
     "candidate",
-    "review"
+    "review",
+    "assets"
   ]
 }

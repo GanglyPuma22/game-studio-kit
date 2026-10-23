@@ -1,6 +1,6 @@
 # Game Studio Kit
 
-Fourteen self-contained skills and a small Python helper library for producing and reviewing bounded game scenes. Local Blender, procedural audio/terrain and Godot form the functional baseline. Tripo, Meshy, Gaea, ElevenLabs and Blender MCP are optional routes. [Studio Tripo](skills/studio-tripo/SKILL.md) uses a verified official client or Studio UI; there is no `studio tripo` helper command yet.
+Fifteen self-contained skills and a small Python helper library for producing and reviewing bounded game scenes. Local Blender, procedural audio/terrain and Godot form the functional baseline. Tripo, Meshy, Gaea, ElevenLabs and Blender MCP are optional routes. [Studio Tripo](skills/studio-tripo/SKILL.md) uses a verified official client or Studio UI; there is no `studio tripo` helper command yet.
 
 Start by reading [studio-director](skills/studio-director/SKILL.md) in your capable local agent. Keep the **whole repository** together. It has no dependency on private agent folders, other installed skills, a daemon, or a paid account. You provide Python 3.11+, application installations, project inputs and your host's actual tools.
 
