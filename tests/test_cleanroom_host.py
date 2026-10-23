@@ -995,6 +995,60 @@ class ExecuteTests(unittest.TestCase):
 
 
 class HostPreflightTests(unittest.TestCase):
+    def test_file_rename_is_advisory_but_each_actual_reboot_signal_still_blocks(self):
+        for cbs, wu, rename in ((False, False, True), (True, False, False),
+                                (False, True, False), (True, False, True),
+                                (False, True, True), (True, True, True)):
+            with self.subTest(cbs=cbs, wu=wu, rename=rename):
+                state = self.state(pending_reboot={"cbs": cbs, "wu": wu, "pending_file_rename": rename})
+                result = self.evaluate(state)
+                self.assertEqual(result["ready"], not (cbs or wu))
+                self.assertEqual(any("file rename" in a for a in result["advisories"]), rename)
+                self.assertEqual(result["checks"]["pending_reboot"], state["pending_reboot"])
+
+    def test_unknown_readings_remain_null_in_checks_and_serialized_receipt(self):
+        state = self.state(pending_reboot={"cbs": None, "wu": None, "pending_file_rename": None},
+                           windows_update={"pause_expiry": None}, active_hours={"start": None, "end": None})
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "unknown.json"
+            start = datetime.now(timezone.utc)
+            host.preflight(load(), reader=lambda: state, output=path,
+                           window_start=start.isoformat(), window_end=(start + timedelta(minutes=10)).isoformat())
+            result = read_json(path)
+        self.assertTrue(result["ready"])
+        self.assertIsNone(result["checks"]["windows_update"]["paused"])
+        self.assertIsNone(result["checks"]["active_hours"]["covers_window"])
+        self.assertEqual(result["checks"]["pending_reboot"], state["pending_reboot"])
+        self.assertTrue(any("pending-reboot readings unavailable" in x for x in result["limits"]))
+        self.assertEqual(result["state"], state)
+
+    def test_registry_signal_distinguishes_missing_from_denied_without_value_contents(self):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        handle = MagicMock()
+        handle.__enter__.return_value = handle
+        registry = SimpleNamespace(HKEY_LOCAL_MACHINE=1, OpenKey=MagicMock(return_value=handle),
+                                   QueryValueEx=MagicMock(return_value=(["private-path"], 7)))
+        with patch.dict(sys.modules, {"winreg": registry}), \
+                patch("studio_tools.cleanroom.read_battery", return_value={}), \
+                patch("studio_tools.cleanroom.read_power_scheme", return_value={}):
+            present = host._registry_reader()["pending_reboot"]
+            self.assertEqual(present, dict(cbs=True, wu=True, pending_file_rename=True))
+            self.assertNotIn("private-path", json.dumps(present))
+            registry.OpenKey.side_effect = FileNotFoundError()
+            self.assertEqual(host._registry_reader()["pending_reboot"],
+                             dict(cbs=False, wu=False, pending_file_rename=False))
+            registry.OpenKey.side_effect = PermissionError()
+            self.assertEqual(host._registry_reader()["pending_reboot"],
+                             dict(cbs=None, wu=None, pending_file_rename=None))
+            registry.OpenKey.side_effect = None
+            registry.QueryValueEx.side_effect = PermissionError()
+            self.assertEqual(host._registry_reader()["pending_reboot"],
+                             dict(cbs=True, wu=True, pending_file_rename=None))
+            registry.QueryValueEx.side_effect = FileNotFoundError()
+            self.assertFalse(host._registry_reader()["pending_reboot"]["pending_file_rename"])
+
     def state(self, **overrides):
         base = {
             "host_kind": "windows",
@@ -1022,22 +1076,26 @@ class HostPreflightTests(unittest.TestCase):
 
     def test_september_nine_active_hours_do_not_cover_the_overnight_window(self):
         result = self.evaluate(self.state(active_hours={"start": 9, "end": 3}), "2026-09-15T03:00:00+00:00", "2026-09-15T09:00:00+00:00")
-        self.assertFalse(result["ready"])
-        self.assertIn("active hours do not cover the whole window", result["reasons"])
+        self.assertTrue(result["ready"])
+        self.assertIn("active hours do not cover the whole window", result["advisories"])
         covered = self.evaluate(self.state(active_hours={"start": 18, "end": 12}), "2026-09-15T03:00:00+00:00", "2026-09-15T09:00:00+00:00")
         self.assertTrue(covered["ready"], covered["reasons"])
 
     def test_pause_expiry_pending_reboot_power_and_battery_reasons(self):
         expiring = self.evaluate(self.state(windows_update={"pause_expiry": "2026-09-15T04:00:00Z"}))
-        self.assertIn("Windows Update pause expires before the window ends", expiring["reasons"])
+        self.assertTrue(expiring["ready"])
+        self.assertIn("Windows Update pause expires before the window ends", expiring["advisories"])
         unpaused = self.evaluate(self.state(windows_update={"pause_expiry": None}))
-        self.assertIn("Windows Update is not paused", unpaused["reasons"])
+        self.assertTrue(unpaused["ready"])
+        self.assertIn("Windows Update pause is not established (absent, expired or unreadable)", unpaused["advisories"])
         pending = self.evaluate(self.state(pending_reboot={"cbs": True}))
         self.assertIn("a reboot is pending; restart before the window", pending["reasons"])
+        self.assertFalse(pending["ready"])
         balanced = self.evaluate(self.state(power_scheme={"guid": "381b4222-f694-41f0-9685-ff5bb260df2e", "name": "Balanced"}))
         self.assertIn("power scheme is not High performance", balanced["reasons"])
         battery = self.evaluate(self.state(battery={"on_ac": False}))
         self.assertIn("host is on battery power", battery["reasons"])
+        self.assertFalse(battery["ready"])
         too_long = self.evaluate(self.state(), "2026-09-15T00:00:00+00:00", "2026-09-15T20:00:00+00:00")
         self.assertIn("window must be between 1 minute and 18 hours long", too_long["reasons"])
         # The stated minimum is enforced too: a one-second window is not a window.
@@ -1056,6 +1114,27 @@ class HostPreflightTests(unittest.TestCase):
         report = host.preflight(load(), reader=lambda: unknown)
         self.assertIn("AC line status unknown", report["limits"])
         self.assertNotIn("AC line status unknown", host.preflight(load(), reader=self.state)["limits"])
+
+    def test_unreadable_update_and_active_hours_are_advisory_without_confirmation(self):
+        state = self.state(windows_update={"pause_expiry": None}, active_hours={"start": None, "end": None})
+        result = self.evaluate(state)
+        self.assertTrue(result["ready"])
+        self.assertEqual(result["reasons"], [])
+        self.assertEqual(len(result["advisories"]), 2)
+        self.assertIsNone(result["checks"]["windows_update"]["pause_expiry"])
+        self.assertIsNone(result["checks"]["active_hours"]["start"])
+        self.assertFalse(result["checks"]["active_hours"]["covers_window"])
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "advisory.json"
+            receipt = host.preflight(load(), output=output, reader=lambda: state)
+            saved = read_json(output)
+            self.assertTrue(receipt["ok"])
+            self.assertEqual(saved["advisories"], result["advisories"])
+            self.assertEqual(saved["state"], state)
+        # Advisories do not erase an unrelated real blocker.
+        blocked = self.evaluate({**state, "pending_reboot": {"cbs": True}})
+        self.assertFalse(blocked["ready"])
+        self.assertEqual(blocked["advisories"], result["advisories"])
 
     def test_preflight_refuses_a_window_that_has_already_ended(self):
         # Readiness is a claim about a window that can still be run.
@@ -1105,7 +1184,8 @@ class HostPreflightTests(unittest.TestCase):
                                "2026-09-15T10:59:00+00:00", "2026-09-15T11:01:00+00:00")
         self.assertEqual(result["checks"]["active_hours"]["window_hours_local"], [10, 11])
         self.assertFalse(result["checks"]["active_hours"]["covers_window"])
-        self.assertIn("active hours do not cover the whole window", result["reasons"])
+        self.assertTrue(result["ready"])
+        self.assertIn("active hours do not cover the whole window", result["advisories"])
         covered = self.evaluate(self.state(active_hours={"start": 22, "end": 12}),
                                 "2026-09-15T10:59:00+00:00", "2026-09-15T11:01:00+00:00")
         self.assertTrue(covered["ready"], covered["reasons"])
