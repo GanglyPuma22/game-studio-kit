@@ -3,7 +3,11 @@
 # Colab GPU runtime from start to finish, then stop the runtime.
 #   colab_job.sh JOB.json
 # Needs: the colab CLI signed in by the person, git access to the job's repo
-# (GH, default git@github.com:), python3. The job's commands run only on the
+# (GH, default git@github.com:), python3.
+# Colab login: COLAB_AUTH (default oauth2; on Aptivio, ADC is another Google
+# account with no units). Each session gets its own private CLI state file
+# ($WORK/state/<session>.json, mode 600, never copied into results) when the
+# CLI accepts one; set COLAB_SHARED_CONFIG=1 to use the CLI's default state. The job's commands run only on the
 # runtime; this host packs the commit with git archive, copies it in, polls,
 # copies OUT_DIR back and stops the runtime on exit, on error and at the cap.
 # Results: $WORK/results/<id>-<UTC time>-XXXX/ (runner.json first), and, when
@@ -24,7 +28,20 @@ SESSION=${COLAB_SESSION:-studio-$ID}
 mkdir -p "$WORK/results" "$WORK/repos"
 RES=$(mktemp -d "$WORK/results/$ID-$(date -u +%Y%m%dT%H%M%SZ)-XXXX")   # fresh per run, even for a reused id
 say() { echo "[cloudrun $(date -u +%T)] $*" | tee -a "$RES/driver.log"; }
-command -v colab > /dev/null || { say "colab CLI not found: stop"; exit 1; }
+COLAB_BIN=${COLAB_BIN:-$(command -v colab || true)}
+[ -n "$COLAB_BIN" ] || { say "colab CLI not found: stop"; exit 1; }
+COLAB=("$COLAB_BIN" "--auth=${COLAB_AUTH:-oauth2}")
+mkdir -p -m 700 "$WORK/state"
+if [ "${COLAB_SHARED_CONFIG:-0}" != 1 ]; then
+	STATE=$WORK/state/$SESSION.json
+	# Only if this CLI takes a separate state file and the login still works with it.
+	if (umask 077; timeout 60 "${COLAB[@]}" --config "$STATE" usage < /dev/null > /dev/null 2>&1); then
+		COLAB+=(--config "$STATE")
+	else
+		say "colab: separate state file refused, using the CLI's default state"
+	fi
+fi
+say "colab: $("${COLAB[@]}" --version 2> /dev/null | head -1), auth ${COLAB_AUTH:-oauth2}"
 
 # --- 0. the exact commit, packed here (no .git, no credentials go to the runtime)
 MIRROR=$WORK/repos/${REPO//\//__}.git
@@ -39,7 +56,7 @@ cat > "$RES/ssh.cfg" <<CFG
 Host runtime
   HostName colab-runtime
   User root
-  ProxyCommand colab ssh --proxy-mode -s $SESSION
+  ProxyCommand ${COLAB[*]} ssh --proxy-mode -s $SESSION
   StrictHostKeyChecking no
   UserKnownHostsFile /dev/null
   LogLevel ERROR
@@ -48,13 +65,13 @@ CFG
 ssh() { command ssh -F "$RES/ssh.cfg" "$@"; }
 WAIT=${GPU_WAIT_MIN:-240}
 for try in $(seq $(( WAIT / 5 + 1 ))); do
-	colab new --gpu "$GPU" -s "$SESSION" && break
+	"${COLAB[@]}" new --gpu "$GPU" -s "$SESSION" && break
 	[ "$try" -gt $(( WAIT / 5 )) ] && { say "no $GPU after $WAIT min: stop"; exit 1; }
 	say "no free $GPU yet (try $try), waiting 5 min"; sleep 300
 done
-trap 'say "stopping runtime"; colab stop -s "$SESSION" || true; rm -f "$RES/repo.tar"' EXIT
+trap 'say "stopping runtime"; "${COLAB[@]}" stop -s "$SESSION" || true; rm -f "$RES/repo.tar"' EXIT
 T0=$(date +%s)
-colab usage 2> /dev/null | head -3 >> "$RES/driver.log" || true
+"${COLAB[@]}" usage 2> /dev/null | head -3 >> "$RES/driver.log" || true
 for try in 1 2 3 4 5; do
 	ssh runtime 'mkdir -p /content/job/repo /content/job/out' && break
 	[ "$try" = 5 ] && { say "ssh to the runtime failed 5 times: stop"; exit 1; }
@@ -82,7 +99,9 @@ while :; do
 done
 
 # --- 3. results (size-capped)
-ssh runtime "cd /content/job && cp progress.txt runner.log out/ 2>/dev/null; du -sm out | cut -f1" > "$RES/out-mb.txt" || true
+# A file list with SHA-256 made on the runtime, checked here after the copy:
+# a run counts only when what arrived matches what the runtime wrote.
+ssh runtime "cd /content/job && cp progress.txt runner.log out/ 2>/dev/null; (cd out && find . -type f ! -name MANIFEST.sha256 -print0 | sort -z | xargs -0 -r sha256sum > MANIFEST.sha256); du -sm out | cut -f1" > "$RES/out-mb.txt" || true
 MB=$(cat "$RES/out-mb.txt" 2>/dev/null || echo 0)
 if [ "${MB:-0}" -gt "$CAPMB" ]; then
 	say "OUT_DIR is $MB MB, over the job's $CAPMB MB: bringing back files under 10 MB only"
@@ -90,8 +109,17 @@ if [ "${MB:-0}" -gt "$CAPMB" ]; then
 else
 	ssh runtime 'tar -cf - -C /content/job/out .' | tar -xf - -C "$RES"
 fi
+VERIFIED=0
+if [ -s "$RES/MANIFEST.sha256" ]; then
+	if [ "${MB:-0}" -gt "$CAPMB" ]; then
+		(cd "$RES" && sha256sum --quiet -c --ignore-missing MANIFEST.sha256) && VERIFIED=1
+	else
+		(cd "$RES" && sha256sum --quiet -c MANIFEST.sha256) && VERIFIED=1
+	fi
+fi
+[ "$VERIFIED" = 1 ] && say "results match the runtime's SHA-256 list" || say "results do NOT match the runtime's SHA-256 list (or it is missing)"
 say "runtime minutes: $(( ($(date +%s) - T0) / 60 ))"
-colab usage 2> /dev/null | head -3 >> "$RES/driver.log" || true
+"${COLAB[@]}" usage 2> /dev/null | head -3 >> "$RES/driver.log" || true
 echo "build: $REPO $REF @ $COMMIT, $GPU, $(grep -m1 gpu= "$RES/env.txt" 2>/dev/null || echo 'gpu line missing')" > "$RES/BUILD.txt"
 
 PUSHED=0; [ -n "${RESULTS_REPO:-}" ] || PUSHED=1   # no results repo: the local folder is the delivery
@@ -107,6 +135,7 @@ if [ -n "${RESULTS_REPO:-}" ]; then
 fi
 RC=$(python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(0 if d.get('setup_exit')==0 and d.get('run_exit')==0 else 1)" "$RES/runner.json" 2>/dev/null || echo 1)
 # Results nobody can reach are a failed job: the queue stops and says so.
+[ "$RC" = 0 ] && [ "$VERIFIED" = 0 ] && RC=4
 [ "$RC" = 0 ] && [ "$PUSHED" = 0 ] && RC=3
 say "job $ID: exit $RC; results in $RES"
 exit "$RC"

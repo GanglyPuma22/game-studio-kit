@@ -61,6 +61,8 @@ The queue is the default: it keeps a standing go bounded and leaves GPUs for oth
 COLAB_SESSION=<unique name> bash <KIT>/skills/studio-cloudrun/scripts/colab_job.sh job.json
 ```
 
+The runner signs in with `--auth=oauth2` (COLAB_AUTH to change) and keeps a private CLI state file per session; see references/runtime-notes.md.
+
 It takes its own runtime and does not wait for the queue. It still needs the person's go, since it spends units, and it still waits (without spending) when the account holds no free GPU of that type. A running queue, Salvage batch or other session is never a reason to hold a job back: start it and let it wait for a GPU. The service can also run several queued jobs at once (`MAX_PAR` in `service.env`).
 
 The number of GPUs at once is the Colab account's limit, not this kit's: in Oct 2026 the account held 2 L4s and refused a third. A job that can use another type (`"gpu": "T4"`) may start while both L4s are busy; whether types share one limit is not yet established.
