@@ -174,29 +174,38 @@ def _today():
     return datetime.datetime.now(datetime.timezone.utc).date().isoformat()
 
 
+def _compatible(ledger_path, asset_id, page, licence):
+    """Refuse, before anything is downloaded, an id already holding another rights record."""
+    for old in _load_ledger(ledger_path)["assets"]:
+        if old["asset_id"] == asset_id and (old["page_url"], old["licence"]) != (page, licence):
+            # One entry carries one rights record; never let a second
+            # page's licence or attribution overwrite the first one's.
+            raise StudioError("Ledger already has " + asset_id + " from " + old["page_url"]
+                              + " under " + old["licence"] + "; pass a distinct --id")
+
+
 def _record(root, ledger_path, entry):
+    _compatible(ledger_path, entry["asset_id"], entry["page_url"], entry["licence"])
     ledger = _load_ledger(ledger_path)
     # Another resolution, map set or variant of the same asset adds files;
     # files fetched earlier stay recorded so verify and restore still cover them.
-    new_paths = {f["path"] for f in entry["files"]}
+    # Older files keep their place and come first, so restore replays
+    # extraction in the order the fetches happened.
+    fetched = entry["files"]
+    new_paths = {f["path"] for f in fetched}
     for old in ledger["assets"]:
         if old["asset_id"] == entry["asset_id"]:
-            if (old["page_url"], old["licence"]) != (entry["page_url"], entry["licence"]):
-                # One entry carries one rights record; never let a second
-                # page's licence or attribution overwrite the first one's.
-                raise StudioError("Ledger already has " + entry["asset_id"] + " from " + old["page_url"]
-                                  + " under " + old["licence"] + "; pass a distinct --id")
-            entry["files"] += [f for f in old["files"] if f["path"] not in new_paths]
+            entry["files"] = [f for f in old["files"] if f["path"] not in new_paths] + fetched
     ledger["assets"] = [a for a in ledger["assets"] if a["asset_id"] != entry["asset_id"]]
     ledger["assets"].append(entry)
     ledger["assets"].sort(key=lambda a: a["asset_id"])
     write_json(ledger_path, ledger)
-    first = entry["files"][0]
+    first = fetched[0]
     return {
         "ok": True,
         "asset_id": entry["asset_id"],
         "licence": entry["licence"],
-        "files": entry["files"],
+        "files": fetched,
         "ledger": ledger_path.relative_to(root).as_posix(),
         # Paste into an asset record; validate-record checks the same rules.
         "provenance": {
@@ -214,6 +223,10 @@ def _entry(source, asset_id, title, page, licence, author, attribution, refetcha
         "retrieved_at": _today(), "retrieved_on": platform.node() or "unknown host",
         "refetchable": refetchable, "files": files,
     }
+    for f in files:
+        # Download settings live on each file: a later fetch into the same
+        # entry must not change how an earlier file is restored.
+        f["refetchable"] = refetchable
     entry.update(extra or {})
     return entry
 
@@ -249,6 +262,7 @@ def search(source, query, kind=None, limit=10):
 def fetch_polyhaven(root, library, asset, resolution="1k", fmt="jpg", maps=None, max_bytes=None):
     safe_id(asset)
     lib, ledger = _paths(root, library)
+    _compatible(ledger, "polyhaven/" + asset, "https://polyhaven.com/a/" + asset, "CC0-1.0")
     info = _get_json("https://api.polyhaven.com/info/" + asset)
     files = _get_json("https://api.polyhaven.com/files/" + asset)
     kind = {0: "hdris", 1: "textures", 2: "models"}.get(info.get("type"))
@@ -295,6 +309,7 @@ def fetch_polyhaven(root, library, asset, resolution="1k", fmt="jpg", maps=None,
 def fetch_ambientcg(root, library, asset, resolution="1K", fmt="JPG", max_bytes=None):
     safe_id(asset)
     lib, ledger = _paths(root, library)
+    _compatible(ledger, "ambientcg/" + asset, "https://ambientcg.com/a/" + asset, "CC0-1.0")
     data = _get_json(f"https://ambientcg.com/api/v2/full_json?id={asset}&include=downloadData")
     found = [a for a in data.get("foundAssets", []) if a.get("assetId") == asset]
     if not found:
@@ -338,10 +353,13 @@ def fetch_url(root, library, url, page, licence, author, attribution=None, title
     name = (query.get("dn") or [name])[0] or "download.bin"
     asset = safe_id(asset or Path(name).stem.replace(".", "-").replace(" ", "-")[:100])
     group = safe_id(source if source != "url" else "web")
+    _compatible(ledger, f"{group}/{asset}", _https(page), licence)
     target = _dest(root, lib, group, asset, Path(name).name)
     tmp, got = _stage(url, target, max_bytes, referer=referer)
     files = [{"path": target.relative_to(root).as_posix(), "url": url, **got}]
     extra = {"referer": referer} if referer else {}
+    if referer:
+        files[0]["referer"] = referer
     if extract:
         try:
             # Checked while still staged, so a bad refresh keeps the old archive.
@@ -378,14 +396,14 @@ def _extract(root, archive, folder=None, check_only=False, limit=4 * 1024 * 1024
     if not zipfile.is_zipfile(archive):
         raise StudioError("--extract needs a zip archive")
     base = ((folder or archive.parent) / "extracted").relative_to(root).as_posix()
-    dest = relative(root, base)
+    dest = outside_package(relative(root, base), "Extraction")
     with zipfile.ZipFile(archive) as z:
         members = z.infolist()
         if sum(m.file_size for m in members) > limit:
             raise StudioError("Archive expands beyond 4 GB; refusing to extract")
         for m in members:
             # Rejects absolute, escaping and symlink-redirected names.
-            relative(root, base + "/" + (m.filename.rstrip("/") or "."))
+            outside_package(relative(root, base + "/" + (m.filename.rstrip("/") or ".")), "Extraction")
         if check_only:
             return base
         z.extractall(dest)
@@ -404,8 +422,8 @@ def verify(root, library, restore=False, max_bytes=None):
                 if sha256(p) != f["sha256"]:
                     report["mismatched"].append(f["path"])
                 continue
-            if restore and entry.get("refetchable") and f.get("url"):
-                got = _download(f["url"], p, max_bytes, referer=entry.get("referer"))
+            if restore and f.get("refetchable", entry.get("refetchable")) and f.get("url"):
+                got = _download(f["url"], p, max_bytes, referer=f.get("referer", entry.get("referer")))
                 if got["sha256"] != f["sha256"]:
                     p.unlink()
                     report["mismatched"].append(f["path"] + " (source changed since it was recorded)")

@@ -360,6 +360,66 @@ class LedgerTests(AssetsCase):
             with self.assertRaisesRegex(StudioError, "inside kit"):
                 assets.credits(self.root, None, "CREDITS.md")
 
+    def test_a_rights_conflict_is_refused_before_any_file_is_replaced(self):
+        url = "https://opengameart.org/sites/default/files/cart.zip"
+        fake = self.web({url: b"cart"})
+        assets.fetch_url(self.root, None, url, "https://opengameart.org/content/cart", "CC0", "A",
+                         source="opengameart")
+        fake.routes[url] = b"other cart"
+        before = len(fake.requests)
+        with self.assertRaisesRegex(StudioError, "distinct --id"):
+            assets.fetch_url(self.root, None, url, "https://opengameart.org/content/other", "CC0", "B",
+                             source="opengameart")
+        self.assertEqual(len(fake.requests), before)
+        self.assertTrue(assets.verify(self.root, None)["ok"])
+
+    def test_each_file_keeps_its_own_referer_and_refetch_setting(self):
+        a, b = "https://cgbookcase-volume.b-cdn.net/t/A_1K.zip", "https://cgbookcase-volume.b-cdn.net/t/B_1K.zip"
+        fake = self.web({a: b"a", b: b"b"})
+        page = "https://www.cgbookcase.com/textures/set"
+        assets.fetch_url(self.root, None, a, page, None, "", source="cgbookcase", asset="set",
+                         referer="https://www.cgbookcase.com/")
+        assets.fetch_url(self.root, None, b, page, None, "", source="cgbookcase", asset="set", refetchable=False)
+        (self.root / "assets/third_party/cgbookcase/set/A_1K.zip").unlink()
+        report = assets.verify(self.root, None, restore=True)
+        self.assertTrue(report["ok"], report)
+        self.assertEqual(fake.requests[-1].get_header("Referer"), "https://www.cgbookcase.com/")
+
+    def test_restore_replays_archives_in_fetch_order(self):
+        def make(body):
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w") as z:
+                z.writestr("model.glb", body)
+            return buf.getvalue()
+        a, b = "https://kenney.nl/a.zip", "https://kenney.nl/b.zip"
+        self.web({a: make("old"), b: make("new")})
+        for url in (a, b):
+            assets.fetch_url(self.root, None, url, "https://kenney.nl/assets/kit", None, "K",
+                             source="kenney", asset="kit", extract=True)
+        model = self.root / "assets/third_party/kenney/kit/extracted/model.glb"
+        self.assertEqual(model.read_text(), "new")
+        import shutil
+        shutil.rmtree(model.parent)
+        assets.verify(self.root, None, restore=True)
+        self.assertEqual(model.read_text(), "new")
+
+    def test_extraction_never_writes_into_the_kit(self):
+        url = "https://kenney.nl/kit.zip"
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("a.glb", "x")
+        self.web({url: buf.getvalue()})
+        real = assets.outside_package
+        def guard(path, subject="Output"):
+            if subject == "Extraction":
+                raise StudioError("inside kit")
+            return real(path, subject)
+        with patch.object(assets, "outside_package", side_effect=guard):
+            with self.assertRaisesRegex(StudioError, "inside kit"):
+                assets.fetch_url(self.root, None, url, "https://kenney.nl/assets/kit", None, "K",
+                                 source="kenney", extract=True)
+        self.assertFalse((self.root / "assets/third_party/kenney/kit/extracted").exists())
+
     def test_manual_add_is_hashed_not_refetchable_and_must_sit_in_the_library(self):
         outside = self.root / "downloads/well.blend"
         outside.parent.mkdir(parents=True)
