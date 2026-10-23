@@ -98,8 +98,10 @@ while :; do
 				grep -qxF "$name" "$DONE" && continue
 				reap; [ -n "$STOPPED" ] && break
 				[ ${#PIDS[@]} -ge "$MAX_PAR" ] || [ "$LAUNCHED" -ge "$MAX_JOBS" ] && break
+				mkdir -p "$WORK/jobs"
+				# A line with no job file stops the queue (nothing recorded, so it runs once the file is pushed and the person types go).
+				cp "$QDIR/jobs/$name" "$WORK/jobs/$name" 2> /dev/null || { STOPPED="queue.txt lists $name but jobs/$name is missing"; break; }
 				echo "$name" >> "$DONE"
-				mkdir -p "$WORK/jobs"; cp "$QDIR/jobs/$name" "$WORK/jobs/$name" 2> /dev/null || { say "skip $name: no jobs/$name"; continue; }
 				nohup bash "$HERE/colab_job.sh" "$WORK/jobs/$name" > "$WORK/run-${name%.json}.log" 2>&1 &
 				PIDS[$!]=${name%.json}; LAUNCHED=$((LAUNCHED + 1))
 				echo "launched $name" >> "$WORK/launched-$(basename "$GO")"

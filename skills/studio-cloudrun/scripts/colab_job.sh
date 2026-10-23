@@ -103,9 +103,10 @@ CAP=$(( (MAXMIN + 20) * 60 ))
 USAGE=$("${COLAB[@]}" usage 2> /dev/null || true)
 echo "$USAGE" | head -5 >> "$RES/driver.log"
 RATE1=$(echo "$USAGE" | rate || true)
-# This session's rate: the account's rate now less before (other sessions may run beside it).
-OWN=$(python3 -c "import sys;a,b=sys.argv[1:3];a=float(a) if a else 0.0;print('' if not b else (float(b)-a if float(b)-a>0.05 else float(b)))" "$RATE0" "$RATE1")
-say "rate: ${OWN:-unknown} units/hour for this session (account ${RATE1:-unknown}, before ${RATE0:-unknown})"
+# The ceilings use the account's whole rate after allocation: never less than this
+# session's own, so with other sessions running they are stricter, never looser.
+OWN=$RATE1
+say "rate: account ${RATE1:-unknown} units/hour with this session (before it: ${RATE0:-unknown}); ceilings use the account rate"
 if [ -n "$MAXUNITS" ]; then
 	# A model run spends only with a known rate, under its ceiling, and no longer than its units allow.
 	[ -n "$OWN" ] || { say "hourly rate unknown: refusing to spend; stop"; exit 1; }
@@ -181,10 +182,16 @@ say "runtime minutes: $(( ($(date +%s) - T0) / 60 ))"
 echo "build: $REPO $REF @ $COMMIT, $GPU, $(grep -m1 gpu= "$RES/env.txt" 2>/dev/null || echo 'gpu line missing')" > "$RES/BUILD.txt"
 
 PUSHED=0; [ -n "${RESULTS_REPO:-}" ] || PUSHED=1   # no results repo: the local folder is the delivery
+# Per-file size on a results branch: 10 MB for captures (clips are small), 95 MB
+# for model runs (a 180 s FLAC is about 30 MB; GitHub refuses files over 100 MB).
+FILE_MB=10; [ "$TYPE" = model-run ] && FILE_MB=95
+LEFTOUT=0
 if [ -n "${RESULTS_REPO:-}" ]; then
 	P=$(mktemp -d); mkdir -p "$P/$ID"
-	(cd "$RES" && find . -type f ! -name repo.tar ! -name ssh.cfg -size -10M -print0 | tar --null -T - -cf -) | tar -xf - -C "$P/$ID"
-	(cd "$RES" && find . -type f ! -name repo.tar -size +10M -print) > "$P/$ID/LEFT-OUT-over-10MB.txt"
+	(cd "$RES" && find . -type f ! -name repo.tar ! -name ssh.cfg -size -${FILE_MB}M -print0 | tar --null -T - -cf -) | tar -xf - -C "$P/$ID"
+	(cd "$RES" && find . -type f ! -name repo.tar -size +$((FILE_MB - 1))M -print) > "$P/$ID/LEFT-OUT-over-${FILE_MB}MB.txt"
+	LEFTOUT=$(grep -c . "$P/$ID/LEFT-OUT-over-${FILE_MB}MB.txt" || true)
+	[ "$LEFTOUT" -gt 0 ] && say "$LEFTOUT file(s) over $FILE_MB MB stay in $RES only (listed in LEFT-OUT-over-${FILE_MB}MB.txt)"
 	( cd "$P" && git init -q && git checkout -q -b "studio-results/$ID" && git add -A \
 		&& git -c user.name=cloudrun -c user.email=cloudrun@localhost commit -qm "cloudrun results $ID ($(basename "$RES"))" \
 		&& git push -q -f "$GH$RESULTS_REPO.git" "studio-results/$ID" ) \
@@ -195,5 +202,9 @@ RC=$(python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(0 if d.get
 # Results nobody can reach are a failed job: the queue stops and says so.
 [ "$RC" = 0 ] && [ "$VERIFIED" = 0 ] && RC=4
 [ "$RC" = 0 ] && [ "$PUSHED" = 0 ] && RC=3
+# A model run's outputs are the product: any left behind means it was not delivered.
+if [ "$TYPE" = model-run ] && [ "$RC" = 0 ] && { [ "${LEFTOUT:-0}" -gt 0 ] || [ "${MB:-0}" -gt "$CAPMB" ]; }; then
+	say "model outputs not all delivered (size limits): exit 3"; RC=3
+fi
 say "job $ID: exit $RC; results in $RES"
 exit "$RC"

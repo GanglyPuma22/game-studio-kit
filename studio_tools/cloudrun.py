@@ -206,6 +206,14 @@ def validate_plan(recipe, p):
         lo, hi = lim.get("seconds", [1, 600])
         if not isinstance(secs, (int, float)) or isinstance(secs, bool) or not lo <= secs <= hi:
             errors.append(f"{where}.seconds (or plan.seconds) must be from {lo} to {hi}")
+    fade = p.get("loop_crossfade_seconds", 0)
+    if not isinstance(fade, (int, float)) or isinstance(fade, bool) or fade < 0:
+        errors.append("plan.loop_crossfade_seconds must be a number of seconds, 0 or more")
+    elif fade:
+        for i, cue in enumerate(c for c in p["cues"] if isinstance(c, dict)):
+            secs = cue.get("seconds", p.get("seconds"))
+            if isinstance(secs, (int, float)) and not isinstance(secs, bool) and fade * 2 >= secs:
+                errors.append(f"plan.loop_crossfade_seconds must be under half of plan.cues[{i}].seconds")
     if total > lim.get("max_outputs", 32):
         errors.append(f"plan asks for {total} outputs; recipe limit is {lim.get('max_outputs', 32)}")
     return errors

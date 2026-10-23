@@ -100,9 +100,11 @@ try:
                                  "peak": float(np.max(np.abs(x))), "rms": float(np.sqrt(np.mean(x * x)))}
             if not np.isfinite(x).all() or abs(dur - secs) > max(2.0, 0.05 * secs) or entry["original"]["rms"] < 1e-5:
                 raise RuntimeError(f"{name}: not finite, silent or {dur:.1f} s instead of {secs} s")
-            if fade > 0:
+            n = round(fade * sr)
+            if fade > 0 and 2 * n >= len(x):
+                entry["loop"] = {"skipped": f"crossfade {fade} s is not under half of {dur:.1f} s"}
+            elif fade > 0:
                 # Overlap crossfade: the tail fades into the head, so N frames become N - fade frames.
-                n = round(fade * sr)
                 gain = np.linspace(0, 1, n, endpoint=False, dtype=np.float32)[:, None]
                 loop = np.concatenate([x[n:-n], x[-n:] * (1 - gain) + x[:n] * gain], axis=0)
                 scale = min(1.0, (10 ** (-1 / 20)) / max(float(np.max(np.abs(loop))), 1e-9))

@@ -70,12 +70,15 @@ class CloudrunJobTests(unittest.TestCase):
         self.assertIn("max_units", errs(max_units=None))
         self.assertIn("recipe must be one of", errs(recipe="nope"))
         self.assertIn("runs on", errs(recipe="ace-step-music", gpu="L4",
-                                      plan={"cues": [{"id": "m", "caption": "x", "seconds": 60, "seeds": [1]}]}))
+                                      plan={"cues": [{"id": "mus", "caption": "x", "seconds": 60, "seeds": [1]}]}))
         self.assertIn("seconds", errs(plan={"cues": [{"id": "swing", "prompt": "x", "seconds": 90, "seeds": [1]}]}))
         self.assertIn("distinct", errs(plan={"cues": [{"id": "swing", "prompt": "x", "seconds": 5, "seeds": [1, 1]}]}))
         self.assertIn("prompt must be text", errs(plan={"cues": [{"id": "swing", "caption": "x", "seconds": 5, "seeds": [1]}]}))
         self.assertIn("limit", errs(plan={"cues": [{"id": "swing", "prompt": "x", "seconds": 5, "seeds": list(range(40))}]}))
         self.assertIn("colab only", errs(where="here"))
+        music = {"recipe": "ace-step-music", "gpu": "A100"}
+        self.assertIn("under half", errs(**music, plan={"loop_crossfade_seconds": 8, "cues": [{"id": "mus", "caption": "x", "seconds": 10, "seeds": [1]}]}))
+        self.assertEqual(errs(**music, plan={"loop_crossfade_seconds": 4, "cues": [{"id": "mus", "caption": "x", "seconds": 10, "seeds": [1]}]}), "")
 
     def test_recipes_pin_their_models(self):
         for name, r in cloudrun.recipes().items():
