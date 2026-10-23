@@ -226,7 +226,8 @@ class FetchTests(AssetsCase):
         result = assets.fetch_url(self.root, None, good, "https://kenney.nl/assets/good", None, "K",
                                   source="kenney", extract=True)
         self.assertTrue((self.root / "assets/third_party/kenney/good/extracted/Models/a.glb").is_file())
-        self.assertEqual(self.ledger()["assets"][0]["extracted_to"], "assets/third_party/kenney/good/extracted")
+        self.assertEqual(self.ledger()["assets"][0]["files"][0]["extracted_to"],
+                         "assets/third_party/kenney/good/extracted")
         self.assertIn("good.zip", result["files"][0]["path"])
         with self.assertRaises(StudioError):
             assets.fetch_url(self.root, None, bad, "https://kenney.nl/assets/bad", None, "K",
@@ -310,6 +311,54 @@ class LedgerTests(AssetsCase):
         report = assets.verify(self.root, None, restore=True)
         self.assertTrue(report["ok"], report)
         self.assertTrue((folder / "extracted/Models/a.glb").is_file())
+
+    def test_a_bad_refresh_keeps_the_recorded_archive(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("a.glb", "glb")
+        url = "https://kenney.nl/kit.zip"
+        web = self.web({url: buf.getvalue()})
+        args = (self.root, None, url, "https://kenney.nl/assets/kit", None, "K")
+        assets.fetch_url(*args, source="kenney", extract=True)
+        web.routes[url] = b"not a zip"
+        with self.assertRaisesRegex(StudioError, "zip"):
+            assets.fetch_url(*args, source="kenney", extract=True)
+        self.assertTrue(assets.verify(self.root, None)["ok"])
+
+    def test_restore_replays_every_archive_unpacked_into_the_folder(self):
+        def make(name):
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w") as z:
+                z.writestr(name, "x")
+            return buf.getvalue()
+        a, b = "https://kenney.nl/a.zip", "https://kenney.nl/b.zip"
+        self.web({a: make("from_a.glb"), b: make("from_b.glb")})
+        for url in (a, b):
+            assets.fetch_url(self.root, None, url, "https://kenney.nl/assets/kit", None, "K",
+                             source="kenney", asset="kit", extract=True)
+        import shutil
+        folder = self.root / "assets/third_party/kenney/kit/extracted"
+        shutil.rmtree(folder)
+        self.assertTrue(assets.verify(self.root, None, restore=True)["ok"])
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), ["from_a.glb", "from_b.glb"])
+
+    def test_one_id_never_carries_two_rights_records(self):
+        for name, licence, attribution in (("house", "CC-BY-4.0", "House by A, CC BY 4.0"), ("car", "CC0", None)):
+            path = self.root / "assets/third_party/polypizza" / name / "model.glb"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(name.encode())
+        assets.add_file(self.root, None, "assets/third_party/polypizza/house/model.glb",
+                        "https://poly.pizza/m/house", "CC-BY-4.0", "A", attribution="House by A, CC BY 4.0",
+                        source="polypizza")
+        with self.assertRaisesRegex(StudioError, "distinct --id"):
+            assets.add_file(self.root, None, "assets/third_party/polypizza/car/model.glb",
+                            "https://poly.pizza/m/car", "CC0", "B", source="polypizza")
+        self.assertEqual(assets.credits(self.root, None, "CREDITS.md")["attribution_required"], 1)
+
+    def test_credits_never_write_into_the_kit(self):
+        with patch.object(assets, "outside_package", side_effect=StudioError("inside kit")):
+            with self.assertRaisesRegex(StudioError, "inside kit"):
+                assets.credits(self.root, None, "CREDITS.md")
 
     def test_manual_add_is_hashed_not_refetchable_and_must_sit_in_the_library(self):
         outside = self.root / "downloads/well.blend"

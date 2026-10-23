@@ -181,9 +181,12 @@ def _record(root, ledger_path, entry):
     new_paths = {f["path"] for f in entry["files"]}
     for old in ledger["assets"]:
         if old["asset_id"] == entry["asset_id"]:
+            if (old["page_url"], old["licence"]) != (entry["page_url"], entry["licence"]):
+                # One entry carries one rights record; never let a second
+                # page's licence or attribution overwrite the first one's.
+                raise StudioError("Ledger already has " + entry["asset_id"] + " from " + old["page_url"]
+                                  + " under " + old["licence"] + "; pass a distinct --id")
             entry["files"] += [f for f in old["files"] if f["path"] not in new_paths]
-            if "extracted_to" in old and "extracted_to" not in entry:
-                entry["extracted_to"] = old["extracted_to"]
     ledger["assets"] = [a for a in ledger["assets"] if a["asset_id"] != entry["asset_id"]]
     ledger["assets"].append(entry)
     ledger["assets"].sort(key=lambda a: a["asset_id"])
@@ -336,15 +339,19 @@ def fetch_url(root, library, url, page, licence, author, attribution=None, title
     asset = safe_id(asset or Path(name).stem.replace(".", "-").replace(" ", "-")[:100])
     group = safe_id(source if source != "url" else "web")
     target = _dest(root, lib, group, asset, Path(name).name)
-    got = _download(url, target, max_bytes, referer=referer)
+    tmp, got = _stage(url, target, max_bytes, referer=referer)
     files = [{"path": target.relative_to(root).as_posix(), "url": url, **got}]
     extra = {"referer": referer} if referer else {}
     if extract:
         try:
-            extra["extracted_to"] = _extract(root, target)
-        except StudioError:
-            target.unlink(missing_ok=True)  # never leave an unrecorded file behind
+            # Checked while still staged, so a bad refresh keeps the old archive.
+            _extract(root, Path(tmp), target.parent, check_only=True)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
             raise
+    os.replace(tmp, target)
+    if extract:
+        files[0]["extracted_to"] = _extract(root, target)
     return _record(root, ledger, _entry(group, f"{group}/{asset}", title or asset, page, licence, author,
                                         attribution, refetchable, files, extra))
 
@@ -367,10 +374,10 @@ def add_file(root, library, file, page, licence, author, attribution=None, title
                                         attribution, bool(url), files))
 
 
-def _extract(root, archive, limit=4 * 1024 * 1024 * 1024):
+def _extract(root, archive, folder=None, check_only=False, limit=4 * 1024 * 1024 * 1024):
     if not zipfile.is_zipfile(archive):
         raise StudioError("--extract needs a zip archive")
-    base = (archive.parent / "extracted").relative_to(root).as_posix()
+    base = ((folder or archive.parent) / "extracted").relative_to(root).as_posix()
     dest = relative(root, base)
     with zipfile.ZipFile(archive) as z:
         members = z.infolist()
@@ -379,6 +386,8 @@ def _extract(root, archive, limit=4 * 1024 * 1024 * 1024):
         for m in members:
             # Rejects absolute, escaping and symlink-redirected names.
             relative(root, base + "/" + (m.filename.rstrip("/") or "."))
+        if check_only:
+            return base
         z.extractall(dest)
     return dest.relative_to(root).as_posix()
 
@@ -406,14 +415,22 @@ def verify(root, library, restore=False, max_bytes=None):
                 report["unrestorable"].append(f["path"])
             else:
                 report["missing"].append(f["path"])
-        extracted = entry.get("extracted_to")
-        if extracted and not relative(root, extracted).is_dir():
-            archive = relative(root, entry["files"][0]["path"])
-            if restore and archive.is_file() and sha256(archive) == entry["files"][0]["sha256"]:
-                _extract(root, archive)
-                report["restored"].append(extracted)
+        # Every archive that was unpacked into a now-missing folder is replayed.
+        folders = {}
+        for f in entry["files"]:
+            if f.get("extracted_to"):
+                folders.setdefault(f["extracted_to"], []).append(f)
+        for folder, archives in sorted(folders.items()):
+            if relative(root, folder).is_dir():
+                continue
+            intact = all(relative(root, f["path"]).is_file()
+                         and sha256(relative(root, f["path"])) == f["sha256"] for f in archives)
+            if restore and intact:
+                for f in archives:
+                    _extract(root, relative(root, f["path"]))
+                report["restored"].append(folder)
             else:
-                report["missing"].append(extracted)
+                report["missing"].append(folder)
     report["ok"] = not (report["missing"] or report["mismatched"] or report["unrestorable"])
     return report
 
@@ -432,7 +449,7 @@ def credits(root, library, output):
              "Generated by `studio assets credits` from " + ledger_path.relative_to(root).as_posix() + ".", ""]
     lines += ["## Attribution required (CC-BY)", ""] + (required or ["- none"]) + [""]
     lines += ["## Public domain (CC0), credited as a courtesy", ""] + (courtesy or ["- none"]) + [""]
-    target = relative(root, output)
+    target = outside_package(relative(root, output), "Credits output")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("\n".join(lines), encoding="utf-8")
     return {"ok": True, "output": output, "attribution_required": len(required), "cc0": len(courtesy)}
