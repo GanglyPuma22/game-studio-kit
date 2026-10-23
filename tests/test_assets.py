@@ -161,6 +161,31 @@ class FetchTests(AssetsCase):
         with self.assertRaisesRegex(StudioError, "offered: 1K-JPG, 2K-JPG"):
             assets.fetch_ambientcg(self.root, None, "Bricks076C", "8K")
 
+    def test_ambientcg_extract_unpacks_and_records(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("Bricks_Color.jpg", "c")
+        url = "https://ambientcg.com/get?file=Bricks_1K-JPG.zip"
+        self.web({
+            "https://ambientcg.com/api/v2/full_json?id=Bricks&include=downloadData": {"foundAssets": [{
+                "assetId": "Bricks", "downloadFolders": {"default": {"downloadFiletypeCategories": {"zip": {
+                    "downloads": [{"attribute": "1K-JPG", "fullDownloadPath": url, "fileName": "Bricks_1K-JPG.zip"}]}}}}}]},
+            url: buf.getvalue(),
+        })
+        result = assets.fetch_ambientcg(self.root, None, "Bricks", extract=True)
+        self.assertEqual(result["files"][0]["extracted_to"], "assets/third_party/ambientcg/Bricks/extracted")
+        self.assertTrue((self.root / "assets/third_party/ambientcg/Bricks/extracted/Bricks_Color.jpg").is_file())
+
+    def test_a_library_or_restore_target_inside_the_kit_is_refused(self):
+        real = assets.outside_package
+        def guard(path, subject="Output"):
+            if subject in ("Asset library", "Restored file"):
+                raise StudioError("inside kit")
+            return real(path, subject)
+        with patch.object(assets, "outside_package", side_effect=guard):
+            with self.assertRaisesRegex(StudioError, "inside kit"):
+                assets.credits(self.root, "kit", "CREDITS.md")
+
     def test_site_wide_cc0_source_fills_the_licence_and_rejects_a_different_one(self):
         url = "https://kenney.nl/media/pages/assets/kit/abc/kenney_kit_10.zip"
         self.web({url: b"kit"})

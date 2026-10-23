@@ -146,8 +146,9 @@ def _stage(url, target, max_bytes, referer=None, md5=None):
 
 
 def _paths(root, library):
-    lib = relative(root, library or DEFAULT_LIBRARY)
-    return lib, lib / LEDGER_NAME
+    # The whole library, ledger included, must sit outside the installed kit.
+    lib = outside_package(relative(root, library or DEFAULT_LIBRARY), "Asset library")
+    return lib, outside_package(lib / LEDGER_NAME, "Asset ledger")
 
 
 def _load_ledger(ledger):
@@ -306,7 +307,7 @@ def fetch_polyhaven(root, library, asset, resolution="1k", fmt="jpg", maps=None,
         {"kind": kind, "resolution": resolution}))
 
 
-def fetch_ambientcg(root, library, asset, resolution="1K", fmt="JPG", max_bytes=None):
+def fetch_ambientcg(root, library, asset, resolution="1K", fmt="JPG", max_bytes=None, extract=False):
     safe_id(asset)
     lib, ledger = _paths(root, library)
     _compatible(ledger, "ambientcg/" + asset, "https://ambientcg.com/a/" + asset, "CC0-1.0")
@@ -322,12 +323,21 @@ def fetch_ambientcg(root, library, asset, resolution="1K", fmt="JPG", max_bytes=
         raise StudioError("No " + attribute + " download; offered: " + ", ".join(z["attribute"] for z in zips))
     url = match[0]["fullDownloadPath"]
     target = _dest(root, lib, "ambientcg", asset, Path(match[0].get("fileName") or f"{asset}_{attribute}.zip").name)
-    got = _download(url, target, max_bytes)
+    tmp, got = _stage(url, target, max_bytes)
+    if extract:
+        try:
+            _extract(root, Path(tmp), target.parent, check_only=True)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+    os.replace(tmp, target)
+    record = {"path": target.relative_to(root).as_posix(), "url": url, **got}
+    if extract:
+        record["extracted_to"] = _extract(root, target)
     return _record(root, ledger, _entry(
         "ambientcg", "ambientcg/" + asset, found[0].get("displayName", asset),
         "https://ambientcg.com/a/" + asset, "CC0-1.0", "ambientCG (Lennart Demes)", None, True,
-        [{"path": target.relative_to(root).as_posix(), "url": url, **got}],
-        {"kind": found[0].get("dataType"), "resolution": attribute}))
+        [record], {"kind": found[0].get("dataType"), "resolution": attribute}))
 
 
 def _site_licence(source, licence):
@@ -417,7 +427,7 @@ def verify(root, library, restore=False, max_bytes=None):
     for entry in ledger["assets"]:
         for f in entry["files"]:
             report["checked"] += 1
-            p = relative(root, f["path"])
+            p = outside_package(relative(root, f["path"]), "Restored file")
             if p.is_file():
                 if sha256(p) != f["sha256"]:
                     report["mismatched"].append(f["path"])

@@ -406,7 +406,8 @@ def _assets(a):
     if a.source == "ambientcg" and not a.url:
         if not a.id:
             raise StudioError("assets fetch --source ambientcg needs --id")
-        return assets.fetch_ambientcg(root, a.library, a.id, a.resolution or "1K", a.format or "JPG", cap)
+        return assets.fetch_ambientcg(root, a.library, a.id, a.resolution or "1K", a.format or "JPG", cap,
+                                       a.extract)
     if not a.url or not a.page:
         raise StudioError("assets fetch needs --url and --page (or --source polyhaven/ambientcg with --id)")
     return assets.fetch_url(root, a.library, a.url, a.page, a.licence, a.author, a.attribution, a.title,
