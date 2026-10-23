@@ -14,6 +14,7 @@ REQUIRED_SKILLS = {
         "studio-director", "studio-game-design", "studio-art-direction", "studio-blender",
         "studio-meshy", "studio-terrain", "studio-animation", "studio-audio", "studio-godot",
         "studio-playtest", "studio-gym", "studio-review", "studio-model-qa", "studio-assets",
+        "studio-cloudrun",
     )
 }
 

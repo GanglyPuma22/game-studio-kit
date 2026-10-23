@@ -1,0 +1,27 @@
+# Cloud run job format
+
+One JSON object per job. `python <KIT>/scripts/studio.py cloudrun validate --job <file>` checks every rule below; `cloudrun plan` prints the steps a runner will take.
+
+| Key | Required | Rule |
+|---|---|---|
+| `schema` | yes | `1` |
+| `id` | yes | 3-64 lowercase letters, digits and dashes. Names the results branch `studio-results/<id>`, so reuse an id only to replace its results. |
+| `type` | yes | A key of `studio cloudrun types` (`godot-capture`). Reserved types are refused. |
+| `repo` | yes | `owner/name`. The service also checks it against its `ALLOW_REPOS`. |
+| `ref` | yes | Branch or commit. The runner packs exactly this commit. The service checks branches against `ALLOW_REFS`. |
+| `setup` | no | One line of shell run from the repository root before `command` (fetch the engine, import). |
+| `command` | yes | One line of shell run from the repository root. Write results under `$OUT_DIR`. |
+| `where` | no | `colab` (default) or `here`. |
+| `gpu` | no | `L4` (default), `T4` or `A100`; what the account can hold decides how many run at once. |
+| `max_minutes` | yes | 1-240. Setup and command together; the runner adds 20 minutes for the runtime to start and copy in. |
+| `results_max_mb` | no | 1-500 (default 200). Past it, only files under 10 MB come back. Files over 10 MB never go to a results branch. |
+| `godot` | no | `{"url": "https://...zip", "sha256": "<64 hex>"}`: the runner downloads the engine, checks it and sets `GODOT`. A game that fetches its own engine in `setup` leaves this out. |
+| `env` | no | `{"NAME": "value"}`, upper-case names, one-line values. Not `OUT_DIR`, `GODOT`, `JOB_ID`, `DISPLAY`, and nothing that looks like a token, secret, password or key. |
+
+## Queue file
+
+`queue.txt` on the queue branch, one job file name per line (`<id>.json`, the file itself under `jobs/`). Blank lines and `#` comments are skipped. A line `STOP` stops the service after running jobs finish. A job runs once per service host; to rerun, use a new id or ask the host's owner to clear it from `service.done`.
+
+## Results
+
+`runner.json`: `{"id", "setup_exit", "run_exit", "minutes", "gpu"}`. `BUILD.txt` (Colab only): repository, ref, commit, GPU and the `gpu=` line. `env.txt`: what the runtime had. `setup.log`, `run.log`, `progress.txt`. Everything else is the job's own `OUT_DIR`.

@@ -272,6 +272,16 @@ def parser():
     c.add_argument("--output", default="source/provider-assets")
     c.add_argument("--attempts", type=int, default=1)
     c.add_argument("--interval", type=float, default=5)
+    # Cloud runs: read-only checks of a job file or a queue file. Running a
+    # job is the shell scripts' work (skills/studio-cloudrun/scripts).
+    c = command("cloudrun")
+    c.description = "Check a cloud run job or queue file and print the plan a runner would follow"
+    c.add_argument("operation", choices=["types", "validate", "plan", "queue"])
+    c.add_argument("--job", help="Job JSON file (validate, plan)")
+    c.add_argument("--queue", help="Queue text file (queue)")
+    c.add_argument("--where", choices=["here", "colab"], help="plan: override the job's where")
+    c.add_argument("--allow-repo", action="append", default=[], help="validate: allowed owner/name (trailing * matches a prefix)")
+    c.add_argument("--allow-ref", action="append", default=[], help="validate: allowed branch (trailing * matches a prefix)")
     # `sources` and `search` are read-only and need no project; the rest
     # write files and one ledger under the project's asset library.
     c = command("assets")
@@ -414,6 +424,25 @@ def _assets(a):
                             a.id, a.source or "url", a.referer, not a.no_refetch, a.extract, cap)
 
 
+def _cloudrun(a):
+    from . import cloudrun
+
+    if a.operation == "types":
+        return {"types": cloudrun.JOB_TYPES, "reserved": cloudrun.RESERVED_TYPES}
+    if a.operation == "queue":
+        if not a.queue:
+            raise StudioError("cloudrun queue needs --queue")
+        jobs, stop = cloudrun.parse_queue(Path(a.queue).read_text(encoding="utf-8"))
+        return {"jobs": jobs, "stop": stop}
+    if not a.job:
+        raise StudioError("cloudrun " + a.operation + " needs --job")
+    job = cloudrun.load_job(a.job)
+    if a.operation == "validate":
+        errors = cloudrun.validate(job, a.allow_repo, a.allow_ref)
+        return {"ok": not errors, "errors": errors}
+    return cloudrun.plan(job, a.where)
+
+
 def dispatch(a):
     config = load(a.config)
     if a.command == "check-package":
@@ -433,6 +462,8 @@ def dispatch(a):
             output_root(dest.parent)
             write_json(dest, result)
         return result
+    if a.command == "cloudrun":
+        return _cloudrun(a)
     if a.command == "assets":
         return _assets(a)
     if a.command == "blender-mcp":
