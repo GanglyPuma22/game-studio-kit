@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 from .common import StudioError, read_json, write_json, output_root, relative
 from .config import load
+from .assets import DEFAULT_LIBRARY
 
 
 def parser():
@@ -271,6 +272,34 @@ def parser():
     c.add_argument("--output", default="source/provider-assets")
     c.add_argument("--attempts", type=int, default=1)
     c.add_argument("--interval", type=float, default=5)
+    # `sources` and `search` are read-only and need no project; the rest
+    # write files and one ledger under the project's asset library.
+    c = command("assets")
+    c.description = "Find, fetch and track openly licensed assets and textures in one project ledger"
+    c.add_argument("operation", choices=["sources", "search", "fetch", "add", "verify", "credits"])
+    c.add_argument("--project", help="Explicit game or library root outside the toolkit; fetch/add/verify/credits")
+    c.add_argument("--library", help=f"Library folder relative to the project (default {DEFAULT_LIBRARY})")
+    c.add_argument("--source", help="Catalogue id (polyhaven, ambientcg, kenney, ...) or url")
+    c.add_argument("--kind", help="textures, models, hdris, decals, base-meshes, ...")
+    c.add_argument("--query")
+    c.add_argument("--limit", type=int, default=10)
+    c.add_argument("--id", help="Asset id at the source (Poly Haven slug, ambientCG id) or a local id")
+    c.add_argument("--resolution", help="Poly Haven 1k/2k/4k, ambientCG 1K/2K/4K")
+    c.add_argument("--format", help="Poly Haven jpg/png/exr/hdr, ambientCG JPG/PNG")
+    c.add_argument("--maps", help="Poly Haven texture maps, comma separated (default Diffuse,nor_gl,Rough,AO,Displacement,arm)")
+    c.add_argument("--url", help="HTTPS file URL for --source url or a site id")
+    c.add_argument("--page", help="Asset page that states the licence")
+    c.add_argument("--licence", help="Licence as the page states it; site-wide CC0 sources may omit it")
+    c.add_argument("--author")
+    c.add_argument("--attribution", help="Exact credit text; required for CC-BY")
+    c.add_argument("--title")
+    c.add_argument("--referer", help="Referer some CDNs require (cgbookcase)")
+    c.add_argument("--file", help="Project-relative file a person downloaded, for add")
+    c.add_argument("--no-refetch", action="store_true", help="The URL expires (itch.io); keep the original file")
+    c.add_argument("--extract", action="store_true", help="Also unpack a zip beside the untouched original")
+    c.add_argument("--restore", action="store_true", help="verify: re-download missing files that can be re-fetched")
+    c.add_argument("--max-mb", type=int, default=1024)
+    c.add_argument("--output", default="CREDITS-third-party.md", help="credits: project-relative output")
     c = command("gaea", True)
     c.add_argument("--recipe", required=True)
     c.add_argument("--output", default="source/gaea-build")
@@ -347,6 +376,43 @@ def _profile_fields(config, root, command, a, overrides):
     return resolved["arguments"], resolved["receipt"], None
 
 
+def _assets(a):
+    from . import assets
+
+    if a.operation == "sources":
+        return assets.catalog(a.kind)
+    if a.operation == "search":
+        if not a.source or not a.query:
+            raise StudioError("assets search needs --source and --query")
+        return assets.search(a.source, a.query, a.kind, a.limit)
+    if not a.project:
+        raise StudioError("assets " + a.operation + " needs --project")
+    root = output_root(a.project)
+    cap = a.max_mb * 1024 * 1024
+    if a.operation == "verify":
+        return assets.verify(root, a.library, a.restore, cap)
+    if a.operation == "credits":
+        return assets.credits(root, a.library, a.output)
+    if a.operation == "add":
+        if not a.file or not a.page:
+            raise StudioError("assets add needs --file and --page")
+        return assets.add_file(root, a.library, a.file, a.page, a.licence, a.author, a.attribution,
+                               a.title, a.id, a.source or "manual", a.url)
+    if a.source == "polyhaven" and not a.url:
+        if not a.id:
+            raise StudioError("assets fetch --source polyhaven needs --id")
+        maps = [m.strip() for m in a.maps.split(",") if m.strip()] if a.maps else None
+        return assets.fetch_polyhaven(root, a.library, a.id, a.resolution or "1k", a.format or "jpg", maps, cap)
+    if a.source == "ambientcg" and not a.url:
+        if not a.id:
+            raise StudioError("assets fetch --source ambientcg needs --id")
+        return assets.fetch_ambientcg(root, a.library, a.id, a.resolution or "1K", a.format or "JPG", cap)
+    if not a.url or not a.page:
+        raise StudioError("assets fetch needs --url and --page (or --source polyhaven/ambientcg with --id)")
+    return assets.fetch_url(root, a.library, a.url, a.page, a.licence, a.author, a.attribution, a.title,
+                            a.id, a.source or "url", a.referer, not a.no_refetch, a.extract, cap)
+
+
 def dispatch(a):
     config = load(a.config)
     if a.command == "check-package":
@@ -366,6 +432,8 @@ def dispatch(a):
             output_root(dest.parent)
             write_json(dest, result)
         return result
+    if a.command == "assets":
+        return _assets(a)
     if a.command == "blender-mcp":
         from .blender_mcp_lifecycle import execute
 
