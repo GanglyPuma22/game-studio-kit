@@ -11,6 +11,7 @@
 | Nonhumanoid deformation | studio-animation in Blender | Humanoid provider rig only after its separate eligibility check |
 | Heightfield | studio-terrain local generator | Gaea UI graph plus installation-verified build recipe |
 | Timed functional cue | studio-audio local PCM | ElevenLabs effects/speech/music with rights and budget |
+| Generated sound effects or instrumental music | studio-audio Colab models route (Stable Audio Open, ACE-Step through studio-cloudrun `model-run`), after the person's go for units | ElevenLabs effects/music with rights and budget |
 | Import and gameplay response | studio-godot | Ordinary player-input native review |
 | Gameplay gym: verb inventory, measured rooms, room checks | [studio-gym](../skills/studio-gym/SKILL.md) | Gym observation is wiring and feel at the edges; canonical-route play still decides acceptance |
 | Free textures, HDRIs, base meshes or kits from public CC0/CC-BY libraries | [studio-assets](../skills/studio-assets/SKILL.md) | Fetch only what the asset needs; the ledger records licence and hash; a found asset is still reshaped, restyled and qualified |

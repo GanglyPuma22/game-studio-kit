@@ -1,0 +1,10 @@
+{
+  "seconds": 60,
+  "inference_steps": 50,
+  "guidance_scale": 7.0,
+  "loop_crossfade_seconds": 8,
+  "cues": [
+    {"id": "rooftop-chase", "bpm": 120, "keyscale": "D minor", "seeds": [3101],
+     "caption": "Tense rooftop chase underscore for a grappling action game. Driving taiko and frame drums, low staccato strings, metallic swells, short brass stabs. D minor. Instrumental, no voices. Steady energy, repeating phrases, no big intro or final cadence; loopable game music."}
+  ]
+}

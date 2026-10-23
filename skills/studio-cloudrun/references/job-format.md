@@ -6,7 +6,7 @@ One JSON object per job. `python <KIT>/scripts/studio.py cloudrun validate --job
 |---|---|---|
 | `schema` | yes | `1` |
 | `id` | yes | 3-64 lowercase letters, digits and dashes. Names the results branch `studio-results/<id>`, so reuse an id only to replace its results. |
-| `type` | yes | A key of `studio cloudrun types` (`godot-capture`). Reserved types are refused. |
+| `type` | yes | A key of `studio cloudrun types` (`godot-capture`, `model-run`). Reserved types are refused. |
 | `repo` | yes | `owner/name`. The service also checks it against its `ALLOW_REPOS`. |
 | `ref` | yes | Branch or commit. The runner packs exactly this commit. The service checks branches against `ALLOW_REFS`. |
 | `setup` | no | One line of shell run from the repository root before `command` (fetch the engine, import). |
@@ -17,6 +17,19 @@ One JSON object per job. `python <KIT>/scripts/studio.py cloudrun validate --job
 | `results_max_mb` | no | 1-500 (default 200). Past it, only files under 10 MB come back. Files over 10 MB never go to a results branch. |
 | `godot` | no | `{"url": "https://...zip", "sha256": "<64 hex>"}`: the runner downloads the engine, checks it and sets `GODOT`. A game that fetches its own engine in `setup` leaves this out. |
 | `env` | no | `{"NAME": "value"}`, upper-case names, one-line values. Not `OUT_DIR`, `GODOT`, `JOB_ID`, `STUDIO_COMMIT`, `DISPLAY`, and nothing that looks like a token, secret, password or key. |
+
+## model-run jobs
+
+`model-run` replaces `repo`, `ref`, `setup`, `command`, `godot` and `env` (all refused) with:
+
+| Key | Required | Rule |
+|---|---|---|
+| `recipe` | yes | A folder under `skills/studio-cloudrun/recipes` with a `recipe.json`. |
+| `plan` | yes | `{"cues": [...]}` plus recipe settings. Each cue: unique `id`, the recipe's text field (`prompt` or `caption`), `seeds` (distinct whole numbers, one output each), `seconds` (or a plan-wide `seconds`) within the recipe's limits. Total outputs within the recipe's `max_outputs`. |
+| `max_units` | yes | 0.01-20 compute units: the runtime is stopped when this much time at the observed rate has passed. |
+| `max_rate` | no | Units per hour; the run stops at once if the session's rate is higher. |
+| `gpu` | no | Defaults to the recipe's; must be one the recipe lists. |
+| `where` | no | `colab` only. |
 
 ## Queue file
 

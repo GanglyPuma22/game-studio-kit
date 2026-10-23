@@ -1,6 +1,6 @@
 ---
 name: studio-cloudrun
-description: Run a game's capture or test job on a GPU nobody is sitting at, with `studio cloudrun` and the shell runners, either right here in a cloud agent box (free, software Vulkan, slow) or on a Colab GPU through one shared queue service on an always-on host, and bring back clips, stills and numbers.
+description: Run a job on a GPU nobody is sitting at, with `studio cloudrun` and the shell runners. That covers a game's capture or test job (here in a cloud agent box, or on Colab) and model runs from the kit's recipes (music with ACE-Step, sound effects with Stable Audio Open) on a Colab GPU, through one shared queue on an always-on host. Results come back as clips, stills, numbers or audio with receipts.
 ---
 
 # Studio cloud runs
@@ -43,7 +43,32 @@ A job is one JSON file ([template](references/job-format.md)):
 - No credentials ever go to a runtime, and `env` refuses names that look like secrets. A command that needs a private download has to get it some other way.
 - Check it before anything runs: `python <KIT>/scripts/studio.py cloudrun validate --job job.json` and `... cloudrun plan --job job.json` (prints every step the runner will take).
 
-`studio cloudrun types` lists the job types. `godot-capture` is the first. Other Colab work that follows the same pattern (Salvage's Colab batches; audio, music and other model generation) is listed as reserved. It is not moved onto this service until its owner decides where the line between this runner and a Colab skill for model runs falls.
+`studio cloudrun types` lists the job types and the model recipes. Salvage's Colab batches are listed as reserved: they stay on Salvage's own queue.
+
+## Model runs (music, sound effects)
+
+A `model-run` job names a recipe shipped in [recipes/](recipes) and a plan; it has no repository, setup or command of its own:
+
+```json
+{
+  "schema": 1, "id": "skybreak-swings-2", "type": "model-run",
+  "recipe": "stable-audio-open-sfx", "gpu": "L4",
+  "plan": {"steps": 100, "guidance": 7, "seconds": 5,
+           "cues": [{"id": "heavy-sword-swing", "prompt": "...", "seeds": [2311, 2312]}]},
+  "max_minutes": 15, "max_units": 0.5, "max_rate": 3, "results_max_mb": 60
+}
+```
+
+| Recipe | Makes | GPU | Tested (Oct 2026) |
+|---|---|---|---|
+| `stable-audio-open-sfx` | Sound effects up to 47 s, 44.1 kHz stereo: float original plus PCM16 preview per seed | L4 | 14 s per 5 s variant after about 80 s setup |
+| `ace-step-music` | Instrumental music 10-240 s, 48 kHz stereo FLAC, optional overlap-crossfade loop candidate and wrap audition | A100 | 97 s per 180 s track after about 6 min setup |
+
+- **Spend:** `max_units` is required. After the GPU is granted the runner reads the hourly rate, refuses an unknown rate or one above `max_rate`, and caps the runtime's life at whichever comes first: `max_minutes` + 20 or the unit ceiling. A job is a whole batch, so the model loads once per job.
+- **Gated weights** (Stable Audio Open): the host's Hugging Face login turns into short-lived links for the exact files at the pinned revision ([stage_hf.py](scripts/stage_hf.py)); the runtime downloads them and checks each SHA-256. The token never leaves the host. The account must have accepted the model's licence on its page.
+- **Results:** `receipt.json` lists every output with its hash, rate, channels, frames, peak and RMS, and the run fails if any planned output is missing, silent or not finite. A valid file is not a fitting one: in the first test a "heavy" swing came out light. Every batch gets a listening verdict per output before anything is imported ([studio-audio](../studio-audio/SKILL.md) owns preparation, import and listening).
+- **No fallback:** a failed run never switches model, reruns or widens spend by itself. Look at the receipt and logs, then ask.
+- Each recipe's `recipe.json` names its model, pinned revisions, licence note and what was tested. Check the licence for commercial use before outputs ship in a game.
 
 ## Run here
 

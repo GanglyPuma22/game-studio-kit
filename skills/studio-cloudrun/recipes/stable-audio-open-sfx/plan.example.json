@@ -1,0 +1,10 @@
+{
+  "steps": 100,
+  "guidance": 7.0,
+  "seconds": 5,
+  "negative_prompt": "music, speech, voice, low quality, distortion",
+  "cues": [
+    {"id": "heavy-sword-swing", "prompt": "A single heavy two-handed steel sword swung hard through the air: deep, slow, weighty whoosh with a low rumble, close up, dry, no impact", "seeds": [2311, 2312]},
+    {"id": "metal-impact", "prompt": "Steel blade striking a steel cable: sharp metallic clang with short ringing tail, close up, dry", "seeds": [2313]}
+  ]
+}

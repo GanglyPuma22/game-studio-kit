@@ -1,0 +1,37 @@
+{
+  "summary": "Sound effects from text with Stable Audio Open 1.0 (Diffusers), one waveform per seed, 44.1 kHz stereo.",
+  "kind": "sfx",
+  "gpu": "L4",
+  "gpus": [
+    "L4",
+    "A100"
+  ],
+  "text_field": "prompt",
+  "limits": {
+    "seconds": [
+      0.5,
+      47
+    ],
+    "max_outputs": 32
+  },
+  "gated": true,
+  "model": {
+    "repo": "stabilityai/stable-audio-open-1.0",
+    "revision": "f21265c1e2710b3bd2386596943f0007f55f802e",
+    "license": "Stability AI Community License (gated; accept on the model page). Check commercial-use terms before shipping outputs.",
+    "include": [
+      "model_index.json",
+      "LICENSE.md",
+      "projection_model/",
+      "scheduler/",
+      "text_encoder/",
+      "tokenizer/",
+      "transformer/",
+      "vae/"
+    ],
+    "expect_files": 15
+  },
+  "tested": "2026-10-23, Colab L4: 6 x 5 s at 100 steps, 14.3 s each after 79 s cold setup; 0.23 units including two failed starts. Human review: 5 of 6 fit their prompt (a heavy swing sounded light).",
+  "setup_summary": "uv venv with Python 3.12; torch 2.8.0 (CUDA 12.8), diffusers 0.35.2, torchsde and the rest pinned; import check; download the staged weights and check each SHA-256",
+  "run_summary": "load the pipeline once (float16), one call per cue and seed, save the float original and a PCM16 preview peaking at -1 dBFS, write receipt.json"
+}

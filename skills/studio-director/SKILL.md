@@ -48,6 +48,7 @@ preserve unique run logs and classify completed output before reporting status.
 | Test space for every player verb: inventory, greybox rooms with measured limits, room checks | [studio-gym](../studio-gym/SKILL.md) |
 | Free textures, materials, HDRIs, base meshes or modular kits from public libraries, with licence tracking | [studio-assets](../studio-assets/SKILL.md) |
 | Scripted clips, stills or captures drawn with nobody at the machine: here in a cloud box, or on a Colab GPU through the shared queue | [studio-cloudrun](../studio-cloudrun/SKILL.md) |
+| Sound effects or music from open models on a Colab GPU (model-run recipes) | [studio-audio](../studio-audio/SKILL.md) Colab models route, run by [studio-cloudrun](../studio-cloudrun/SKILL.md) |
 | Native appearance/input/motion/mix acceptance | [studio-review](../studio-review/SKILL.md) |
 | Overnight, unattended or production-contract run | [overnight-run](references/overnight-run.md) |
 

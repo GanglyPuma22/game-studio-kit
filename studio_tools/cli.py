@@ -428,7 +428,8 @@ def _cloudrun(a):
     from . import cloudrun
 
     if a.operation == "types":
-        return {"types": cloudrun.JOB_TYPES, "reserved": cloudrun.RESERVED_TYPES}
+        return {"types": cloudrun.JOB_TYPES, "reserved": cloudrun.RESERVED_TYPES,
+                "recipes": {k: {x: v.get(x) for x in ("summary", "kind", "gpu", "gated", "tested")} for k, v in cloudrun.recipes().items()}}
     if a.operation == "queue":
         if not a.queue:
             raise StudioError("cloudrun queue needs --queue")

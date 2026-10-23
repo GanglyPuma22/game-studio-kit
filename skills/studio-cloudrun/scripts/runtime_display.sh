@@ -14,6 +14,14 @@
 set -u
 JOB=${JOB_ROOT:-/content/job}
 ENV=$JOB/env.txt
+if [ "${1:-}" = --no-screen ]; then
+	# Model runs: no screen; just record the GPU.
+	{ nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>/dev/null || echo "no nvidia-smi"
+	  echo "nproc $(nproc)"; free -g | sed -n 2p
+	  if nvidia-smi > /dev/null 2>&1; then echo "gpu=nvidia (no screen)"; else echo "gpu=none (no NVIDIA driver answered)"; fi
+	} > "$ENV"
+	cat "$ENV"; exit 0
+fi
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq > /dev/null
 apt-get install -y -qq xvfb xauth x11-utils vulkan-tools libvulkan1 mesa-vulkan-drivers libgl1-mesa-dri \

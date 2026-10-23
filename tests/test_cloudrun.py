@@ -32,7 +32,7 @@ class CloudrunJobTests(unittest.TestCase):
     def test_bad_fields_are_each_named(self):
         cases = {
             "id": ("Bad_ID", "id must be"),
-            "type": ("model-run", "reserved"),
+            "type": ("salvage-batch", "reserved"),
             "repo": ("not a repo", "repo must be"),
             "ref": ("../main", "ref must be"),
             "command": ("a\nb", "command must be one line"),
@@ -48,6 +48,45 @@ class CloudrunJobTests(unittest.TestCase):
 
     def test_the_status_branch_id_is_reserved(self):
         self.assertTrue(any("queue-status" in e for e in cloudrun.validate(job(id="queue-status"))))
+
+    def test_model_run_examples_are_runnable(self):
+        for recipe in ("stable-audio-open-sfx", "ace-step-music"):
+            plan = json.loads((cloudrun.RECIPES_DIR / recipe / "plan.example.json").read_text())
+            mj = {"schema": 1, "id": "audio-test", "type": "model-run", "recipe": recipe, "plan": plan,
+                  "max_minutes": 20, "max_units": 1}
+            self.assertEqual(cloudrun.validate(mj), [], recipe)
+            steps = " ".join(cloudrun.plan(mj)["steps"])
+            self.assertIn("1 units", steps)
+            self.assertEqual("token never leaves the host" in steps, recipe == "stable-audio-open-sfx")
+
+    def test_model_run_refuses_game_fields_missing_ceiling_and_bad_plans(self):
+        plan = {"cues": [{"id": "swing", "prompt": "a swing", "seconds": 5, "seeds": [1, 2]}]}
+        base = {"schema": 1, "id": "audio-test", "type": "model-run", "recipe": "stable-audio-open-sfx",
+                "plan": plan, "max_minutes": 20, "max_units": 1}
+        def errs(**over):
+            return " ".join(cloudrun.validate({**base, **over}))
+        self.assertIn("repo is not used", errs(repo="a/b"))
+        self.assertIn("command is not used", errs(command="rm -rf /"))
+        self.assertIn("max_units", errs(max_units=None))
+        self.assertIn("recipe must be one of", errs(recipe="nope"))
+        self.assertIn("runs on", errs(recipe="ace-step-music", gpu="L4",
+                                      plan={"cues": [{"id": "m", "caption": "x", "seconds": 60, "seeds": [1]}]}))
+        self.assertIn("seconds", errs(plan={"cues": [{"id": "swing", "prompt": "x", "seconds": 90, "seeds": [1]}]}))
+        self.assertIn("distinct", errs(plan={"cues": [{"id": "swing", "prompt": "x", "seconds": 5, "seeds": [1, 1]}]}))
+        self.assertIn("prompt must be text", errs(plan={"cues": [{"id": "swing", "caption": "x", "seconds": 5, "seeds": [1]}]}))
+        self.assertIn("limit", errs(plan={"cues": [{"id": "swing", "prompt": "x", "seconds": 5, "seeds": list(range(40))}]}))
+        self.assertIn("colab only", errs(where="here"))
+
+    def test_recipes_pin_their_models(self):
+        for name, r in cloudrun.recipes().items():
+            m = r["model"]
+            pins = [m.get("revision"), m.get("commit")] + list(m.get("repos", {}).values())
+            self.assertTrue(any(pins), name)
+            for pin in filter(None, pins):
+                self.assertRegex(pin, r"^[0-9a-f]{40}$", name)
+            self.assertIn("license", m, name)
+            for f in ("setup.sh", "run.sh", "worker.py", "plan.example.json"):
+                self.assertTrue((cloudrun.RECIPES_DIR / name / f).is_file(), f"{name}/{f}")
 
     def test_unknown_type_is_refused(self):
         self.assertTrue(any("type must be" in e for e in cloudrun.validate(job(type="anything"))))
