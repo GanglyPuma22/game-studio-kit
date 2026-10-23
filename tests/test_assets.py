@@ -512,6 +512,15 @@ class CommandTests(AssetsCase):
         self.assertEqual(result["results"], [{"id": "plastered_wall_05",
                                               "page_url": "https://polyhaven.com/a/plastered_wall_05"}])
 
+    def test_search_finds_ambientcg_atlases(self):
+        self.web({"https://ambientcg.com/api/v2/full_json?q=leaf&type=Atlas&limit=5&include=downloadData":
+                  {"foundAssets": [{"assetId": "LeafSet024"}]}})
+        code, result = self.run_cli("assets", "search", "--source", "ambientcg", "--query", "leaf",
+                                    "--kind", "atlases", "--limit", "5")
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result["results"], [{"id": "LeafSet024", "page_url": "https://ambientcg.com/a/LeafSet024",
+                                              "variants": []}])
+
     def test_fetch_through_the_command(self):
         self.web(POLYHAVEN)
         code, result = self.run_cli("assets", "fetch", "--project", str(self.root), "--source", "polyhaven",

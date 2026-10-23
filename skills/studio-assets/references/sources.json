@@ -27,7 +27,7 @@
       "id": "ambientcg",
       "name": "ambientCG",
       "url": "https://ambientcg.com",
-      "kinds": ["textures", "decals", "models", "hdris"],
+      "kinds": ["textures", "atlases", "decals", "models", "hdris"],
       "licence": "CC0-1.0",
       "licence_scope": "site",
       "licence_url": "https://docs.ambientcg.com/license/",
