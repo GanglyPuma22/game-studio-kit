@@ -35,14 +35,16 @@ cd "$JOB/repo" || exit 1
 SRC=0
 if [ -n "$SETUP" ]; then
 	log "setup: $SETUP"
-	timeout --foreground $((MAXMIN * 60)) bash -c "$SETUP" > "$OUT/setup.log" 2>&1; SRC=$?
+	timeout -k 30 $((MAXMIN * 60)) bash -c "$SETUP" > "$OUT/setup.log" 2>&1; SRC=$?
 	log "setup exit $SRC"
 fi
+# timeout (not --foreground) signals the whole process group, so a
+# script's children stop at the cap too; -k 30 kills what ignores TERM.
 RC=99
 if [ "$SRC" = 0 ]; then
 	LEFT=$(( MAXMIN * 60 - ($(date +%s) - T0) )); [ "$LEFT" -lt 60 ] && LEFT=60
 	log "run: $CMD"
-	timeout --foreground "$LEFT" bash -c "$CMD" > "$OUT/run.log" 2>&1; RC=$?
+	timeout -k 30 "$LEFT" bash -c "$CMD" > "$OUT/run.log" 2>&1; RC=$?
 	log "run exit $RC"
 fi
 GPU=$(grep -m1 '^gpu=' "$JOB/env.txt" 2>/dev/null || echo "gpu=unknown (no runtime_display.sh)")

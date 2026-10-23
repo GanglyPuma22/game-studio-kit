@@ -6,7 +6,7 @@
 # (GH, default git@github.com:), python3. The job's commands run only on the
 # runtime; this host packs the commit with git archive, copies it in, polls,
 # copies OUT_DIR back and stops the runtime on exit, on error and at the cap.
-# Results: $WORK/results/<id>-<UTC time>/ (runner.json first), and, when
+# Results: $WORK/results/<id>-<UTC time>-XXXX/ (runner.json first), and, when
 # RESULTS_REPO is set, a fresh one-commit branch studio-results/<id> there.
 set -euo pipefail
 JOBFILE=$(realpath "${1:?usage: colab_job.sh JOB.json}")
@@ -21,7 +21,8 @@ python3 "$KIT/scripts/studio.py" cloudrun validate --job "$JOBFILE" "${ALLOW[@]}
 ID=$(J 'print(d["id"])'); REPO=$(J 'print(d["repo"])'); REF=$(J 'print(d["ref"])')
 GPU=$(J 'print(d.get("gpu","L4"))'); MAXMIN=$(J 'print(int(d["max_minutes"]))'); CAPMB=$(J 'print(int(d.get("results_max_mb",200)))')
 SESSION=${COLAB_SESSION:-studio-$ID}
-RES=$WORK/results/$ID-$(date -u +%Y%m%dT%H%MZ); mkdir -p "$RES" "$WORK/repos"
+mkdir -p "$WORK/results" "$WORK/repos"
+RES=$(mktemp -d "$WORK/results/$ID-$(date -u +%Y%m%dT%H%M%SZ)-XXXX")   # fresh per run, even for a reused id
 say() { echo "[cloudrun $(date -u +%T)] $*" | tee -a "$RES/driver.log"; }
 command -v colab > /dev/null || { say "colab CLI not found: stop"; exit 1; }
 
@@ -93,6 +94,7 @@ say "runtime minutes: $(( ($(date +%s) - T0) / 60 ))"
 colab usage 2> /dev/null | head -3 >> "$RES/driver.log" || true
 echo "build: $REPO $REF @ $COMMIT, $GPU, $(grep -m1 gpu= "$RES/env.txt" 2>/dev/null || echo 'gpu line missing')" > "$RES/BUILD.txt"
 
+PUSHED=0; [ -n "${RESULTS_REPO:-}" ] || PUSHED=1   # no results repo: the local folder is the delivery
 if [ -n "${RESULTS_REPO:-}" ]; then
 	P=$(mktemp -d); mkdir -p "$P/$ID"
 	(cd "$RES" && find . -type f ! -name repo.tar ! -name ssh.cfg -size -10M -print0 | tar --null -T - -cf -) | tar -xf - -C "$P/$ID"
@@ -100,9 +102,11 @@ if [ -n "${RESULTS_REPO:-}" ]; then
 	( cd "$P" && git init -q && git checkout -q -b "studio-results/$ID" && git add -A \
 		&& git -c user.name=cloudrun -c user.email=cloudrun@localhost commit -qm "cloudrun results $ID ($(basename "$RES"))" \
 		&& git push -q -f "$GH$RESULTS_REPO.git" "studio-results/$ID" ) \
-		&& say "results pushed to $RESULTS_REPO branch studio-results/$ID" || say "results push FAILED (kept in $RES)"
+		&& { say "results pushed to $RESULTS_REPO branch studio-results/$ID"; PUSHED=1; } || say "results push FAILED (kept in $RES)"
 	rm -rf "$P"
 fi
 RC=$(python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(0 if d.get('setup_exit')==0 and d.get('run_exit')==0 else 1)" "$RES/runner.json" 2>/dev/null || echo 1)
+# Results nobody can reach are a failed job: the queue stops and says so.
+[ "$RC" = 0 ] && [ "$PUSHED" = 0 ] && RC=3
 say "job $ID: exit $RC; results in $RES"
 exit "$RC"

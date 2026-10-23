@@ -20,8 +20,9 @@ set -uo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 KIT=$(cd "$HERE/../../.." && pwd)
 WORK=${CLOUDRUN_WORK:-$HOME/studio-cloudrun}; mkdir -p "$WORK"
-[ -f "$WORK/service.env" ] && . "$WORK/service.env"   # the host's own settings, never in git
-GH=${GH:-git@github.com:}
+# The host's own settings, never in git; exported so colab_job.sh sees them too (GH, GPU_WAIT_MIN, ...).
+[ -f "$WORK/service.env" ] && { set -a; . "$WORK/service.env"; set +a; }
+export GH=${GH:-git@github.com:}
 QUEUE_REPO=${QUEUE_REPO:?set QUEUE_REPO (owner/name of a private repo) in $WORK/service.env}
 QUEUE_BRANCH=${QUEUE_BRANCH:-studio-queue}
 export ALLOW_REPOS=${ALLOW_REPOS:?set ALLOW_REPOS in $WORK/service.env}
@@ -86,7 +87,6 @@ while :; do
 			say "queue.txt unreadable; nothing launched"
 		else
 			STOPLINE=$(python3 -c "import json,sys;print(json.load(sys.stdin)['stop'])" <<< "$LIST")
-			[ "$STOPLINE" = True ] && STOPPED="STOP line in queue.txt"
 			while read -r name; do
 				[ -z "$name" ] && continue
 				grep -qxF "$name" "$DONE" && continue
@@ -99,6 +99,11 @@ while :; do
 				say "launched ${name%.json} ($LAUNCHED of $MAX_JOBS)"; push_status
 				sleep 30
 			done < <(python3 -c "import json,sys;print('\n'.join(json.load(sys.stdin)['jobs']))" <<< "$LIST")
+			# STOP ends the queue only once every line above it has been launched.
+			if [ "$STOPLINE" = True ]; then
+				LEFT=$(python3 -c "import json,sys;print(sum(1 for j in json.load(sys.stdin)['jobs'] if j not in set(open(sys.argv[1]).read().split())))" "$DONE" <<< "$LIST")
+				[ "$LEFT" = 0 ] && STOPPED=${STOPPED:-"STOP line in queue.txt"}
+			fi
 		fi
 	else
 		say "fetch $QUEUE_BRANCH failed"
