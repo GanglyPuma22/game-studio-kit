@@ -294,7 +294,11 @@ def fetch_url(root, library, url, page, licence, author, attribution=None, title
     files = [{"path": target.relative_to(root).as_posix(), "url": url, **got}]
     extra = {"referer": referer} if referer else {}
     if extract:
-        extra["extracted_to"] = _extract(root, target)
+        try:
+            extra["extracted_to"] = _extract(root, target)
+        except StudioError:
+            target.unlink(missing_ok=True)  # never leave an unrecorded file behind
+            raise
     return _record(root, ledger, _entry(group, f"{group}/{asset}", title or asset, page, licence, author,
                                         attribution, refetchable, files, extra))
 
