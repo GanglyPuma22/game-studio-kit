@@ -112,7 +112,7 @@ def validate(job, allow_repos=None, allow_refs=None):
         not re.match(r"^[A-Z][A-Z0-9_]{0,63}$", str(k)) or not isinstance(v, str) or "\n" in v for k, v in env.items()
     ):
         errors.append("env must map UPPER_CASE names to one-line strings")
-    elif any(k in ("OUT_DIR", "GODOT", "JOB_ID", "DISPLAY") for k in env):
+    elif any(k in ("OUT_DIR", "GODOT", "JOB_ID", "STUDIO_COMMIT", "DISPLAY") for k in env):
         errors.append("env must not set OUT_DIR, GODOT, JOB_ID or DISPLAY (the runner sets them)")
     for k in ("token", "secret", "password", "key"):
         if any(k in str(name).lower() for name in env):

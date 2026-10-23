@@ -10,13 +10,13 @@ One JSON object per job. `python <KIT>/scripts/studio.py cloudrun validate --job
 | `repo` | yes | `owner/name`. The service also checks it against its `ALLOW_REPOS`. |
 | `ref` | yes | Branch or commit. The runner packs exactly this commit. The service checks branches against `ALLOW_REFS`. |
 | `setup` | no | One line of shell run from the repository root before `command` (fetch the engine, import). |
-| `command` | yes | One line of shell run from the repository root. Write results under `$OUT_DIR`. |
+| `command` | yes | One line of shell run from the repository root. Write results under `$OUT_DIR`. `$STUDIO_COMMIT` holds the full commit id (the copy has no `.git`). |
 | `where` | no | `colab` (default) or `here`. |
 | `gpu` | no | `L4` (default), `T4` or `A100`; what the account can hold decides how many run at once. |
 | `max_minutes` | yes | 1-240. Setup and command together; the runner adds 20 minutes for the runtime to start and copy in. |
 | `results_max_mb` | no | 1-500 (default 200). Past it, only files under 10 MB come back. Files over 10 MB never go to a results branch. |
 | `godot` | no | `{"url": "https://...zip", "sha256": "<64 hex>"}`: the runner downloads the engine, checks it and sets `GODOT`. A game that fetches its own engine in `setup` leaves this out. |
-| `env` | no | `{"NAME": "value"}`, upper-case names, one-line values. Not `OUT_DIR`, `GODOT`, `JOB_ID`, `DISPLAY`, and nothing that looks like a token, secret, password or key. |
+| `env` | no | `{"NAME": "value"}`, upper-case names, one-line values. Not `OUT_DIR`, `GODOT`, `JOB_ID`, `STUDIO_COMMIT`, `DISPLAY`, and nothing that looks like a token, secret, password or key. |
 
 ## Queue file
 

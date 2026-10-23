@@ -79,6 +79,7 @@ for try in 1 2 3 4 5; do
 done
 ssh runtime 'tar -xf - -C /content/job/repo' < "$RES/repo.tar"
 ssh runtime 'cat > /content/job/job.json' < "$JOBFILE"
+echo "$COMMIT" | ssh runtime 'cat > /content/job/commit.txt'
 for f in runtime_display.sh runtime_job.sh; do ssh runtime "cat > /content/job/$f" < "$HERE/$f"; done
 say "copied in after $(( $(date +%s) - T0 )) s"
 

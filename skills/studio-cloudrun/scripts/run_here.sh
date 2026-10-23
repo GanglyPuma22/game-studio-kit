@@ -28,7 +28,7 @@ case "$DEV" in
 	*) GPU="gpu=$DEV (this machine)" ;;
 esac
 { echo "nproc $(nproc)"; echo "$GPU"; } > "$JOB/env.txt"
-xvfb-run -a -s "-screen 0 1920x1080x24" env JOB_ROOT="$JOB" bash "$HERE/runtime_job.sh"
+xvfb-run -a -s "-screen 0 1920x1080x24" env JOB_ROOT="$JOB" STUDIO_COMMIT="$HEAD" bash "$HERE/runtime_job.sh"
 RC=$?
 cp -a "$JOB/out/." "$DEST/"; cp "$JOB/progress.txt" "$DEST/progress.txt" 2>/dev/null
 echo "job exit $RC; results in $DEST"

@@ -4,6 +4,7 @@
 # Colab runtime (after runtime_display.sh) and, through run_here.sh, on any
 # Linux box. Writes $JOB_ROOT/out (the job's OUT_DIR), progress.txt and
 # out/runner.json (exit codes, minutes, gpu line). Never needs credentials.
+# The job sees OUT_DIR, JOB_ID and STUDIO_COMMIT (full commit id).
 set -u
 JOB=${JOB_ROOT:-/content/job}
 OUT=$JOB/out; mkdir -p "$OUT"
@@ -18,6 +19,9 @@ CMD=$(J 'print(d["command"])')
 # The job's own environment, then the names the runner owns.
 while IFS= read -r line; do [ -n "$line" ] && export "${line?}"; done < <(J 'print("\n".join(f"{k}={v}" for k,v in d.get("env",{}).items()))')
 export OUT_DIR=$OUT JOB_ID=$ID
+# The job's commit (the copy has no .git): STUDIO_COMMIT, for build stamps.
+[ -s "$JOB/commit.txt" ] && STUDIO_COMMIT=$(cat "$JOB/commit.txt")
+export STUDIO_COMMIT=${STUDIO_COMMIT:-}
 export GODOT=${GODOT:-}
 T0=$(date +%s)
 log "job $ID: start (cap $MAXMIN min)"
