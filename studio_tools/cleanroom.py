@@ -701,6 +701,45 @@ class Sampler:
             }
 
 
+# Codex JSONL events that record something arriving at the agent (tool
+# output, token counts, user or tool messages) rather than the agent acting.
+_PASSIVE_RESPONSE_ITEMS = {"function_call_output", "custom_tool_call_output"}
+_PASSIVE_EVENT_MSGS = {"token_count", "user_message"}
+
+
+def _activity_text(text):
+    """Keep only the times that show the agent acting.
+
+    A line that is a structured event with its own `timestamp` (a Codex JSONL
+    transcript) counts by that event time alone, so dates quoted inside a
+    payload, such as an old log pasted into a tool call, are not read as
+    activity, and passive events are skipped. Unknown event types still
+    count. Any other line is kept whole, as before.
+    """
+    kept = []
+    for line in text.splitlines():
+        try:
+            event = json.loads(line)
+        except (ValueError, TypeError):
+            kept.append(line)
+            continue
+        if not isinstance(event, dict) or not isinstance(event.get("timestamp"), str):
+            kept.append(line)
+            continue
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            payload = {}
+        kind, inner = event.get("type"), payload.get("type")
+        passive = (
+            (kind == "response_item" and inner in _PASSIVE_RESPONSE_ITEMS)
+            or (kind == "event_msg" and inner in _PASSIVE_EVENT_MSGS)
+            or (kind == "response_item" and inner == "message" and payload.get("role") in {"user", "tool"})
+        )
+        if not passive:
+            kept.append(event["timestamp"])
+    return "\n".join(kept)
+
+
 def _timestamps_in_window(path, started, finished, *, root=None):
     """Status-bearing like the process readers. The capture has already run by
     the time this is read, so a log that was rotated or deleted inside the
@@ -729,7 +768,7 @@ def _timestamps_in_window(path, started, finished, *, root=None):
             result["file_record"] = {"path": rel.as_posix(), "sha256": result["sha256"]}
     inside = naive = 0
     pattern = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?")
-    text = data.decode("utf-8", errors="replace")
+    text = _activity_text(data.decode("utf-8", errors="replace"))
     for match in pattern.finditer(text):
         stamp_text = match.group(0).replace(" ", "T")
         if stamp_text.endswith("Z"):
