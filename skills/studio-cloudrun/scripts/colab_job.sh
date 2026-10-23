@@ -83,6 +83,8 @@ Host runtime
   UserKnownHostsFile /dev/null
   LogLevel ERROR
   ServerAliveInterval 30
+  ServerAliveCountMax 4
+  ConnectTimeout 60
 CFG
 ssh() { command ssh -F "$RES/ssh.cfg" "$@"; }
 # Hourly rate from `colab usage` (account-wide; the CLI's wording may change).
@@ -128,23 +130,38 @@ for try in 1 2 3 4 5; do
 	[ "$try" = 5 ] && { say "ssh to the runtime failed 5 times: stop"; exit 1; }
 	say "ssh not ready (try $try)"; sleep $((15 * try))
 done
-ssh runtime 'tar -xf - -C /content/job/repo' < "$RES/repo.tar"
-ssh runtime 'cat > /content/job/job.json' < "$RUNJOB"
+# Each start-up step is safe to repeat, so a dropped connection gets two more
+# tries instead of ending a paid run (an A100 start once hung 2.5 min, then broke).
+put() { # put REMOTE_COMMAND [LOCAL_FILE for stdin]
+	local t
+	for t in 1 2 3; do
+		ssh runtime "$1" < "${2:-/dev/null}" && return 0
+		say "ssh dropped (try $t of 3): ${1%% *}..."; sleep $((10 * t))
+	done
+	say "ssh failed 3 times: stop"; exit 1
+}
+put 'tar -xf - -C /content/job/repo' "$RES/repo.tar"
+put 'cat > /content/job/job.json' "$RUNJOB"
 if [ "${GATED:-0}" = 1 ]; then
 	# Gated weights: short-lived links made here with the host's login; the token stays here.
 	W=$WORK/state/$SESSION-weights.json
 	python3 "$HERE/stage_hf.py" "$RDIR/recipe.json" "$W" >> "$RES/driver.log" 2>&1 || { say "weight staging failed (see driver.log): stop"; rm -f "$W"; exit 1; }
-	ssh runtime 'umask 077; cat > /content/job/weights.json' < "$W"; rm -f "$W"
+	OK=0; ( put 'umask 077; cat > /content/job/weights.json' "$W" ) || OK=1; rm -f "$W"; [ "$OK" = 0 ] || exit 1
 	say "weights staged for $RECIPE"
 fi
-echo "$COMMIT" | ssh runtime 'cat > /content/job/commit.txt'
-for f in runtime_display.sh runtime_job.sh; do ssh runtime "cat > /content/job/$f" < "$HERE/$f"; done
+echo "$COMMIT" > "$RES/commit.txt"
+put 'cat > /content/job/commit.txt' "$RES/commit.txt"
+for f in runtime_display.sh runtime_job.sh; do put "cat > /content/job/$f" "$HERE/$f"; done
 say "copied in after $(( $(date +%s) - T0 )) s"
 
 # --- 2. screen, then the job (detached; polled)
 SCREEN_ARG=""; [ "$TYPE" = model-run ] && SCREEN_ARG=--no-screen
-ssh runtime "bash /content/job/runtime_display.sh $SCREEN_ARG" >> "$RES/driver.log" 2>&1 || { say "runtime preparation failed: stop"; exit 1; }
-ssh runtime 'cd /content/job && setsid nohup bash runtime_job.sh > runner.log 2>&1 < /dev/null &'
+ssh runtime "bash /content/job/runtime_display.sh $SCREEN_ARG" >> "$RES/driver.log" 2>&1 \
+	|| ssh runtime "bash /content/job/runtime_display.sh $SCREEN_ARG" >> "$RES/driver.log" 2>&1 \
+	|| { say "runtime preparation failed: stop"; exit 1; }
+# Start the job once: a retry after a dropped connection sees runner.pid and
+# only confirms the start.
+put 'cd /content/job && if [ ! -s runner.pid ]; then setsid nohup bash runtime_job.sh > runner.log 2>&1 < /dev/null & sleep 3; fi; [ -s runner.pid ]'
 while :; do
 	sleep 60
 	P=$(ssh runtime 'tail -1 /content/job/progress.txt 2>/dev/null; [ -f /content/job/finished ] && echo RUNNER-FINISHED' || true)

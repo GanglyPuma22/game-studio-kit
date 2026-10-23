@@ -173,5 +173,18 @@ class CloudrunCliAndScriptsTests(unittest.TestCase):
         self.assertIn("trap", text)
 
 
+class StageHfTokenFile(unittest.TestCase):
+    def test_token_file_forms(self):
+        import importlib.util
+        path = Path(__file__).resolve().parent.parent / "skills/studio-cloudrun/scripts/stage_hf.py"
+        spec = importlib.util.spec_from_file_location("stage_hf", path)
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        self.assertEqual(m.token_from_file("hf_abc\n"), "hf_abc")
+        self.assertEqual(m.token_from_file('export HF_TOKEN="hf_x"\n'), "hf_x")
+        self.assertEqual(m.token_from_file("# note\nOTHER=1\nHF_TOKEN=hf_y\n"), "hf_y")
+        self.assertEqual(m.token_from_file("OTHER=1\n"), "")
+
+
 if __name__ == "__main__":
     unittest.main()

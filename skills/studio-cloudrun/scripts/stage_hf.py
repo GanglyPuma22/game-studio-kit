@@ -5,7 +5,8 @@ without sending the account token there.
     stage_hf.py RECIPE_JSON OUT_JSON
 
 Reads the host's own Hugging Face login (HF_TOKEN, else the file in
-HF_TOKEN_PATH, else ~/.cache/huggingface/token), lists the model at the
+HF_TOKEN_PATH, else ~/.cache/huggingface/token; the file may hold the bare
+token or an env-style HF_TOKEN=... line), lists the model at the
 recipe's pinned revision, keeps the files the recipe includes, and writes
 OUT_JSON (mode 600) with, per file, its SHA-256 and either the bytes inline
 (small files) or the short-lived download link the hub hands out. Each link
@@ -26,13 +27,23 @@ from pathlib import Path
 HUB = "https://huggingface.co"
 
 
+def token_from_file(text):
+    """A bare token, or the HF_TOKEN line of an env file (export, quotes allowed)."""
+    lines = [l.strip() for l in text.splitlines() if l.strip() and not l.strip().startswith("#")]
+    for l in lines:
+        k, sep, v = l.removeprefix("export ").partition("=")
+        if sep and k.strip() in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "HUGGINGFACE_TOKEN"):
+            return v.strip().strip("'\"")
+    return lines[0] if len(lines) == 1 and "=" not in lines[0] else ""
+
+
 def token():
     t = os.environ.get("HF_TOKEN", "").strip()
     if not t:
         path = Path(os.environ.get("HF_TOKEN_PATH", Path.home() / ".cache" / "huggingface" / "token"))
-        t = path.read_text().strip() if path.is_file() else ""
+        t = token_from_file(path.read_text()) if path.is_file() else ""
     if not t:
-        sys.exit("no Hugging Face login on this host (HF_TOKEN or ~/.cache/huggingface/token)")
+        sys.exit("no Hugging Face login on this host (HF_TOKEN, HF_TOKEN_PATH or ~/.cache/huggingface/token)")
     return t
 
 
