@@ -5,6 +5,7 @@ reaches the network.
 """
 
 import contextlib
+import copy
 import hashlib
 import io
 import json
@@ -40,7 +41,7 @@ class FakeResponse(io.BytesIO):
 
 class FakeWeb:
     def __init__(self, routes):
-        self.routes = routes
+        self.routes = copy.deepcopy(routes)
         self.requests = []
 
     def __call__(self, request, timeout=None):
@@ -234,6 +235,35 @@ class FetchTests(AssetsCase):
         self.assertFalse((self.root / "assets/third_party/kenney/bad/bad.zip").exists())
 
 
+    def test_a_symlinked_asset_folder_pointing_outside_is_refused_before_writing(self):
+        outside = tempfile.TemporaryDirectory(prefix="studio outside ")
+        self.addCleanup(outside.cleanup)
+        victim = Path(outside.name) / "kit.zip"
+        victim.write_bytes(b"precious")
+        link = self.root / "assets/third_party/kenney/kit"
+        link.parent.mkdir(parents=True)
+        link.symlink_to(outside.name, target_is_directory=True)
+        url = "https://kenney.nl/kit.zip"
+        fake = self.web({url: b"new"})
+        with self.assertRaises(StudioError):
+            assets.fetch_url(self.root, None, url, "https://kenney.nl/assets/kit", None, "K", source="kenney")
+        self.assertEqual(victim.read_bytes(), b"precious")
+        self.assertEqual(fake.requests, [])
+
+    def test_a_failed_later_file_leaves_the_earlier_ones_untouched(self):
+        web = self.web(POLYHAVEN)
+        assets.fetch_polyhaven(self.root, None, "brick")
+        diffuse = self.root / "assets/third_party/polyhaven/brick/1k/brick_diffuse_1k.jpg"
+        changed = b"new diffuse"
+        web.routes["https://api.polyhaven.com/files/brick"]["Diffuse"]["1k"]["jpg"]["md5"] = md5(changed)
+        web.routes[PH + "brick_diffuse_1k.jpg"] = changed
+        del web.routes[PH + "brick_nor_gl_1k.jpg"]
+        with self.assertRaisesRegex(StudioError, "HTTP 404"):
+            assets.fetch_polyhaven(self.root, None, "brick")
+        self.assertEqual(diffuse.read_bytes(), DIFFUSE)
+        self.assertTrue(assets.verify(self.root, None)["ok"])
+        self.assertEqual([p.name for p in diffuse.parent.iterdir() if p.suffix == ".part"], [])
+
 class LedgerTests(AssetsCase):
     def test_verify_restore_and_changed_source(self):
         web = self.web(POLYHAVEN)
@@ -254,6 +284,32 @@ class LedgerTests(AssetsCase):
         self.assertFalse(first.exists())
         first.write_bytes(b"edited")
         self.assertEqual(len(assets.verify(self.root, None)["mismatched"]), 1)
+
+    def test_another_variant_adds_files_instead_of_dropping_them(self):
+        self.web(POLYHAVEN)
+        assets.fetch_polyhaven(self.root, None, "brick", maps=["Diffuse"])
+        assets.fetch_polyhaven(self.root, None, "brick", maps=["nor_gl"])
+        entries = self.ledger()["assets"]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(sorted(Path(f["path"]).name for f in entries[0]["files"]),
+                         ["brick_diffuse_1k.jpg", "brick_nor_gl_1k.jpg"])
+
+    def test_restore_also_recreates_the_extracted_folder(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("Models/a.glb", "glb")
+        url = "https://kenney.nl/kit.zip"
+        self.web({url: buf.getvalue()})
+        assets.fetch_url(self.root, None, url, "https://kenney.nl/assets/kit", None, "K",
+                         source="kenney", extract=True)
+        folder = self.root / "assets/third_party/kenney/kit"
+        import shutil
+        shutil.rmtree(folder / "extracted")
+        self.assertFalse(assets.verify(self.root, None)["ok"])
+        (folder / "kit.zip").unlink()
+        report = assets.verify(self.root, None, restore=True)
+        self.assertTrue(report["ok"], report)
+        self.assertTrue((folder / "extracted/Models/a.glb").is_file())
 
     def test_manual_add_is_hashed_not_refetchable_and_must_sit_in_the_library(self):
         outside = self.root / "downloads/well.blend"

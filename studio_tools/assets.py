@@ -18,7 +18,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 
-from .common import StudioError, read_json, relative, safe_id, sha256, write_json
+from .common import StudioError, outside_package, read_json, relative, safe_id, sha256, write_json
 from .records import BASE_LICENCES, normalise_licence
 
 CATALOG = Path(__file__).resolve().parents[1] / "skills/studio-assets/references/sources.json"
@@ -74,12 +74,44 @@ def _get_json(url):
                           + urllib.parse.urlsplit(url).netloc) from exc
 
 
+def _dest(root, lib, *parts):
+    """A download target, checked as a whole against the project root.
+
+    Every intermediate folder is resolved, so a symlinked source or asset
+    folder that points outside the project (or into the kit) is refused
+    before anything is written.
+    """
+    name = Path(lib.relative_to(root), *parts).as_posix()
+    target = relative(root, name)
+    if not target.is_relative_to(lib):
+        raise StudioError("Download target escapes the library folder")
+    return outside_package(target, "Asset download")
+
+
 def _download(url, target, max_bytes, referer=None, md5=None):
     """Stream to a temporary file beside the target, then rename it into place."""
+    tmp, got = _stage(url, target, max_bytes, referer, md5)
+    os.replace(tmp, target)
+    return got
+
+
+def _commit(staged):
+    """Replace every target only once all of a fetch's files arrived intact."""
+    for tmp, target in staged:
+        os.replace(tmp, target)
+
+
+def _discard(staged):
+    for tmp, _ in staged:
+        Path(tmp).unlink(missing_ok=True)
+
+
+def _stage(url, target, max_bytes, referer=None, md5=None):
+    """Download to a temporary file beside the target; the caller renames it."""
     max_bytes = max_bytes or 1024 * 1024 * 1024
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=target.name + ".", suffix=".part", dir=target.parent)
-    digest, check, size = hashlib.sha256(), hashlib.md5(), 0
+    digest, check, size, kept = hashlib.sha256(), hashlib.md5(), 0, None
     try:
         with os.fdopen(fd, "wb") as out, _urlopen(_request(url, referer), timeout=120) as response:
             kind = (response.headers.get("Content-Type") or "").lower()
@@ -102,14 +134,15 @@ def _download(url, target, max_bytes, referer=None, md5=None):
                 raise StudioError("Incomplete download; nothing was kept")
         if md5 and check.hexdigest() != md5:
             raise StudioError("Downloaded file does not match the source's md5; nothing was kept")
-        os.replace(tmp, target)
+        kept = tmp
     except urllib.error.HTTPError as exc:
         raise StudioError(f"Source answered HTTP {exc.code} for {urllib.parse.urlsplit(url).netloc}")
     except urllib.error.URLError as exc:
         raise StudioError("Source unreachable: " + urllib.parse.urlsplit(url).netloc) from exc
     finally:
-        Path(tmp).unlink(missing_ok=True)
-    return {"sha256": digest.hexdigest(), "bytes": size}
+        if kept is None:
+            Path(tmp).unlink(missing_ok=True)
+    return kept, {"sha256": digest.hexdigest(), "bytes": size}
 
 
 def _paths(root, library):
@@ -143,6 +176,14 @@ def _today():
 
 def _record(root, ledger_path, entry):
     ledger = _load_ledger(ledger_path)
+    # Another resolution, map set or variant of the same asset adds files;
+    # files fetched earlier stay recorded so verify and restore still cover them.
+    new_paths = {f["path"] for f in entry["files"]}
+    for old in ledger["assets"]:
+        if old["asset_id"] == entry["asset_id"]:
+            entry["files"] += [f for f in old["files"] if f["path"] not in new_paths]
+            if "extracted_to" in old and "extracted_to" not in entry:
+                entry["extracted_to"] = old["extracted_to"]
     ledger["assets"] = [a for a in ledger["assets"] if a["asset_id"] != entry["asset_id"]]
     ledger["assets"].append(entry)
     ledger["assets"].sort(key=lambda a: a["asset_id"])
@@ -231,12 +272,17 @@ def fetch_polyhaven(root, library, asset, resolution="1k", fmt="jpg", maps=None,
                               + ", ".join(k for k in files if k not in ("blend", "gltf", "mtlx", "usd", "fbx")))
     else:
         raise StudioError("Unknown Poly Haven asset type")
-    out = lib / "polyhaven" / asset / resolution
-    recorded = []
-    for name, url, md5 in wanted:
-        target = relative(out, name)
-        got = _download(url, target, max_bytes, md5=md5)
-        recorded.append({"path": target.relative_to(root).as_posix(), "url": url, **got})
+    recorded, staged = [], []
+    try:
+        for name, url, md5 in wanted:
+            target = _dest(root, lib, "polyhaven", asset, resolution, name)
+            tmp, got = _stage(url, target, max_bytes, md5=md5)
+            staged.append((tmp, target))
+            recorded.append({"path": target.relative_to(root).as_posix(), "url": url, **got})
+    except BaseException:
+        _discard(staged)
+        raise
+    _commit(staged)
     return _record(root, ledger, _entry(
         "polyhaven", "polyhaven/" + asset, info.get("name", asset), "https://polyhaven.com/a/" + asset,
         "CC0-1.0", ", ".join(info.get("authors", {})), None, True, recorded,
@@ -257,7 +303,7 @@ def fetch_ambientcg(root, library, asset, resolution="1K", fmt="JPG", max_bytes=
     if not match:
         raise StudioError("No " + attribute + " download; offered: " + ", ".join(z["attribute"] for z in zips))
     url = match[0]["fullDownloadPath"]
-    target = relative(lib / "ambientcg" / asset, match[0].get("fileName") or f"{asset}_{attribute}.zip")
+    target = _dest(root, lib, "ambientcg", asset, Path(match[0].get("fileName") or f"{asset}_{attribute}.zip").name)
     got = _download(url, target, max_bytes)
     return _record(root, ledger, _entry(
         "ambientcg", "ambientcg/" + asset, found[0].get("displayName", asset),
@@ -289,7 +335,7 @@ def fetch_url(root, library, url, page, licence, author, attribution=None, title
     name = (query.get("dn") or [name])[0] or "download.bin"
     asset = safe_id(asset or Path(name).stem.replace(".", "-").replace(" ", "-")[:100])
     group = safe_id(source if source != "url" else "web")
-    target = relative(lib / group / asset, Path(name).name)
+    target = _dest(root, lib, group, asset, Path(name).name)
     got = _download(url, target, max_bytes, referer=referer)
     files = [{"path": target.relative_to(root).as_posix(), "url": url, **got}]
     extra = {"referer": referer} if referer else {}
@@ -324,13 +370,15 @@ def add_file(root, library, file, page, licence, author, attribution=None, title
 def _extract(root, archive, limit=4 * 1024 * 1024 * 1024):
     if not zipfile.is_zipfile(archive):
         raise StudioError("--extract needs a zip archive")
-    dest = archive.parent / "extracted"
+    base = (archive.parent / "extracted").relative_to(root).as_posix()
+    dest = relative(root, base)
     with zipfile.ZipFile(archive) as z:
         members = z.infolist()
         if sum(m.file_size for m in members) > limit:
             raise StudioError("Archive expands beyond 4 GB; refusing to extract")
         for m in members:
-            relative(dest, m.filename.rstrip("/") or ".")  # rejects absolute and escaping names
+            # Rejects absolute, escaping and symlink-redirected names.
+            relative(root, base + "/" + (m.filename.rstrip("/") or "."))
         z.extractall(dest)
     return dest.relative_to(root).as_posix()
 
@@ -358,6 +406,14 @@ def verify(root, library, restore=False, max_bytes=None):
                 report["unrestorable"].append(f["path"])
             else:
                 report["missing"].append(f["path"])
+        extracted = entry.get("extracted_to")
+        if extracted and not relative(root, extracted).is_dir():
+            archive = relative(root, entry["files"][0]["path"])
+            if restore and archive.is_file() and sha256(archive) == entry["files"][0]["sha256"]:
+                _extract(root, archive)
+                report["restored"].append(extracted)
+            else:
+                report["missing"].append(extracted)
     report["ok"] = not (report["missing"] or report["mismatched"] or report["unrestorable"])
     return report
 
