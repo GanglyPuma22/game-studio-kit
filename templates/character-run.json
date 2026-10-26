@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "kind": "character-run",
+  "character_id": "replace-me",
+  "builder": "name of the session or agent doing the work",
+  "brief": {
+    "role": null,
+    "abilities": [],
+    "scale_and_closest_view": null,
+    "must_not_look_like": null,
+    "look_directions": [],
+    "voice_profile": null,
+    "line_sheet": []
+  },
+  "gates": {
+    "concept": {
+      "status": "open",
+      "choice": null,
+      "notes": null,
+      "approved_by": null,
+      "approved_at": null,
+      "file": null
+    },
+    "voice": {
+      "status": "open",
+      "choice": null,
+      "notes": null,
+      "approved_by": null,
+      "approved_at": null,
+      "file": null
+    }
+  },
+  "budgets": [],
+  "repair_round_cap": 3,
+  "stages": [
+    {
+      "id": "model",
+      "status": "pending",
+      "needs": [
+        "gate:concept"
+      ],
+      "outputs": [],
+      "check": {
+        "verdict": "not_run"
+      },
+      "repair_rounds": 0,
+      "paid": []
+    },
+    {
+      "id": "model_qa",
+      "status": "pending",
+      "needs": [
+        "model"
+      ],
+      "outputs": [],
+      "check": {
+        "verdict": "not_run"
+      },
+      "repair_rounds": 0,
+      "paid": []
+    },
+    {
+      "id": "library",
+      "status": "pending",
+      "needs": [
+        "model_qa"
+      ],
+      "outputs": [],
+      "check": {
+        "verdict": "not_run"
+      },
+      "repair_rounds": 0,
+      "paid": []
+    },
+    {
+      "id": "animation",
+      "status": "pending",
+      "needs": [
+        "model_qa"
+      ],
+      "outputs": [],
+      "check": {
+        "verdict": "not_run"
+      },
+      "repair_rounds": 0,
+      "paid": []
+    },
+    {
+      "id": "voice_lines",
+      "status": "pending",
+      "needs": [
+        "gate:voice"
+      ],
+      "outputs": [],
+      "check": {
+        "verdict": "not_run"
+      },
+      "repair_rounds": 0,
+      "paid": []
+    },
+    {
+      "id": "effects",
+      "status": "pending",
+      "needs": [
+        "model"
+      ],
+      "outputs": [],
+      "check": {
+        "verdict": "not_run"
+      },
+      "repair_rounds": 0,
+      "paid": []
+    },
+    {
+      "id": "sounds",
+      "status": "pending",
+      "needs": [
+        "effects"
+      ],
+      "outputs": [],
+      "check": {
+        "verdict": "not_run"
+      },
+      "repair_rounds": 0,
+      "paid": []
+    },
+    {
+      "id": "integration",
+      "status": "pending",
+      "needs": [
+        "model_qa",
+        "library",
+        "animation",
+        "voice_lines",
+        "effects",
+        "sounds"
+      ],
+      "outputs": [],
+      "check": {
+        "verdict": "not_run"
+      },
+      "repair_rounds": 0,
+      "paid": []
+    },
+    {
+      "id": "review",
+      "status": "pending",
+      "needs": [
+        "integration",
+        "gate:concept",
+        "gate:voice"
+      ],
+      "outputs": [],
+      "check": {
+        "verdict": "not_run"
+      },
+      "repair_rounds": 0,
+      "paid": []
+    }
+  ],
+  "review_rounds": []
+}

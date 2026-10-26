@@ -1,6 +1,6 @@
 # Minimal production contracts
 
-Use [project](../templates/project.json), [work card](../templates/work-card.md), [asset](../templates/asset.json), [audio cues](../templates/audio-cues.json) and [candidate](../templates/candidate.json). Templates are starting structures, not passed evidence. Schema version is `1`; supported kinds are project, asset, audio-cues, candidate, run-policy and run-decision. Terrain/provider records are validated by their adapters.
+Use [project](../templates/project.json), [work card](../templates/work-card.md), [asset](../templates/asset.json), [audio cues](../templates/audio-cues.json) and [candidate](../templates/candidate.json). Templates are starting structures, not passed evidence. Schema version is `1`; supported kinds are project, asset, audio-cues, candidate, character-run ([template](../templates/character-run.json), see the [character pipeline](../skills/studio-director/references/character-pipeline.md)), run-policy and run-decision. Terrain/provider records are validated by their adapters.
 
 [Run policy](run-policy.md) records development-default mode, actual limits,
 complete lane inventory and explicit stop authority. Candidate quality validation

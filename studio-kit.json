@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "game-studio-kit",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "skills": [
     {
       "name": "studio-director",
@@ -208,7 +208,10 @@
     "skills/studio-animation/scripts/block_anim/plant.gd",
     "skills/studio-animation/scripts/block_anim/motion_check.gd",
     "skills/studio-animation/scripts/block_anim/selftest.gd",
-    "templates/block-rig.json"
+    "templates/block-rig.json",
+    "studio_tools/character_run.py",
+    "templates/character-run.json",
+    "skills/studio-director/references/character-pipeline.md"
   ],
   "commands": [
     "check-package",
