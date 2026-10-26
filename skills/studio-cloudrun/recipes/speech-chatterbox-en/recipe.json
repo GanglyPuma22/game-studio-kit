@@ -1,0 +1,71 @@
+{
+  "summary": "Exact game lines in one approved reference voice with Chatterbox (original English model), one take per line and seed, 24 kHz mono.",
+  "kind": "speech",
+  "experimental": true,
+  "gpu": "L4",
+  "gpus": [
+    "T4",
+    "L4",
+    "A100"
+  ],
+  "inputs": true,
+  "reference": "required",
+  "languages": [
+    "en"
+  ],
+  "controls": {
+    "exaggeration": [
+      0.25,
+      2.0
+    ],
+    "cfg_weight": [
+      0.0,
+      1.0
+    ],
+    "temperature": [
+      0.3,
+      1.2
+    ]
+  },
+  "limits": {
+    "max_seconds": [
+      1,
+      12
+    ],
+    "max_chars": 200,
+    "max_outputs": 40
+  },
+  "model": {
+    "source": "https://github.com/resemble-ai/chatterbox",
+    "commit": "5de7a54aa4e5e2baadb0182dde554908b48b85c2",
+    "repo": "ResembleAI/chatterbox",
+    "revision": "5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18",
+    "files": {
+      "conds.pt": {
+        "sha256": "6552d70568833628ba019c6b03459e77fe71ca197d5c560cef9411bee9d87f4e",
+        "size": 107374
+      },
+      "s3gen.safetensors": {
+        "sha256": "2b78103c654207393955e4900aac14a12de8ef25f4b09424f1ef91941f161d4e",
+        "size": 1056484620
+      },
+      "t3_cfg.safetensors": {
+        "sha256": "914cb1696f47527fe8852ca8f1fe1fa63cb34f76f9c715e84e067b744dd0da81",
+        "size": 2129653744
+      },
+      "tokenizer.json": {
+        "git_oid": "abd07c710243ba89bf1b21780e7c37ddde92334e",
+        "size": 25470
+      },
+      "ve.safetensors": {
+        "sha256": "f0921cab452fa278bc25cd23ffd59d36f816d7dc5181dd1bef9751a7fb61f63c",
+        "size": 5695784
+      }
+    },
+    "license": "MIT (code and weights, model card at the pinned revision). The licence covers the model, not the reference speaker: use an original or authorized voice."
+  },
+  "output_terms": "Every take carries Resemble's Perth imperceptible watermark (applied by the engine; the kit does not remove it).",
+  "tested": "not yet (offline checks only; no weights downloaded or run by the kit so far)",
+  "setup_summary": "uv venv with Python 3.11; chatterbox-tts from its pinned commit (torch 2.6.0, transformers per its pins), resemble-perth at a pinned commit; import check",
+  "run_summary": "download the 5 pinned files and check each hash, then hub offline; load once; condition on the private reference; one take per cue and seed, repeats after a reload; float original, level-matched preview, receipt.json"
+}

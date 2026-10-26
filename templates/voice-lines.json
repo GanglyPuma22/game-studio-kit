@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "kind": "voice-lines",
+  "character_id": "striker",
+  "profile_version": 1,
+  "language": "en",
+  "lines": [
+    {
+      "line_id": "striker.ult.ally",
+      "event": "ultimate used, heard by own team",
+      "text": "Overdrive! Keep up!",
+      "delivery": "shouted rally to teammates, fast and bright",
+      "max_seconds": 4,
+      "status": "draft"
+    },
+    {
+      "line_id": "striker.ult.enemy",
+      "event": "ultimate used, heard by the other team",
+      "text": "You can't outrun me!",
+      "delivery": "taunt at the enemy, cocky, close",
+      "max_seconds": 4,
+      "status": "draft"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "kind": "character-voice",
+  "character_id": "striker",
+  "profile_version": 1,
+  "profile": {
+    "one_line": "Who they are in one sentence (no lore that is on hold).",
+    "age_range": "young adult",
+    "energy": "quick, bright, a little cocky",
+    "pitch": "mid",
+    "accent": "neutral, unplaced",
+    "never": [
+      "impressions of real people",
+      "real-person names in descriptions"
+    ]
+  },
+  "casting": {
+    "recipe": "casting-qwen3-voicedesign",
+    "instruct": "A young adult voice, light and quick, mid pitch, confident and a little cocky, clear diction.",
+    "takes_reviewed": [],
+    "picked": null
+  },
+  "reference": {
+    "origin": "designed (casting take) | recorded with written consent",
+    "consent_or_source": "",
+    "path_private": "voices/striker/reference.wav",
+    "sha256": "",
+    "transcript": "",
+    "kept_private": true
+  },
+  "engine": {
+    "recipe": "",
+    "controls": {},
+    "picked_after": "blind listening of the audition"
+  },
+  "post": {
+    "chain": "",
+    "applies_to": "every generated line, after the engine; the reference stays untreated",
+    "picked_after": "listening to the take as cast and treated"
+  },
+  "approved_by": "",
+  "approved_on": ""
+}

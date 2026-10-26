@@ -26,10 +26,14 @@ One JSON object per job. `python <KIT>/scripts/studio.py cloudrun validate --job
 |---|---|---|
 | `recipe` | yes | A folder under `skills/studio-cloudrun/recipes` with a `recipe.json`. |
 | `plan` | yes | `{"cues": [...]}` plus recipe settings. Each cue: unique `id`, the recipe's text field (`prompt` or `caption`), `seeds` (distinct whole numbers, one output each), `seconds` (or a plan-wide `seconds`) within the recipe's limits. Total outputs within the recipe's `max_outputs`. |
-| `max_units` | yes | 0.01-20 compute units: the runtime is stopped when this much time at the observed rate has passed. |
+| `max_units` | yes | 0.01-20 compute units: the runtime is stopped when this much time at the observed rate has passed. `0` (and only 0) for `where: attended`. |
 | `max_rate` | no | Units per hour; the run stops at once if the session's rate is higher. |
 | `gpu` | no | Defaults to the recipe's; must be one the recipe lists. |
-| `where` | no | `colab` only. |
+| `where` | no | `colab` (the service; default) or `attended` (the person's own notebook runtime, [attended.sh](../scripts/attended.sh); spend fixed at 0, no `max_rate` or `budget`, no gated recipes). |
+| `budget` | no | `{"group": id, "units": total}`: one ceiling across several jobs. Each run reserves min(`max_units`, what is free) before waiting for a GPU and is capped there; refused when nothing is free; `max_units` must not exceed the total; all jobs of a group name the same total. |
+| `inputs` | no | Speech recipes only: up to 8 `{"path", "sha256", "private"}` files, paths relative to the folder passed as `--inputs` (or the runner's second argument). `private` defaults to true: sent to the runtime only, never to results. |
+
+Speech and casting plans (`kind` `speech` or `voice-casting` in `recipe.json`) use `language`, `character` (`{id, profile_version}`), `max_seconds` (plan-wide or per cue, within the recipe's limit; a longer take is kept and flagged `overlength`), optional `controls` (only those the recipe lists), cues with `id`, `text` (one line, exact words), optional `line_id` and `delivery`, `seeds`, and optional `repeats` (`{cue, seed, after_reload: true}`, each one more output). Speech plans need `reference: {input, sha256, transcript}` naming a private input; casting plans need `controls.instruct` and no reference. See studio-audio's [open voices](../../studio-audio/references/open-voices.md).
 
 ## Queue file
 

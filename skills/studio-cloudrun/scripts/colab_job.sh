@@ -1,7 +1,14 @@
 #!/bin/bash
 # Service host side (the always-on box, e.g. Aptivio in WSL): run one job on a
 # Colab GPU runtime from start to finish, then stop the runtime.
-#   colab_job.sh JOB.json
+#   colab_job.sh JOB.json [INPUTS_DIR]
+# INPUTS_DIR (or CLOUDRUN_INPUTS): the folder holding a model run's inputs
+# (an approved reference voice); each file is checked against its SHA-256.
+# Private inputs go to the runtime only, never into results: a result that is
+# a byte copy of one fails the job and nothing is pushed.
+# A job with a budget group draws on one ledger ($WORK/budgets/<group>.json):
+# refused once the group is spent, capped at what is left, billed for the
+# runtime's whole life (setup included) at the rate read at start.
 # Needs: the colab CLI signed in by the person, git access to the job's repo
 # (GH, default git@github.com:), python3.
 # Colab login: COLAB_AUTH (default oauth2; on Aptivio, ADC is another Google
@@ -13,15 +20,17 @@
 # Results: $WORK/results/<id>-<UTC time>-XXXX/ (runner.json first), and, when
 # RESULTS_REPO is set, a fresh one-commit branch studio-results/<id> there.
 set -euo pipefail
-JOBFILE=$(realpath "${1:?usage: colab_job.sh JOB.json}")
+JOBFILE=$(realpath "${1:?usage: colab_job.sh JOB.json [INPUTS_DIR]}")
+INPUTS=${2:-${CLOUDRUN_INPUTS:-}}
+VARGS=(); [ -n "$INPUTS" ] && { INPUTS=$(realpath "$INPUTS"); VARGS=(--inputs "$INPUTS"); }
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 KIT=$(cd "$HERE/../../.." && pwd)
 WORK=${CLOUDRUN_WORK:-$HOME/studio-cloudrun}; GH=${GH:-git@github.com:}
 J() { python3 -c "import json,sys;d=json.load(open(sys.argv[1]));$1" "$JOBFILE"; }
 ALLOW=(); for r in ${ALLOW_REPOS:-}; do ALLOW+=(--allow-repo "$r"); done
 for r in ${ALLOW_REFS:-}; do ALLOW+=(--allow-ref "$r"); done
-python3 "$KIT/scripts/studio.py" cloudrun validate --job "$JOBFILE" "${ALLOW[@]}" > /dev/null \
-	|| { python3 "$KIT/scripts/studio.py" cloudrun validate --job "$JOBFILE" "${ALLOW[@]}"; exit 2; }
+python3 "$KIT/scripts/studio.py" cloudrun validate --job "$JOBFILE" "${ALLOW[@]}" "${VARGS[@]}" > /dev/null \
+	|| { python3 "$KIT/scripts/studio.py" cloudrun validate --job "$JOBFILE" "${ALLOW[@]}" "${VARGS[@]}"; exit 2; }
 ID=$(J 'print(d["id"])'); TYPE=$(J 'print(d["type"])')
 MAXMIN=$(J 'print(int(d["max_minutes"]))'); CAPMB=$(J 'print(int(d.get("results_max_mb",200)))')
 if [ "$TYPE" = model-run ]; then
@@ -31,10 +40,14 @@ if [ "$TYPE" = model-run ]; then
 	GPU=$(J "import json as j;print(d.get('gpu') or j.load(open('$RDIR/recipe.json')).get('gpu','L4'))")
 	GATED=$(python3 -c "import json,sys;print(1 if json.load(open(sys.argv[1])).get('gated') else 0)" "$RDIR/recipe.json")
 	MAXUNITS=$(J 'print(d["max_units"])'); MAXRATE=$(J 'print(d.get("max_rate",""))')
+	[ "$(J 'print(d.get("where","colab"))')" = colab ] || { echo "attended jobs run in the person's notebook (scripts/attended.sh), not on the service"; exit 2; }
+	BGROUP=$(J 'print((d.get("budget") or {}).get("group",""))'); BTOTAL=$(J 'print((d.get("budget") or {}).get("units",""))')
+	NINPUTS=$(J 'print(len(d.get("inputs") or []))')
 else
 	REPO=$(J 'print(d["repo"])'); REF=$(J 'print(d["ref"])'); GPU=$(J 'print(d.get("gpu","L4"))')
 	MAXUNITS=""; MAXRATE=""
 fi
+BGROUP=${BGROUP:-}; NINPUTS=${NINPUTS:-0}
 SESSION=${COLAB_SESSION:-studio-$ID}
 mkdir -p "$WORK/results" "$WORK/repos"
 RES=$(mktemp -d "$WORK/results/$ID-$(date -u +%Y%m%dT%H%M%SZ)-XXXX")   # fresh per run, even for a reused id
@@ -57,8 +70,12 @@ say "colab: $("${COLAB[@]}" --version 2> /dev/null | head -1), auth ${COLAB_AUTH
 # --- 0. what runs, packed here (no .git, no credentials go to the runtime)
 RUNJOB=$JOBFILE
 if [ "$TYPE" = model-run ]; then
-	COMMIT=$(git -C "$KIT" rev-parse HEAD 2> /dev/null || echo unknown)$(git -C "$KIT" diff --quiet HEAD -- "$RDIR" 2> /dev/null || echo +local-changes)
+	COMMON=$KIT/skills/studio-cloudrun/recipes/speech_common.py
+	COMMIT=$(git -C "$KIT" rev-parse HEAD 2> /dev/null || echo unknown)$(git -C "$KIT" diff --quiet HEAD -- "$RDIR" "$COMMON" 2> /dev/null || echo +local-changes)
 	PACK=$(mktemp -d); cp -r "$RDIR"/. "$PACK/"
+	# Speech recipes share one loop (download checks, takes, receipt).
+	grep -q speech_common "$RDIR/worker.py" && cp "$COMMON" "$PACK/"
+	echo "$RECIPE" > "$PACK/recipe.name"
 	python3 -c "import json,sys;json.dump(json.load(open(sys.argv[1]))['plan'],open(sys.argv[2],'w'),indent=2)" "$JOBFILE" "$PACK/plan.json"
 	# The runtime's own job file: the recipe's setup and run, the job's caps.
 	RUNJOB=$RES/runtime-job.json
@@ -70,6 +87,30 @@ else
 	git -C "$MIRROR" fetch -q origin "+refs/heads/*:refs/heads/*" 2> /dev/null || git -C "$MIRROR" fetch -q origin
 	COMMIT=$(git -C "$MIRROR" rev-parse --verify -q "$REF^{commit}") || { say "ref $REF not found in $REPO: stop"; exit 1; }
 	git -C "$MIRROR" archive --format=tar "$COMMIT" > "$RES/repo.tar"
+fi
+# Bill the group once, on every way out: the runtime's whole life at the rate
+# read at start (unknown rate: the run's whole reservation, never less; no
+# runtime started: nothing). Billing releases the run's reservation.
+BILLED=0; RESERVED=0; T0=""; RUN=$(basename "$RES")
+bill() {
+	[ "$RESERVED" = 1 ] && [ "$BILLED" = 0 ] || return 0
+	BILLED=1
+	local u=0
+	if [ -n "$T0" ]; then
+		if [ -n "${OWN:-}" ]; then u=$(python3 -c "import sys;print(round(float(sys.argv[1])*float(sys.argv[2])/3600,4))" "$(( $(date +%s) - T0 ))" "$OWN")
+		else u=$MAXUNITS; fi
+	fi
+	python3 "$HERE/budget.py" spend "$BGROUP" "$u" "$RUN" "$ID" > /dev/null 2>> "$RES/driver.log" || true
+	say "budget $BGROUP: this run cost about $u units (setup included)"
+}
+PRIVATE=$WORK/state/$SESSION-private.sha256; INTAR=""
+trap 'bill; rm -f "$INTAR" "$PRIVATE"' EXIT   # the private copy never outlives this run
+if [ "$NINPUTS" -gt 0 ]; then
+	# Only the files the job lists, packed here (mode 600), unpacked on the runtime only.
+	INTAR=$WORK/state/$SESSION-inputs.tar
+	(umask 077; J 'print("\n".join(i["path"] for i in d["inputs"]))' | tar -chf "$INTAR" -C "$INPUTS" --no-recursion -T -)
+	(umask 077; J 'print("\n".join(i["sha256"] for i in d["inputs"] if i.get("private", True)))' > "$PRIVATE")
+	say "inputs: $NINPUTS file(s) checked against their SHA-256; private ones never go to results"
 fi
 say "job $ID: $REPO $REF @ $COMMIT ($(( $(stat -c %s "$RES/repo.tar") / 1048576 )) MB), $GPU, cap $MAXMIN min"
 
@@ -93,6 +134,14 @@ import re, sys
 m = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(?:compute\s*)?(?:units?\s*)?(?:/|per\s*)\s*h(?:ou)?r", sys.stdin.read(), re.I)
 print(m.group(1) if m else "")'; }
 RATE0=$("${COLAB[@]}" usage 2> /dev/null | rate || true)
+if [ -n "$BGROUP" ]; then
+	# Reserve this run's units now, before waiting for a GPU, so runs in parallel never share them.
+	GRANT=$(python3 "$HERE/budget.py" open "$BGROUP" "$BTOTAL" "$MAXUNITS" "$RUN" 2>> "$RES/driver.log") || { say "budget group $BGROUP refuses this job (see driver.log): stop"; exit 1; }
+	RESERVED=1
+	if python3 -c "import sys;sys.exit(0 if float(sys.argv[1])<float(sys.argv[2]) else 1)" "$GRANT" "$MAXUNITS"; then
+		say "budget group $BGROUP has $GRANT units free: this run's ceiling drops from $MAXUNITS to $GRANT"; MAXUNITS=$GRANT
+	fi
+fi
 WAIT=${GPU_WAIT_MIN:-240}
 for try in $(seq $(( WAIT / 5 + 1 ))); do
 	"${COLAB[@]}" new --gpu "$GPU" -s "$SESSION" && break
@@ -100,7 +149,7 @@ for try in $(seq $(( WAIT / 5 + 1 ))); do
 	say "no free $GPU yet (try $try), waiting 5 min"; sleep 300
 done
 T0=$(date +%s)
-trap '"${COLAB[@]}" stop -s "$SESSION" > /dev/null 2>&1 || true' EXIT
+trap '"${COLAB[@]}" stop -s "$SESSION" > /dev/null 2>&1 || true; bill; rm -f "$INTAR" "$PRIVATE"' EXIT
 CAP=$(( (MAXMIN + 20) * 60 ))
 USAGE=$("${COLAB[@]}" usage 2> /dev/null || true)
 echo "$USAGE" | head -5 >> "$RES/driver.log"
@@ -123,7 +172,7 @@ fi
 ( sleep "$CAP"; echo "[cloudrun $(date -u +%T)] watchdog: $CAP s since the runtime started, stopping it" >> "$RES/driver.log"
   "${COLAB[@]}" stop -s "$SESSION" > /dev/null 2>&1 ) &
 WATCHDOG=$!
-trap 'kill "$WATCHDOG" 2> /dev/null; say "stopping runtime"; "${COLAB[@]}" stop -s "$SESSION" || true; rm -f "$RES/repo.tar"' EXIT
+trap 'kill "$WATCHDOG" 2> /dev/null; say "stopping runtime"; "${COLAB[@]}" stop -s "$SESSION" || true; bill; rm -f "$RES/repo.tar" "$INTAR" "$PRIVATE"' EXIT
 "${COLAB[@]}" usage 2> /dev/null | head -3 >> "$RES/driver.log" || true
 for try in 1 2 3 4 5; do
 	ssh runtime 'mkdir -p /content/job/repo /content/job/out' && break
@@ -142,6 +191,10 @@ put() { # put REMOTE_COMMAND [LOCAL_FILE for stdin]
 }
 put 'tar -xf - -C /content/job/repo' "$RES/repo.tar"
 put 'cat > /content/job/job.json' "$RUNJOB"
+if [ -n "$INTAR" ]; then
+	put 'umask 077; rm -rf /content/job/inputs; mkdir -p /content/job/inputs && tar -xf - -C /content/job/inputs' "$INTAR"
+	rm -f "$INTAR"
+fi
 if [ "${GATED:-0}" = 1 ]; then
 	# Gated weights: short-lived links made here with the host's login; the token stays here.
 	W=$WORK/state/$SESSION-weights.json
@@ -193,6 +246,29 @@ if [ -s "$RES/MANIFEST.sha256" ]; then
 		(cd "$RES" && sha256sum --quiet -c MANIFEST.sha256) && VERIFIED=1
 	fi
 fi
+# No copy of a private input may leave this host: such a file is deleted
+# here, the job fails and nothing is pushed.
+LEAK=0
+if [ -s "$PRIVATE" ]; then
+	LEAK=$(python3 - "$RES" "$PRIVATE" <<'PY'
+import hashlib, sys
+from pathlib import Path
+res, bad = Path(sys.argv[1]), set(Path(sys.argv[2]).read_text().split())
+n = 0
+for p in res.rglob("*"):
+    if p.is_file() and not p.is_symlink():
+        h = hashlib.sha256()
+        with p.open("rb") as f:
+            for b in iter(lambda: f.read(1 << 20), b""):
+                h.update(b)
+        if h.hexdigest() in bad:
+            p.unlink(); n += 1
+print(n)
+PY
+)
+	rm -f "$PRIVATE"
+	[ "$LEAK" -gt 0 ] && say "$LEAK result file(s) were copies of a private input: deleted; this job fails and nothing is pushed"
+fi
 [ "$VERIFIED" = 1 ] && say "results match the runtime's SHA-256 list" || say "results do NOT match the runtime's SHA-256 list (or it is missing)"
 say "runtime minutes: $(( ($(date +%s) - T0) / 60 ))"
 "${COLAB[@]}" usage 2> /dev/null | head -3 >> "$RES/driver.log" || true
@@ -203,7 +279,7 @@ PUSHED=0; [ -n "${RESULTS_REPO:-}" ] || PUSHED=1   # no results repo: the local 
 # for model runs (a 180 s FLAC is about 30 MB; GitHub refuses files over 100 MB).
 FILE_MB=10; [ "$TYPE" = model-run ] && FILE_MB=95
 LEFTOUT=0
-if [ -n "${RESULTS_REPO:-}" ]; then
+if [ -n "${RESULTS_REPO:-}" ] && [ "$LEAK" = 0 ]; then
 	P=$(mktemp -d); mkdir -p "$P/$ID"
 	(cd "$RES" && find . -type f ! -name repo.tar ! -name ssh.cfg -size -${FILE_MB}M -print0 | tar --null -T - -cf -) | tar -xf - -C "$P/$ID"
 	(cd "$RES" && find . -type f ! -name repo.tar -size +$((FILE_MB - 1))M -print) > "$P/$ID/LEFT-OUT-over-${FILE_MB}MB.txt"
@@ -219,6 +295,7 @@ RC=$(python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(0 if d.get
 # Results nobody can reach are a failed job: the queue stops and says so.
 [ "$RC" = 0 ] && [ "$VERIFIED" = 0 ] && RC=4
 [ "$RC" = 0 ] && [ "$PUSHED" = 0 ] && RC=3
+[ "$LEAK" -gt 0 ] && RC=5
 # A model run's outputs are the product: any left behind means it was not delivered.
 if [ "$TYPE" = model-run ] && [ "$RC" = 0 ] && { [ "${LEFTOUT:-0}" -gt 0 ] || [ "${MB:-0}" -gt "$CAPMB" ]; }; then
 	say "model outputs not all delivered (size limits): exit 3"; RC=3

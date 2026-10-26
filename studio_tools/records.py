@@ -2,6 +2,7 @@
 
 import math
 import os
+import re
 from .common import StudioError, relative, sha256
 
 STAGES = ["working", "exported", "imported", "reviewed", "accepted"]
@@ -210,6 +211,13 @@ def validate(record, root):
             )
             verify_file(root, cue["source"])
             verify_file(root, cue["runtime"])
+            # Spoken cues name who says them and which line sheet entry they are.
+            for key in ("character_id", "line_id"):
+                if key in cue and (
+                    not isinstance(cue[key], str)
+                    or not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{1,95}", cue[key])
+                ):
+                    raise StudioError(f"Audio cue {key} must be a lowercase id")
             required(cue["measured"], ["duration_seconds", "sample_rate", "channels"])
             if cue["listening"] not in VERDICTS:
                 raise StudioError("Unknown listening verdict")

@@ -1,0 +1,96 @@
+{
+  "summary": "Casting: an original voice from a written description with Qwen3-TTS 1.7B VoiceDesign, a few takes to pick a character's reference from. No reference goes in.",
+  "kind": "voice-casting",
+  "experimental": true,
+  "gpu": "L4",
+  "gpus": [
+    "L4",
+    "A100"
+  ],
+  "languages": [
+    "en"
+  ],
+  "controls": {
+    "instruct": "text",
+    "temperature": [
+      0.3,
+      1.2
+    ],
+    "top_p": [
+      0.5,
+      1.0
+    ],
+    "top_k": [
+      1,
+      100
+    ],
+    "repetition_penalty": [
+      1.0,
+      1.5
+    ]
+  },
+  "limits": {
+    "max_seconds": [
+      2,
+      20
+    ],
+    "max_chars": 400,
+    "max_outputs": 12
+  },
+  "model": {
+    "source": "https://github.com/QwenLM/Qwen3-TTS",
+    "commit": "022e286b98fbec7e1e916cb940cdf532cd9f488e",
+    "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+    "revision": "5ecdb67327fd37bb2e042aab12ff7391903235d3",
+    "files": {
+      "config.json": {
+        "git_oid": "2c2c027c574a85c0d5a5d48e3cfed1a8a051ff9d",
+        "size": 4421
+      },
+      "generation_config.json": {
+        "git_oid": "1872b16d4535564abf2db5d6debe6cddd82b7f2e",
+        "size": 245
+      },
+      "merges.txt": {
+        "git_oid": "20024bfe7c83998e9aeaf98a0cd6a2ce6306c2f0",
+        "size": 1671839
+      },
+      "model.safetensors": {
+        "sha256": "391e8db219f292c515297cdceeb43e4eae67cdde35fa57e79a6a8a532fca0522",
+        "size": 3833402552
+      },
+      "preprocessor_config.json": {
+        "git_oid": "0525dd953bb9241912f7147666f0d535165d5d4f",
+        "size": 127
+      },
+      "speech_tokenizer/config.json": {
+        "git_oid": "06cc8dc4c5ec8a1929086b71b98c313020d9268b",
+        "size": 2336
+      },
+      "speech_tokenizer/configuration.json": {
+        "git_oid": "ab58e2eaf53cd14a1a2a7527d9261ceea93a24cd",
+        "size": 76
+      },
+      "speech_tokenizer/model.safetensors": {
+        "sha256": "836b7b357f5ea43e889936a3709af68dfe3751881acefe4ecf0dbd30ba571258",
+        "size": 682293092
+      },
+      "speech_tokenizer/preprocessor_config.json": {
+        "git_oid": "ba40914f4f49ab98a8ca545d4892ef7291a39592",
+        "size": 234
+      },
+      "tokenizer_config.json": {
+        "git_oid": "6ff9fd60cc623bb54bbd603cbd418c97a11528d7",
+        "size": 7344
+      },
+      "vocab.json": {
+        "git_oid": "4783fe10ac3adce15ac8f358ef5462739852c569",
+        "size": 2776833
+      }
+    },
+    "license": "Apache-2.0 (code and weights, model card at the pinned revision). Describe a voice, never a real person: no names, no 'sounds like'."
+  },
+  "tested": "not yet (offline checks only; no weights downloaded or run by the kit so far)",
+  "setup_summary": "uv venv with Python 3.12; torch 2.8.0 (CUDA 12.8); qwen-tts from its pinned commit (transformers 4.57.3, accelerate 1.12.0); import check",
+  "run_summary": "download the 11 pinned files and check each hash, then hub offline; load once (bfloat16); one take per cue and seed from its voice description, repeats after a reload; float original, level-matched preview, receipt.json"
+}

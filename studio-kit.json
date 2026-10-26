@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "game-studio-kit",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "skills": [
     {
       "name": "studio-director",
@@ -192,6 +192,8 @@
     "studio_tools/assets.py",
     "skills/studio-cloudrun/references/job-format.md",
     "skills/studio-cloudrun/references/runtime-notes.md",
+    "skills/studio-cloudrun/scripts/budget.py",
+    "skills/studio-cloudrun/scripts/attended.sh",
     "skills/studio-cloudrun/scripts/colab_job.sh",
     "skills/studio-cloudrun/scripts/run_here.sh",
     "skills/studio-cloudrun/scripts/runtime_display.sh",
@@ -199,6 +201,8 @@
     "skills/studio-cloudrun/scripts/service.sh",
     "skills/studio-cloudrun/scripts/studio-cloudrun.service",
     "studio_tools/cloudrun.py",
+    "templates/character-voice.json",
+    "templates/voice-lines.json",
     "skills/studio-animation/references/primitive-planning.md",
     "skills/studio-animation/references/block-motion-rules.md",
     "skills/studio-animation/references/runtime-block-rigs.md",

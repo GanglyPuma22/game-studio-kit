@@ -7,7 +7,9 @@ Open models on a Colab GPU, run by [studio-cloudrun](../../studio-cloudrun/SKILL
 | Sound effect, foley, short one-shot (up to 47 s) | `stable-audio-open-sfx` | 44.1 kHz stereo. Float original (peaks can exceed full scale, kept unclipped) plus a PCM16 preview at -1 dBFS peak: listen and import from the preview. Gated model: the account behind the service host must accept the licence on the model page. |
 | Instrumental music bed or loop (10-240 s) | `ace-step-music` | 48 kHz stereo FLAC original. `loop_crossfade_seconds` adds an overlap-crossfade loop candidate (shorter by that many seconds) and a 24 s wrap audition. A100 only. |
 
-Not covered: speech and character voices (separate capability, not tried), ambience beds longer than the limits above, and anything needing lyrics.
+Speech and character voices have their own recipes and steps: [character voices](character-voices.md) and [open voices](open-voices.md) (experimental, not yet run).
+
+Not covered: ambience beds longer than the limits above, and anything needing lyrics.
 
 ## Steps
 

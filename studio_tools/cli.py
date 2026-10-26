@@ -280,6 +280,7 @@ def parser():
     c.add_argument("--job", help="Job JSON file (validate, plan)")
     c.add_argument("--queue", help="Queue text file (queue)")
     c.add_argument("--where", choices=["here", "colab"], help="plan: override the job's where")
+    c.add_argument("--inputs", help="validate: folder holding the job's inputs; each file is checked against its sha256")
     c.add_argument("--allow-repo", action="append", default=[], help="validate: allowed owner/name (trailing * matches a prefix)")
     c.add_argument("--allow-ref", action="append", default=[], help="validate: allowed branch (trailing * matches a prefix)")
     # `sources` and `search` are read-only and need no project; the rest
@@ -440,6 +441,10 @@ def _cloudrun(a):
     job = cloudrun.load_job(a.job)
     if a.operation == "validate":
         errors = cloudrun.validate(job, a.allow_repo, a.allow_ref)
+        if a.inputs:
+            errors += cloudrun.check_inputs(job, a.inputs)
+        elif not errors and job.get("inputs"):
+            errors.append("this job has inputs: pass --inputs FOLDER so each file is checked against its sha256")
         return {"ok": not errors, "errors": errors}
     return cloudrun.plan(job, a.where)
 

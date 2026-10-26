@@ -1,6 +1,6 @@
 ---
 name: studio-cloudrun
-description: Run a job on a GPU nobody is sitting at, with `studio cloudrun` and the shell runners. That covers a game's capture or test job (here in a cloud agent box, or on Colab) and model runs from the kit's recipes (music with ACE-Step, sound effects with Stable Audio Open) on a Colab GPU, through one shared queue on an always-on host. Results come back as clips, stills, numbers or audio with receipts.
+description: Run a job on a GPU nobody is sitting at, with `studio cloudrun` and the shell runners. That covers a game's capture or test job (here in a cloud agent box, or on Colab) and model runs from the kit's recipes (music with ACE-Step, sound effects with Stable Audio Open, experimental speech and voice casting) on a Colab GPU or in a free notebook the person watches, through one shared queue on an always-on host. Results come back as clips, stills, numbers or audio with receipts.
 ---
 
 # Studio cloud runs
@@ -69,6 +69,14 @@ A `model-run` job names a recipe shipped in [recipes/](recipes) and a plan; it h
 - **Results:** `receipt.json` lists every output with its hash, rate, channels, frames, peak and RMS, and the run fails if any planned output is missing, silent or not finite. A valid file is not a fitting one: in the first test a "heavy" swing came out light. Every batch gets a listening verdict per output before anything is imported ([studio-audio](../studio-audio/SKILL.md) owns preparation, import and listening).
 - **No fallback:** a failed run never switches model, reruns or widens spend by itself. Look at the receipt and logs, then ask.
 - Each recipe's `recipe.json` names its model, pinned revisions, licence note and what was tested. Check the licence for commercial use before outputs ship in a game.
+
+## Speech and voice casting (experimental)
+
+Four recipes read a game's exact lines in one character's voice, or design that voice from a description: `casting-qwen3-voicedesign`, `speech-chatterbox-en`, `speech-qwen3-base`, `speech-cosyvoice3`. They are pinned file by file and checked offline; none has been run by the kit yet. Which to use, and the rights rules, are in studio-audio's [open voices](../studio-audio/references/open-voices.md) and [character voices](../studio-audio/references/character-voices.md).
+
+- **Inputs:** a speech job lists its reference under `inputs` (path, SHA-256, `private`). Validate with `--inputs FOLDER`; the runner packs only the listed files, sends them to the runtime only, and fails the job, pushing nothing, if any result is a byte copy of a private input.
+- **One ceiling for a batch of jobs:** `budget: {"group": "...", "units": N}`. The service keeps a ledger per group: each run reserves its units before waiting for a GPU (so parallel runs never share them), is capped at what it reserved, and on exit is billed for the runtime's whole life (setup included), releasing the rest. Jobs in one group must name the same total.
+- **Free route:** `"where": "attended"` with `"max_units": 0` runs in [notebooks/speech-audition.ipynb](notebooks/speech-audition.ipynb) on the person's own Colab runtime through [attended.sh](scripts/attended.sh). Nothing is priced or paid for; the service refuses these jobs, and gated recipes (Stable Audio Open) cannot run attended. Free runtimes can disconnect: keep attended jobs short.
 
 ## Run here
 
