@@ -86,6 +86,8 @@ func update(target: Vector3, ground_y: float, delta: float) -> Vector3:
 		return at
 	_down_t += delta
 	var off := at.distance_to(target)
+	if _want and off < tol * 0.25:
+		_want = false   # the target came back: a queued step would land in place
 	if (off > tol or _want) and (off > tol * far or _may_step()):
 		_want = false
 		_from = at

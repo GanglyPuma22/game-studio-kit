@@ -92,6 +92,23 @@ func _init() -> void:
 	var h1: Vector3 = Two.hinge_axis(Vector3(0, -1, 0), Vector3(0, -1, 0.001), Vector3(0, 0, 1), Vector3(-1, 0, 0))
 	_check("a straight limb keeps last frame's hinge", h1.dot(Vector3(-1, 0, 0)) > 0.99)
 
+	# Uneven frame times are not acceleration: steady 10 m/s sampled at
+	# 1/30 s then 1/60 s reads (near) zero.
+	c.reset()
+	var p0 := _leg(bind, 0.0)
+	for step in [[0.0, 0.0], [1.0 / 30.0, 1.0 / 30.0], [1.0 / 30.0 + 1.0 / 60.0, 1.0 / 60.0]]:
+		c.add(p0, Transform3D(Basis(), Vector3(10.0 * float(step[0]), 0, 0)), -1.0, float(step[1]), false, {})
+	_near("steady motion at uneven frame times has no pop", c.report().pop_m_s2, 0.0, 1.0)
+
+	# A box rotated 45 deg cutting a ledge's corner: no corner is inside,
+	# yet its edge goes 0.5 m deep (wall: solid where x < 0 and y < 1).
+	var wc = Check.new()
+	wc.setup(["block"], PackedInt32Array([-1]), PackedFloat32Array([180.0]), [Transform3D.IDENTITY],
+		[Vector3.ZERO], [Vector3(0.7071, 0.7071, 0.2)], PackedInt32Array(), [], [])
+	wc.walls = [[Vector3(1, 0, 0), 0.0, 1.0]]
+	wc.add([Transform3D(Basis(Vector3.BACK, deg_to_rad(45.0)), Vector3(0, 1, 0))], Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	_near("a box cutting a ledge corner reads its edge depth", wc.report().wall_m, 0.5, 0.01)
+
 	# Whole-chain reach: every segment keeps its length.
 	var pts := PackedVector3Array([Vector3.ZERO, Vector3(0, 1, 0), Vector3(0, 2, 0), Vector3(0, 3, 0)])
 	var lens := PackedFloat32Array([1.0, 1.0, 1.0])
@@ -109,6 +126,12 @@ func _init() -> void:
 	_check("eased chain stays rigid", rigid2)
 	_check("eased chain moves only part way", eased[3].distance_to(pts[3]) < got[3].distance_to(pts[3]))
 
+	var line := PackedVector3Array([Vector3.ZERO, Vector3(0, 1, 0), Vector3(0, 2, 0)])
+	var folded: PackedVector3Array = Chain.reach(line, Vector3(0, 1.5, 0), PackedFloat32Array([1.0, 1.0]),
+		PackedFloat32Array([deg_to_rad(90.0), deg_to_rad(90.0)]), Vector3.ZERO, Vector3.ZERO, 12, 0.01, Vector3(0, 0, 1))
+	_near("a straight chain folds to reach along its own line", folded[2].distance_to(Vector3(0, 1.5, 0)), 0.0, 0.02)
+	_check("and folds toward the hint", folded[1].z > 0.1)
+
 	# Stepper: nudges below a third of a leg do not step; a step that would
 	# land where the foot stands is dropped.
 	var f = Plant.new()
@@ -123,6 +146,14 @@ func _init() -> void:
 	for k in 30:
 		f.update(Vector3(2.0, 0, 0), 0.0, 1.0 / 60.0)
 	_check("a real move steps and lands there", f.at.distance_to(Vector3(2.0, 0, 0)) < 0.01)
+	var q = Plant.new()
+	q.update(Vector3.ZERO, 0.0, 0.1)
+	for k in 6:
+		q.update(Vector3(0.1, 0, 0), 0.0, 1.0 / 60.0)
+	q.step_now()   # queued: still resting
+	for k in 18:
+		q.update(Vector3.ZERO, 0.0, 1.0 / 60.0)
+	_check("a queued step whose target came back is dropped", not q.stepping() and q.at == Vector3.ZERO)
 
 	# Gait: a walk always has at least two feet down.
 	var g = Gait.new()
@@ -135,6 +166,13 @@ func _init() -> void:
 			n += int(g.planted(i))
 		least = mini(least, n)
 	_check("walk keeps at least two feet down", least >= 2)
+	for gm in [[1.0, "canter has a flight"], [2.0, "gallop has flights"]]:
+		g.reset()
+		var air := 0
+		for k in 240:
+			g.step(Transform3D(Basis(), Vector3(0, 0, -k * 0.05)), Vector3(0, 0, -3.0), float(gm[0]), 1.0, 1.0 / 60.0)
+			air += int(g.airborne())
+		_check("%s (%d of 240 frames)" % [gm[1], air], air > 0)
 
 	print("block_anim selftest: %s" % ("FAILED %d" % _fails if _fails > 0 else "all passed"))
 	quit(1 if _fails > 0 else 0)

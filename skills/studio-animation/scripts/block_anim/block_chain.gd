@@ -18,9 +18,11 @@ extends RefCounted
 ## (pts[i] to pts[i+1]); `cones[i]` the most segment i may turn away from
 ## the authored pose relative to its parent (radians; segment 0 relative to
 ## its authored direction). The root moves from pts[0] by at most
-## `root_min`..`root_max` per axis. Returns the solved points.
+## `root_min`..`root_max` per axis. A straight chain reaching along its
+## own line folds toward `bend_hint` (any side when zero). Returns the
+## solved points.
 static func reach(pts: PackedVector3Array, target: Vector3, lens: PackedFloat32Array, cones: PackedFloat32Array,
-		root_min := Vector3.ZERO, root_max := Vector3.ZERO, iters := 12, tol := 0.01) -> PackedVector3Array:
+		root_min := Vector3.ZERO, root_max := Vector3.ZERO, iters := 12, tol := 0.01, bend_hint := Vector3.ZERO) -> PackedVector3Array:
 	var n := pts.size()
 	var p := pts.duplicate()
 	if n < 2:
@@ -30,6 +32,22 @@ static func reach(pts: PackedVector3Array, target: Vector3, lens: PackedFloat32A
 	prior_dir.resize(n - 1)
 	for i in n - 1:
 		prior_dir[i] = _dir(pts[i], pts[i + 1])
+	# A straight chain reaching for a point on its own line stays straight
+	# through every pass (nothing gives it a side to bend to). Seed a small
+	# bend toward `bend_hint` (or any side) so it can fold.
+	if n > 2:
+		var line := prior_dir[0]
+		var straight := true
+		for i in n - 1:
+			straight = straight and prior_dir[i].dot(line) > 0.9999
+		var to := target - pts[0]
+		if straight and to.length() > 0.0001 and absf(to.normalized().dot(line)) > 0.9999:
+			var side := bend_hint - line * bend_hint.dot(line)
+			if side.length() < 0.001:
+				side = line.cross(Vector3.RIGHT if absf(line.x) < 0.9 else Vector3.FORWARD)
+			side = side.normalized()
+			for i in range(1, n - 1):
+				p[i] += side * lens[i - 1] * 0.05
 	for it in iters:
 		# Backward: the end on the target, each joint pulled after it.
 		p[n - 1] = target

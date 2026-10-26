@@ -113,7 +113,7 @@ share of the stride when each foot lands; duty is the share it stays down.
 | Gait | Footfalls (LH, RH, LF, RF) | Duty | Suspension | Spine |
 | --- | --- | --- | --- | --- |
 | Walk (lateral sequence) | 0, 0.5, 0.25, 0.75 | 0.65 | none | small sway |
-| Canter (3 beats, right lead) | 0, 0.3, 0.3, 0.6 | 0.42 | one, after the leading fore | mild flex |
+| Canter (3 beats, right lead) | 0, 0.3, 0.3, 0.6 | 0.35 | one, after the leading fore (the last 5% of the stride) | mild flex |
 | Rotary gallop (cheetah) | 0.6, 0.5, 0, 0.1 | 0.28 | two: gathered and extended | flex in gathered flight, extend in extended flight (flex about twice extension) |
 
 The gallop's two flights carry its look: in **gathered flight** (after the

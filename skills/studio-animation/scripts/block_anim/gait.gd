@@ -23,7 +23,7 @@ const RF := 3
 ## a rotary gallop can (the hind order flips through a bound).
 const GAITS := [
 	{"off": [0.0, 0.5, 0.25, 0.75], "duty": 0.65, "flex_at": 0.0, "flex": 0.0},   # walk
-	{"off": [0.0, 0.3, 0.3, 0.6], "duty": 0.42, "flex_at": 0.85, "flex": 0.35},  # canter, right lead
+	{"off": [0.0, 0.3, 0.3, 0.6], "duty": 0.35, "flex_at": 0.85, "flex": 0.35},  # canter, right lead (flight 0.95..1)
 	{"off": [0.1, 0.0, 0.5, 0.6], "duty": 0.28, "flex_at": 0.94, "flex": 1.0},   # rotary gallop
 ]
 
@@ -54,6 +54,9 @@ var _qfrom: Array = [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]
 ## Forget the feet (they re-plant from the home pose next step).
 func reset() -> void:
 	_live = false
+	for i in 4:
+		_q[i] = 1.0
+		_qfrom[i] = Vector3.ZERO
 
 
 ## Advances the gait by `delta`. `gx` is the body's transform (world),

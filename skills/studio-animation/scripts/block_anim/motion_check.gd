@@ -29,6 +29,7 @@ var _rel_bind: Array = []
 var _skip_pairs := {}
 var _prev1: Array = []
 var _prev2: Array = []
+var _prev_dt := 0.0
 var _down_prev: Dictionary = {}
 var _down_at: Dictionary = {}
 var _lift_at: Dictionary = {}
@@ -148,6 +149,7 @@ func reset() -> void:
 	_ev_n = {}
 	_prev1 = []
 	_prev2 = []
+	_prev_dt = 0.0
 	_down_prev = {}
 	_down_at = {}
 	_lift_at = {}
@@ -166,6 +168,7 @@ func add(pose: Array, gx: Transform3D, ground_y: float, dt: float, slow: bool, d
 		skip -= 1
 		_prev1 = []
 		_prev2 = []
+		_prev_dt = 0.0
 		_down_prev = {}
 		_prev_rel = {}
 		return
@@ -251,7 +254,7 @@ func add(pose: Array, gx: Transform3D, ground_y: float, dt: float, slow: bool, d
 		for i in n:
 			if box_c[i] == null:
 				continue
-			for p in _corners(gx * (pose[i] as Transform3D), i):
+			for p in _wall_points(gx * (pose[i] as Transform3D), i, w):
 				if w.size() > 2 and p.y > float(w[2]):
 					continue   # above the wall's top
 				var into: float = wc - wn.dot(p)
@@ -328,11 +331,14 @@ func add(pose: Array, gx: Transform3D, ground_y: float, dt: float, slow: bool, d
 		if support.is_empty() or _outside(Vector2(cm.x, cm.z), support) > pad:
 			r.unbalanced += 1
 	# Rule 9: no pops (block accelerations).
-	if _prev2.size() == n and dt > 0.0:
+	if _prev2.size() == n and dt > 0.0 and _prev_dt > 0.0:
 		for i in n:
 			if centres[i] == null or _prev1[i] == null or _prev2[i] == null:
 				continue
-			var a: float = ((centres[i] as Vector3) - 2.0 * (_prev1[i] as Vector3) + (_prev2[i] as Vector3)).length() / (dt * dt)
+			# Velocities over each interval, so uneven frame times do not read as acceleration.
+			var v1: Vector3 = ((centres[i] as Vector3) - (_prev1[i] as Vector3)) / dt
+			var v0: Vector3 = ((_prev1[i] as Vector3) - (_prev2[i] as Vector3)) / _prev_dt
+			var a: float = (v1 - v0).length() / (0.5 * (dt + _prev_dt))
 			if a > pop_event:
 				_ev("pop", names[i], a)
 			if a > r.pop:
@@ -340,6 +346,7 @@ func add(pose: Array, gx: Transform3D, ground_y: float, dt: float, slow: bool, d
 				r.pop_at = "%s@%d" % [names[i], r.frames]
 	_prev2 = _prev1
 	_prev1 = centres
+	_prev_dt = dt
 	for k in drift:
 		var d: Dictionary = r.drift.get(k, {"max": 0.0, "sum": 0.0})
 		d.max = maxf(d.max, float(drift[k]))
@@ -401,6 +408,33 @@ func _corners(t: Transform3D, i: int) -> Array:
 		for sy in [-1.0, 1.0]:
 			for sz in [-1.0, 1.0]:
 				out.append(t * (c + Vector3(h.x * sx, h.y * sy, h.z * sz)))
+	return out
+
+
+## The points of block i to test against wall `w`: its corners, plus,
+## for a wall with a top, where its edges cross the surface on which the
+## depth behind the face equals the depth below the top. The deepest
+## point (the larger of the two depths' minimum) lies at one of these, so
+## a rotated box cutting a ledge's corner is not missed.
+func _wall_points(t: Transform3D, i: int, w: Array) -> Array:
+	var pts := _corners(t, i)
+	if w.size() < 3:
+		return pts
+	var wn: Vector3 = w[0]
+	var wc: float = w[1]
+	var top: float = w[2]
+	var out: Array = pts.duplicate()
+	for a in 8:
+		for bit in [1, 2, 4]:
+			var b: int = a | bit
+			if b == a:
+				continue
+			var pa: Vector3 = pts[a]
+			var pb: Vector3 = pts[b]
+			var fa: float = (wc - wn.dot(pa)) - (top - pa.y)
+			var fb: float = (wc - wn.dot(pb)) - (top - pb.y)
+			if (fa < 0.0) != (fb < 0.0):
+				out.append(pa.lerp(pb, fa / (fa - fb)))
 	return out
 
 
