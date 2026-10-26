@@ -460,13 +460,29 @@ class SpeechCommonTests(unittest.TestCase):
                 return np.random.default_rng(seed).normal(0, 0.1, n).astype(np.float32), 24000
 
             os.environ.pop("HF_HUB_OFFLINE", None)
-            s = sc.Session(rdir, d / "plan.json", d / "model", d / "out", d / "in")
-            s.run(load, take)
+            # A stand-in torch with a GPU, so the CUDA calls run as on a runtime.
+            import types
+            cuda = types.SimpleNamespace(is_available=lambda: True, get_device_name=lambda i: "Fake GPU",
+                                         max_memory_allocated=lambda: 123, reset_peak_memory_stats=lambda: None,
+                                         empty_cache=lambda: None, manual_seed_all=lambda s: None)
+            fake = types.SimpleNamespace(cuda=cuda, __version__="0-test", manual_seed=lambda s: None)
+            saved_torch = sys.modules.get("torch")
+            sys.modules["torch"] = fake
+            try:
+                s = sc.Session(rdir, d / "plan.json", d / "model", d / "out", d / "in")
+                s.run(load, take)
+            finally:
+                if saved_torch is None:
+                    sys.modules.pop("torch", None)
+                else:
+                    sys.modules["torch"] = saved_torch
             for k in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE"):
                 os.environ.pop(k, None)
             r = json.loads((d / "out/receipt.json").read_text())
             self.assertEqual(r["status"], "generated_pending_listening")
             self.assertEqual(r["recipe"], "speech-chatterbox-en")
+            self.assertEqual(r["hardware"]["gpu"], "Fake GPU")
+            self.assertEqual(r["outputs"][0]["peak_vram_bytes"], 123)
             self.assertEqual(len(loads), 2)  # reloaded for the repeat
             self.assertEqual(len(r["outputs"]), 4)
             self.assertEqual(r["reference"]["sha256"], ref_sha)

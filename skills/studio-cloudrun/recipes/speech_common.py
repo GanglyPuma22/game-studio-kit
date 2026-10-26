@@ -178,7 +178,7 @@ class Session:
         entry = {
             "cue": cue["id"], "line_id": cue.get("line_id"), "text": cue["text"], "delivery": cue.get("delivery"),
             "seed": seed, "controls": merged_controls(self.plan, cue), "generate_seconds": round(gen_seconds, 2),
-            "peak_vram_bytes": _cuda().max_memory_allocated() if _cuda() else None,
+            "peak_vram_bytes": _cuda().cuda.max_memory_allocated() if _cuda() else None,
             "seconds": round(secs, 3), "max_seconds": limit, "overlength": secs > limit,
             "original": {"path": str(orig.relative_to(self.out)), "sha256": sha256(orig), "sample_rate": rate,
                          "channels": x.shape[1], "frames": x.shape[0], "peak": peak, "rms": rms},
