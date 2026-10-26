@@ -1,0 +1,40 @@
+{
+  "schema": "block-rig/1",
+  "creature": "example-quadruped",
+  "units": "metres, degrees; body frame Y up, -Z forward",
+  "blocks": [
+    {"name": "pelvis", "parent": null, "box_half": [0.6, 0.4, 0.7]},
+    {"name": "chest", "parent": "pelvis", "box_half": [0.7, 0.5, 0.8]},
+    {"name": "head", "parent": "chest", "box_half": [0.35, 0.35, 0.5], "pinned_to": "gameplay head hitbox"},
+    {"name": "thigh_l", "parent": "pelvis", "box_half": [0.15, 0.5, 0.15]},
+    {"name": "shin_l", "parent": "thigh_l", "box_half": [0.12, 0.5, 0.12]},
+    {"name": "foot_l", "parent": "shin_l", "box_half": [0.15, 0.06, 0.25]},
+    {"name": "thigh_r", "parent": "pelvis", "box_half": [0.15, 0.5, 0.15]},
+    {"name": "shin_r", "parent": "thigh_r", "box_half": [0.12, 0.5, 0.12]},
+    {"name": "foot_r", "parent": "shin_r", "box_half": [0.15, 0.06, 0.25]}
+  ],
+  "default_limit": 45,
+  "limits": {"chest": 30, "head": 60, "thigh_l": 80, "shin_l": 140, "foot_l": 40, "thigh_r": 80, "shin_r": 140, "foot_r": 40},
+  "hinges": {
+    "shin_l": {"axis": [1, 0, 0], "sign": 1, "note": "knee: bends back only; axis in the parent's frame"},
+    "shin_r": {"axis": [1, 0, 0], "sign": 1}
+  },
+  "contacts": ["foot_l", "foot_r"],
+  "soft": [],
+  "no_overlap": [["thigh_l", "chest"], ["thigh_r", "chest"], ["shin_l", "shin_r"]],
+  "stance": {
+    "leg_length": 1.1,
+    "hip_floor_share_of_bind_height": 0.6,
+    "feet_under": "pelvis",
+    "pairs": [["foot_l", "foot_r"]]
+  },
+  "scenery": {
+    "walls": "the rig supplies [normal, offset, top_y] per frame while against a wall",
+    "head_clear_of_wall": "one head length"
+  },
+  "moves": {
+    "idle": {"planted": ["foot_l", "foot_r"], "balance": true, "max_shuffles": 0},
+    "bite": {"planted": ["foot_l", "foot_r"], "balance": true, "pinned_drift_max": 0.3, "held": true, "notes": "target may sit below a rigid body's reach; drift accepted and reported"},
+    "lunge": {"planted": [], "balance": false, "notes": "gameplay legs do not travel in flight; land on all limbs"}
+  }
+}
