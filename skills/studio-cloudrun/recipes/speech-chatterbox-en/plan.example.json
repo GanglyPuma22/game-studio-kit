@@ -1,0 +1,48 @@
+{
+  "language": "en",
+  "character": {
+    "id": "striker",
+    "profile_version": 1
+  },
+  "reference": {
+    "input": "striker-reference.wav",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "transcript": "Every word spoken in the reference clip, exactly as said."
+  },
+  "max_seconds": 4,
+  "controls": {
+    "exaggeration": 0.7,
+    "cfg_weight": 0.4
+  },
+  "cues": [
+    {
+      "id": "striker-ult-ally",
+      "line_id": "striker.ult.ally",
+      "text": "Overdrive! Keep up!",
+      "delivery": "shouted rally to teammates, fast and bright",
+      "seeds": [
+        101,
+        102,
+        103
+      ]
+    },
+    {
+      "id": "striker-ult-enemy",
+      "line_id": "striker.ult.enemy",
+      "text": "You can't outrun me!",
+      "delivery": "taunt at the enemy, cocky, close",
+      "seeds": [
+        101,
+        102,
+        103
+      ]
+    }
+  ],
+  "repeats": [
+    {
+      "cue": "striker-ult-ally",
+      "seed": 101,
+      "after_reload": true
+    }
+  ]
+}

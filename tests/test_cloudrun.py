@@ -186,5 +186,291 @@ class StageHfTokenFile(unittest.TestCase):
         self.assertEqual(m.token_from_file("OTHER=1\n"), "")
 
 
+RECIPES = ROOT / "skills/studio-cloudrun/recipes"
+SPEECH = ("speech-chatterbox-en", "speech-qwen3-base", "speech-cosyvoice3")
+Z = "0" * 64
+
+
+def speech_job(recipe="speech-chatterbox-en", **over):
+    plan = json.loads((RECIPES / recipe / "plan.example.json").read_text())
+    j = {"schema": 1, "id": "voice-test", "type": "model-run", "recipe": recipe, "plan": plan,
+         "max_minutes": 30, "max_units": 0, "where": "attended"}
+    if "reference" in plan:
+        j["inputs"] = [{"path": "striker-reference.wav", "sha256": Z, "private": True}]
+    j.update(over)
+    return j
+
+
+def plan_with(recipe="speech-chatterbox-en", **over):
+    plan = json.loads((RECIPES / recipe / "plan.example.json").read_text())
+    plan.update(over)
+    return plan
+
+
+class SpeechJobTests(unittest.TestCase):
+    def errs(self, j):
+        return " ".join(cloudrun.validate(j))
+
+    def test_examples_are_runnable_attended_and_on_the_service(self):
+        for recipe in SPEECH + ("casting-qwen3-voicedesign",):
+            with self.subTest(recipe=recipe):
+                self.assertEqual(cloudrun.validate(speech_job(recipe)), [])
+                steps = " ".join(cloudrun.plan(speech_job(recipe))["steps"])
+                self.assertIn("spend is 0", steps)
+                paid = speech_job(recipe, where="colab", max_units=1, budget={"group": "striker-audition", "units": 3})
+                self.assertEqual(cloudrun.validate(paid), [])
+                steps = " ".join(cloudrun.plan(paid)["steps"])
+                self.assertIn("budget group striker-audition", steps)
+                self.assertEqual("never go to results" in steps, recipe in SPEECH)
+
+    def test_attended_spends_nothing(self):
+        self.assertIn("max_units must be 0", self.errs(speech_job(max_units=1)))
+        self.assertIn("budget is not used", self.errs(speech_job(budget={"group": "abc", "units": 1})))
+        self.assertIn("max_rate is not used", self.errs(speech_job(max_rate=2)))
+        self.assertIn("max_units must be a number", self.errs(speech_job(where="colab")))  # 0 is not a paid ceiling
+
+    def test_budget_rules(self):
+        paid = dict(where="colab", max_units=2)
+        self.assertIn("must not exceed budget.units", self.errs(speech_job(**paid, budget={"group": "abc", "units": 1})))
+        self.assertIn("budget.group", self.errs(speech_job(**paid, budget={"group": "A", "units": 3})))
+        self.assertIn("budget must be", self.errs(speech_job(**paid, budget={"group": "abc", "units": 3, "x": 1})))
+        a = speech_job(**paid, budget={"group": "abc", "units": 3})
+        b = speech_job(**paid, budget={"group": "abc", "units": 4})
+        self.assertEqual(cloudrun.check_group([a, a]), [])
+        self.assertTrue(cloudrun.check_group([a, b]))
+
+    def test_inputs_and_reference(self):
+        self.assertIn("only used by recipes that read files", self.errs(
+            {"schema": 1, "id": "sfx-test", "type": "model-run", "recipe": "stable-audio-open-sfx", "max_minutes": 5, "max_units": 1,
+             "plan": json.loads((RECIPES / "stable-audio-open-sfx/plan.example.json").read_text()),
+             "inputs": [{"path": "a.wav", "sha256": Z}]}))
+        self.assertIn("relative path", self.errs(speech_job(inputs=[{"path": "../a.wav", "sha256": Z}])))
+        self.assertIn("relative path", self.errs(speech_job(inputs=[{"path": "/etc/passwd", "sha256": Z}])))
+        self.assertIn("one of the job's inputs", self.errs(speech_job(inputs=[{"path": "other.wav", "sha256": Z}])))
+        self.assertIn("must match that input", self.errs(speech_job(inputs=[{"path": "striker-reference.wav", "sha256": "1" * 64}])))
+        self.assertIn("must be private", self.errs(speech_job(inputs=[{"path": "striker-reference.wav", "sha256": Z, "private": False}])))
+        self.assertIn("plan.reference must name", self.errs(speech_job(plan=plan_with(reference=None))))
+        ref = dict(plan_with()["reference"], transcript="")
+        self.assertIn("transcript", self.errs(speech_job(plan=plan_with(reference=ref))))
+
+    def test_plan_rules(self):
+        self.assertIn("not supported by this recipe", self.errs(speech_job(plan=plan_with(controls={"instruct": "angry"}))))
+        self.assertIn("from 0.25 to 2.0", self.errs(speech_job(plan=plan_with(controls={"exaggeration": 5}))))
+        self.assertIn("plan.language", self.errs(speech_job(plan=plan_with(language="fr"))))
+        self.assertIn("plan.character", self.errs(speech_job(plan=plan_with(character={"id": "striker"}))))
+        self.assertIn("max_seconds", self.errs(speech_job(plan=plan_with(max_seconds=60))))
+        self.assertIn("repeat a cue and one of its own seeds",
+                      self.errs(speech_job(plan=plan_with(repeats=[{"cue": "striker-ult-ally", "seed": 999, "after_reload": True}]))))
+        self.assertIn("after_reload", self.errs(speech_job(plan=plan_with(repeats=[{"cue": "striker-ult-ally", "seed": 101}]))))
+        p = plan_with()
+        p["cues"][0]["text"] = "two\nlines"
+        self.assertIn("one line of spoken text", self.errs(speech_job(plan=p)))
+        p = plan_with()
+        p["cues"][0]["seeds"] = list(range(39))
+        self.assertIn("recipe limit is 40", self.errs(speech_job(plan=p)))  # 39 + 3 + 1 repeat
+        cast = plan_with("casting-qwen3-voicedesign", controls={})
+        self.assertIn("instruct", self.errs(speech_job("casting-qwen3-voicedesign", plan=cast)))
+        cast = plan_with("casting-qwen3-voicedesign", reference={"input": "x", "sha256": Z, "transcript": "x"})
+        self.assertIn("not used by casting", self.errs(speech_job("casting-qwen3-voicedesign", plan=cast)))
+
+    def test_check_inputs(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "in"
+            root.mkdir()
+            (root / "ref.wav").write_bytes(b"voice")
+            (Path(d) / "outside.wav").write_bytes(b"voice")
+            sha = hashlib.sha256(b"voice").hexdigest()
+            ok = {"inputs": [{"path": "ref.wav", "sha256": sha}]}
+            self.assertEqual(cloudrun.check_inputs(ok, root), [])
+            self.assertIn("does not match", " ".join(cloudrun.check_inputs({"inputs": [{"path": "ref.wav", "sha256": Z}]}, root)))
+            self.assertIn("missing", " ".join(cloudrun.check_inputs({"inputs": [{"path": "nope.wav", "sha256": sha}]}, root)))
+            try:
+                (root / "link.wav").symlink_to(Path(d) / "outside.wav")
+            except OSError:
+                return
+            self.assertIn("outside", " ".join(cloudrun.check_inputs({"inputs": [{"path": "link.wav", "sha256": sha}]}, root)))
+
+    def test_cli_needs_the_inputs_folder(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as d:
+            data = b"reference"
+            sha = hashlib.sha256(data).hexdigest()
+            plan = plan_with(reference={"input": "ref.wav", "sha256": sha, "transcript": "Ready."})
+            j = speech_job(plan=plan, inputs=[{"path": "ref.wav", "sha256": sha, "private": True}])
+            jf = Path(d) / "job.json"
+            jf.write_text(json.dumps(j))
+            run = lambda *a: subprocess.run([sys.executable, str(ROOT / "scripts/studio.py"), "cloudrun", "validate", "--job", str(jf), *a],
+                                            capture_output=True, text=True)
+            self.assertIn("--inputs", run().stdout)
+            (Path(d) / "in").mkdir()
+            self.assertIn("missing", run("--inputs", str(Path(d) / "in")).stdout)
+            (Path(d) / "in/ref.wav").write_bytes(data)
+            self.assertTrue(json.loads(run("--inputs", str(Path(d) / "in")).stdout)["ok"])
+
+    def test_speech_recipes_pin_every_file(self):
+        for name, r in cloudrun.recipes().items():
+            if r.get("kind") not in cloudrun.SPEECH_KINDS:
+                continue
+            with self.subTest(recipe=name):
+                self.assertTrue(r.get("experimental"))
+                self.assertTrue(r["tested"].startswith("not yet"))
+                m = r["model"]
+                self.assertRegex(m["commit"], r"^[0-9a-f]{40}$")
+                self.assertTrue(m["files"])
+                for path, pin in m["files"].items():
+                    self.assertTrue(("sha256" in pin) != ("git_oid" in pin), path)
+                    self.assertRegex(pin.get("sha256") or pin.get("git_oid"), r"^[0-9a-f]{40}([0-9a-f]{24})?$")
+                    self.assertGreater(pin["size"], 0)
+                self.assertNotIn("llm.rl.pt", m["files"])
+                self.assertIn("speech_common", (RECIPES / name / "worker.py").read_text())
+                self.assertEqual(r.get("inputs", False), r["kind"] == "speech")
+
+    def test_runners_guard_private_inputs_and_budgets(self):
+        text = (SCRIPTS / "colab_job.sh").read_text()
+        for needle in ("budget.py\" open", "bill;", "copies of a private input", '[ "$LEAK" = 0 ]', "speech_common.py"):
+            self.assertIn(needle, text)
+        self.assertIn("copies of a private input", (SCRIPTS / "attended.sh").read_text())
+        with tempfile.TemporaryDirectory() as d:
+            jf = Path(d) / "job.json"
+            jf.write_text(json.dumps(speech_job("casting-qwen3-voicedesign", where="colab", max_units=1)))
+            r = subprocess.run(["bash", str(SCRIPTS / "attended.sh"), str(jf), d, str(Path(d) / "out")], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("attended", r.stderr)
+
+
+class BudgetLedgerTests(unittest.TestCase):
+    def test_open_spend_refuse(self):
+        import importlib.util, os
+        spec = importlib.util.spec_from_file_location("budget", SCRIPTS / "budget.py")
+        b = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(b)
+        with tempfile.TemporaryDirectory() as d:
+            old = os.environ.get("CLOUDRUN_WORK")
+            os.environ["CLOUDRUN_WORK"] = d
+            try:
+                self.assertEqual(b.open_group("audition", 3.0), (3.0, None))
+                b.spend("audition", 1.25, "cast-1")
+                self.assertEqual(b.open_group("audition", 3.0), (1.75, None))
+                self.assertIn("opened with 3.0", b.open_group("audition", 5.0)[1])
+                b.spend("audition", 2.0, "speech-1")
+                self.assertIn("has spent", b.open_group("audition", 3.0)[1])
+                led = json.loads((Path(d) / "budgets/audition.json").read_text())
+                self.assertEqual([r["job"] for r in led["runs"]], ["cast-1", "speech-1"])
+                self.assertEqual(b.main(["open", "audition", "3"]), 1)
+            finally:
+                if old is None:
+                    os.environ.pop("CLOUDRUN_WORK")
+                else:
+                    os.environ["CLOUDRUN_WORK"] = old
+
+
+def _speech_common():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("speech_common", RECIPES / "speech_common.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+class SpeechCommonTests(unittest.TestCase):
+    def test_fetch_checks_every_pin_then_goes_offline(self):
+        import hashlib, os
+        sc = _speech_common()
+        with tempfile.TemporaryDirectory() as d:
+            hub = Path(d) / "hub/org/model/resolve/" / ("a" * 40)
+            (hub / "sub").mkdir(parents=True)
+            big, small = b"weights" * 100, b'{"x": 1}'
+            (hub / "model.bin").write_bytes(big)
+            (hub / "sub/config.json").write_bytes(small)
+            pins = {"model.bin": {"sha256": hashlib.sha256(big).hexdigest(), "size": len(big)},
+                    "sub/config.json": {"git_oid": hashlib.sha1(b"blob %d\0" % len(small) + small).hexdigest(), "size": len(small)}}
+            recipe = {"model": {"repo": "org/model", "revision": "a" * 40, "files": pins}}
+            sc.HUB = (Path(d) / "hub").as_uri()
+            saved = {k: os.environ.get(k) for k in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE")}
+            try:
+                sc.fetch(recipe, Path(d) / "model")
+                self.assertEqual(os.environ["HF_HUB_OFFLINE"], "1")
+                self.assertEqual((Path(d) / "model/sub/config.json").read_bytes(), small)
+                pins["model.bin"]["sha256"] = Z
+                (Path(d) / "model/model.bin").unlink()
+                with self.assertRaises(RuntimeError):
+                    sc.fetch(recipe, Path(d) / "model2")
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+
+    def test_session_takes_repeats_overlength_and_private_guard(self):
+        try:
+            import numpy as np
+            import soundfile as sf
+        except ImportError:
+            self.skipTest("numpy and soundfile not installed")
+        import hashlib, os, shutil
+        sc = _speech_common()
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            rdir = d / "speech-fake"
+            rdir.mkdir()
+            ref_audio = (np.sin(np.arange(24000) / 10) * 0.3).astype(np.float32)
+            (d / "in").mkdir()
+            sf.write(d / "in/ref.wav", ref_audio[:, None], 24000, subtype="FLOAT")
+            ref_sha = hashlib.sha256((d / "in/ref.wav").read_bytes()).hexdigest()
+            (rdir / "recipe.json").write_text(json.dumps({"kind": "speech", "model": {"repo": "org/m", "revision": "a" * 40, "files": {}}}))
+            plan = {"language": "en", "character": {"id": "striker", "profile_version": 1}, "max_seconds": 1,
+                    "reference": {"input": "ref.wav", "sha256": ref_sha, "transcript": "Ready."},
+                    "cues": [{"id": "short-line", "text": "Go!", "seeds": [1, 2]},
+                             {"id": "long-line", "text": "A long one.", "max_seconds": 1, "seeds": [3]}],
+                    "repeats": [{"cue": "short-line", "seed": 1, "after_reload": True}]}
+            (d / "plan.json").write_text(json.dumps(plan))
+            loads = []
+
+            def load(path):
+                loads.append(path)
+                return "model"
+
+            def take(model, cue, seed, controls, ref):
+                self.assertEqual(ref["transcript"], "Ready.")
+                n = 36000 if cue["id"] == "long-line" else 12000
+                return np.random.default_rng(seed).normal(0, 0.1, n).astype(np.float32), 24000
+
+            os.environ.pop("HF_HUB_OFFLINE", None)
+            s = sc.Session(rdir, d / "plan.json", d / "model", d / "out", d / "in")
+            s.run(load, take)
+            for k in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE"):
+                os.environ.pop(k, None)
+            r = json.loads((d / "out/receipt.json").read_text())
+            self.assertEqual(r["status"], "generated_pending_listening")
+            self.assertEqual(len(loads), 2)  # reloaded for the repeat
+            self.assertEqual(len(r["outputs"]), 4)
+            self.assertEqual(r["reference"]["sha256"], ref_sha)
+            self.assertNotIn("reference", r["plan"])
+            long = next(o for o in r["outputs"] if o["cue"] == "long-line")
+            self.assertTrue(long["overlength"])
+            self.assertEqual(long["original"]["frames"], 36000)  # kept whole, never cut
+            rep = r["outputs"][-1]
+            self.assertTrue(rep["after_reload"] and rep["same_bytes"])
+            prev, _ = sf.read(d / "out" / r["outputs"][0]["preview"]["path"])
+            self.assertAlmostEqual(20 * np.log10(np.sqrt(np.mean(prev ** 2))), -20.0, delta=0.5)
+            self.assertFalse(any(p.read_bytes() == (d / "in/ref.wav").read_bytes() for p in (d / "out").rglob("*.wav")))
+
+            # A take that is the reference itself is refused, and the run fails.
+            shutil.rmtree(d / "out")
+            plan["repeats"] = []
+            (d / "plan.json").write_text(json.dumps(plan))
+            s = sc.Session(rdir, d / "plan.json", d / "model", d / "out", d / "in")
+            with self.assertRaises(SystemExit):
+                s.run(load, lambda m, c, seed, ctl, ref: (sf.read(ref["path"], dtype="float32")[0], 24000))
+            for k in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE"):
+                os.environ.pop(k, None)
+            r = json.loads((d / "out/receipt.json").read_text())
+            self.assertEqual(r["status"], "failed")
+            self.assertIn("private input", r["traceback"])
+            self.assertEqual(list((d / "out").rglob("*.wav")), [])
+
+
 if __name__ == "__main__":
     unittest.main()

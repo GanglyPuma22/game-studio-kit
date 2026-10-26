@@ -1,0 +1,102 @@
+{
+  "summary": "Exact game lines in one approved reference voice with Fun-CosyVoice3 0.5B (zero-shot, optional spoken-style instruction), one take per line and seed.",
+  "kind": "speech",
+  "experimental": true,
+  "gpu": "L4",
+  "gpus": [
+    "T4",
+    "L4",
+    "A100"
+  ],
+  "inputs": true,
+  "reference": "required",
+  "languages": [
+    "en"
+  ],
+  "controls": {
+    "speed": [
+      0.8,
+      1.2
+    ],
+    "instruct": "text"
+  },
+  "limits": {
+    "max_seconds": [
+      1,
+      12
+    ],
+    "max_chars": 200,
+    "max_outputs": 40
+  },
+  "model": {
+    "source": "https://github.com/FunAudioLLM/CosyVoice",
+    "commit": "074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc",
+    "submodules": {
+      "third_party/Matcha-TTS": "dd9105b34bf2be2230f4aa1e4769fb586a3c824e"
+    },
+    "repo": "FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
+    "revision": "29e01c4e8d000f4bcd70751be16fa94bf3d85a18",
+    "files": {
+      "CosyVoice-BlankEN/config.json": {
+        "git_oid": "463b055262b6c66c4629a74a4b300bfe2ed31d3c",
+        "size": 659
+      },
+      "CosyVoice-BlankEN/generation_config.json": {
+        "git_oid": "dfc11073787daf1b0f9c0f1499487ab5f4c93738",
+        "size": 242
+      },
+      "CosyVoice-BlankEN/merges.txt": {
+        "git_oid": "90d3d82d027eadcc6a5e77c38eb82d43fc51b53b",
+        "size": 1402109
+      },
+      "CosyVoice-BlankEN/model.safetensors": {
+        "sha256": "130282af0dfa9fe5840737cc49a0d339d06075f83c5a315c3372c9a0740d0b96",
+        "size": 988097824
+      },
+      "CosyVoice-BlankEN/tokenizer_config.json": {
+        "git_oid": "ff55d7b9eb1384e5d4d7e75dc0f564c1a8833d6e",
+        "size": 1287
+      },
+      "CosyVoice-BlankEN/vocab.json": {
+        "git_oid": "4783fe10ac3adce15ac8f358ef5462739852c569",
+        "size": 2776833
+      },
+      "campplus.onnx": {
+        "sha256": "a6ac6a63997761ae2997373e2ee1c47040854b4b759ea41ec48e4e42df0f4d73",
+        "size": 28303423
+      },
+      "config.json": {
+        "git_oid": "9e26dfeeb6e641a33dae4961196235bdb965b21b",
+        "size": 2
+      },
+      "configuration.json": {
+        "git_oid": "5e812fae901c12933ac69ebf3eb79d0eb49bbab4",
+        "size": 47
+      },
+      "cosyvoice3.yaml": {
+        "git_oid": "2eda7e5007d99f6b17fbe7bd751cf54e3cde29ea",
+        "size": 6934
+      },
+      "flow.pt": {
+        "sha256": "a6fab32a7825e5b0bc855ddd948f8db9370b0a786fbc249caa4595e95b608e4b",
+        "size": 1329116148
+      },
+      "hift.pt": {
+        "sha256": "b279d7641eb97ae55b3b540cfba4f953c26492a2df758328a89a4d007ab87a65",
+        "size": 83202622
+      },
+      "llm.pt": {
+        "sha256": "69f43bd545131c30e98947fb360ea8b4dc9916d8e83dded7757c7ea4f5a24970",
+        "size": 2024669519
+      },
+      "speech_tokenizer_v3.onnx": {
+        "sha256": "23236a74175dbdda47afc66dbadd5bcb41303c467a57c261cb8539ad9db9208d",
+        "size": 969451503
+      }
+    },
+    "license": "Apache-2.0 (code and weights, model card at the pinned revision). The licence covers the model, not the reference speaker: use an original or authorized voice."
+  },
+  "tested": "not yet (offline checks only; no weights downloaded or run by the kit so far)",
+  "setup_summary": "clone CosyVoice and Matcha-TTS at their pinned commits; uv venv with Python 3.10 from CosyVoice's pinned requirements (torch 2.3.1, transformers 4.51.3); import check",
+  "run_summary": "download the 14 pinned files (llm.pt, not the RL variant) and check each hash, then hub offline; load once; zero-shot from the private reference and its transcript, or instruct2 when a cue has an instruction; one take per cue and seed, repeats after a reload; float original, level-matched preview, receipt.json"
+}

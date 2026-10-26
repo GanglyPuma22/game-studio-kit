@@ -1,0 +1,24 @@
+{
+  "language": "en",
+  "character": {
+    "id": "striker",
+    "profile_version": 1
+  },
+  "max_seconds": 12,
+  "controls": {
+    "instruct": "A young adult voice, light and quick, mid pitch, confident and a little cocky, clear diction, energetic but not shouting."
+  },
+  "cues": [
+    {
+      "id": "striker-casting",
+      "line_id": "striker.casting",
+      "delivery": "casting read: rally, then a taunt",
+      "text": "Overdrive! Keep up! You can't outrun me. Ready when you are.",
+      "seeds": [
+        201,
+        202,
+        203
+      ]
+    }
+  ]
+}
