@@ -18,7 +18,11 @@ rm -rf "$ENVDIR"  # recipes share this path with different pins: start clean
 uv venv -q --python 3.10 "$ENVDIR"
 PY="$ENVDIR/bin/python"
 # Not needed here and heavy: TensorRT, deepspeed, the web UI and server.
-grep -v -E '^(tensorrt|deepspeed|gradio|fastapi|uvicorn)' "$R/requirements.txt" > "$HERE/requirements.txt"
+# wetext 0.0.4 (CosyVoice's pin) downloads its grammars from modelscope.cn at
+# first use, which refuses anonymous downloads; 0.1.8 ships them in the wheel
+# and keeps the same Normalizer API.
+grep -v -E '^(tensorrt|deepspeed|gradio|fastapi|uvicorn)' "$R/requirements.txt" | sed 's/^wetext==.*/wetext==0.1.8/' > "$HERE/requirements.txt"
+grep -qx 'wetext==0.1.8' "$HERE/requirements.txt" || { echo "CosyVoice no longer pins wetext: check the frontend" >&2; exit 1; }
 # openai-whisper 20231117 builds from source and its setup.py imports
 # pkg_resources, which setuptools 81 removed: keep build envs below 81.
 echo "setuptools<81" > "$HERE/build-constraints.txt"
