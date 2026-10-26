@@ -27,4 +27,6 @@ grep -qx 'wetext==0.1.8' "$HERE/requirements.txt" || { echo "CosyVoice no longer
 # pkg_resources, which setuptools 81 removed: keep build envs below 81.
 echo "setuptools<81" > "$HERE/build-constraints.txt"
 uv pip install -q --python "$PY" -r "$HERE/requirements.txt" --index-strategy unsafe-best-match --build-constraints "$HERE/build-constraints.txt"
-cd "$R" && PYTHONPATH="$R:$R/third_party/Matcha-TTS" MPLBACKEND=Agg "$PY" -c "import torch, soundfile, wetext; from cosyvoice.cli.cosyvoice import CosyVoice3; from wetext import Normalizer; Normalizer(lang='en'); assert torch.cuda.is_available(); print('imports ok', torch.__version__, torch.cuda.get_device_name(0))"
+# lightning (through Matcha-TTS) also imports pkg_resources when it loads.
+uv pip install -q --python "$PY" "setuptools<81"
+cd "$R" && PYTHONPATH="$R:$R/third_party/Matcha-TTS" MPLBACKEND=Agg "$PY" -c "import torch, soundfile, wetext, pkg_resources, lightning; import cosyvoice.flow.flow_matching; from cosyvoice.cli.cosyvoice import CosyVoice3; from wetext import Normalizer; Normalizer(lang='en'); assert torch.cuda.is_available(); print('imports ok', torch.__version__, torch.cuda.get_device_name(0))"
