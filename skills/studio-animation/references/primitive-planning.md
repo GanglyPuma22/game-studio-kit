@@ -21,6 +21,8 @@ Propose a coverage table before building clips. Account for every meaningful vis
 
 The agent proposes coverage and a labeled rest/extreme sheet; do not rely on the user noticing omissions after the animation is complete. Missing eyelid geometry, mouth topology or usable weights are rig limitations, not problems a proxy box solves. Record them and make a scoped rig correction when authorized. Do not claim a complete facial performance when only body motion is available.
 
+Check semantic independence as well as bone coverage. A single `mouth` bone can move both tooth rows together while leaving the actual opening unchanged. If the design calls for independently moving upper and lower jaws, verify their weighted geometry, attachment and separate ranges in rest/open/closed tests; their names or two visible rows are not evidence of two usable controls. Compare the candidate's source with the latest non-blockout rig before choosing the starting asset, and explain any deliberate older-source choice. A newer remodel is a separate comparison, not a controlled same-geometry baseline.
+
 ## Block a performance
 
 For each clip, specify intent, duration, loop/one-shot, main beats, contact events, start/end state and transitions. Establish what leads and what follows. Block readable poses, then refine timing, anticipation, decisive action, attention and settling. Add secondary motion where it supports that intent. Uniform smoothing can erase urgency or weight; smoothness alone is not a quality verdict.
@@ -52,6 +54,8 @@ Show at least two cycles for loops, full one-shots, relevant transitions and clo
 Freshly reimport exports and check geometry/material/morph preservation, bones, names, durations, finite transforms, loop seams and transition interfaces. Inspect the reimport visually. Check ordinary input and transitions in the target runtime; numerical checks alone do not establish appealing motion or user acceptance.
 
 Return the editable plan, transferred source, runtime candidate, clip and control tables, source/output hashes, comparisons, limitations and review status. Keep approved originals. If the project has a canonical fieldbook/catalog, append experimental animation rounds under existing model identities; preserve pins and prior verdicts. Make every clip discoverable there with its baseline and workflow identity rather than proliferating unrelated galleries. Registration is not adoption.
+
+When behaviors live on different rig versions, aggregate them into one model's clip index and identify the rig for each clip. A newer version's shorter clip list must not hide an existing flight or secondary behavior. For a dedicated comparison page, reuse canonical assets and identities: show detailed candidate and animated blockout together, optionally add the latest non-blockout original, and retain the exact source comparison. Link cameras and phase, label durations, and offer rest pose and part highlighting. See-through boxes or isolated controls expose small facial and appendage controls hidden inside broad body boxes; keep these viewing aids distinct from changes to the authored plan.
 
 Keep clip verdicts unresolved until the human reviews them; allow improved / equivalent / worse / needs changes decisions per clip. Promotion to a project default is a separate explicit user decision, informed by repeated results across anatomies, deformation quality, gameplay timing and refinement effort.
 
