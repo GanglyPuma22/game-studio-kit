@@ -19,6 +19,46 @@ REQUIRED_SKILLS = {
 }
 
 
+# YAML 1.2's double-quoted escapes, with the hex lengths it requires.
+_DOUBLE_QUOTED = (
+    r'"(?:[^"\\]|\\(?:[0abtnvfre "/\\N_LP\t]'
+    r'|x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}))*"'
+)
+
+
+def _valid_yaml_scalar(text):
+    """A one-line YAML scalar that parses as the whole string, without a YAML library.
+
+    A plain scalar ends at ": " or " #" and cannot start with an indicator
+    ("-", "?" or ":" only when a space or the end follows). A double-quoted one must close at its
+    last character with every inner quote escaped; a single-quoted one escapes
+    an inner quote by doubling it.
+    """
+    if not text:
+        return False
+    if text.startswith('"'):
+        if re.fullmatch(_DOUBLE_QUOTED, text) is None:
+            return False
+        # A \u or \U escape must name a Unicode scalar: no surrogates, nothing
+        # past U+10FFFF. Each match consumes one whole escape, so an escaped
+        # backslash before "u" is not read as one.
+        for escape in re.finditer(r"\\(?:u([0-9A-Fa-f]{4})|U([0-9A-Fa-f]{8})|.)", text[1:-1]):
+            digits = escape.group(1) or escape.group(2)
+            if digits:
+                point = int(digits, 16)
+                if 0xD800 <= point <= 0xDFFF or point > 0x10FFFF:
+                    return False
+        return True
+    if text.startswith("'"):
+        return re.fullmatch(r"'(?:[^']|'')*'", text) is not None
+    # "-", "?" and ":" may open a plain scalar when a non-space follows them.
+    if text[0] in ",[]{}#&*!|>%@`" or (
+        text[0] in "-?:" and (len(text) == 1 or text[1] in " \t")
+    ):
+        return False
+    return ": " not in text and " #" not in text and not text.endswith(":")
+
+
 def check(root):
     root = Path(root).resolve()
     errors = []
@@ -90,9 +130,9 @@ def check(root):
                 continue
             # A YAML plain scalar ends at ": " or " #", so hosts that parse the
             # frontmatter as YAML would refuse or truncate such a description.
-            description = re.search(r"^description: (.+)$", front, re.M).group(1)
-            if description[0] not in "'\"" and (": " in description or " #" in description):
-                errors.append("description is not a valid YAML plain scalar: " + skill["path"])
+            description = re.search(r"^description: (.+)$", front, re.M).group(1).rstrip()
+            if not _valid_yaml_scalar(description):
+                errors.append("description is not a valid one-line YAML scalar: " + skill["path"])
         for name, path in REQUIRED_SKILLS.items():
             if name not in names:
                 errors.append("missing required skill declaration: " + name)

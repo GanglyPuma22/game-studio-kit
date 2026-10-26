@@ -1,7 +1,7 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "kind": "gym-plan",
-  "$comment": "One gameplay gym plan per project, kept in the project (for example tools/gym-plan.json) and updated after every round. inventory rows come from source, with owner as path:line and numbers copied from code. Every inventory row maps to at least one room question or carries not_in_gym. Each room question has an expected value and tolerance written before the room is built. status per room is built, checked and observed, reported separately: checked means an automated check passes, observed means a person played it. Each status carries the content_digest of the build it was established on (copied from that run's playtest.json, never typed) and the evidence receipts; a status whose digest differs from the current build is stale and is reported as not established until it is run again. Gym observations never set a feature manifest row to accepted. gaps record what the game cannot do yet and the room that exposed each one; closing a gap is separate default-off game work. key_registry lists every key already taken by the game and its labs before gym keys are chosen. See skills/studio-gym/SKILL.md.",
+  "$comment": "One gameplay gym plan per project, kept in the project (for example tools/gym-plan.json) and updated after every round. inventory rows come from source, with owner as path:line and numbers copied from code. Every inventory row maps to at least one room question or carries not_in_gym. Each room question has an expected value and tolerance written before the room is built. status per room is built, checked and observed, reported separately: checked means an automated check passes, observed means a person played it. Each status carries the content_digest of the build it was established on and its content_identity_method, both copied from that run's playtest.json (never typed), and the evidence receipts. A status is current only when its method is byte-hashed (a session started with --content-identity strict), its digest equals the current build's, and the same session's exit.json shows the build stayed still: the later digest (content_digest_after_exit, or content_digest_at_collect for an attended session) is byte-hashed and equal, the change diagnostic is false, and for an attended session engine_running_at_collect is false (null means the end was not established); a cached or unknown method, or a different digest, is stale and reported as not established until it is run again. Schema 2 adds content_identity_method to each schema 1 status object; keep the existing ok, content_digest and evidence when upgrading. Gym observations never set a feature manifest row to accepted. gaps record what the game cannot do yet and the room that exposed each one; closing a gap is separate default-off game work. key_registry lists every key already taken by the game and its labs before gym keys are chosen. See skills/studio-gym/SKILL.md.",
   "game": "",
   "engine": {
     "name": "godot",
@@ -68,16 +68,19 @@
         "built": {
           "ok": false,
           "content_digest": null,
+          "content_identity_method": null,
           "evidence": []
         },
         "checked": {
           "ok": false,
           "content_digest": null,
+          "content_identity_method": null,
           "evidence": []
         },
         "observed": {
           "ok": false,
           "content_digest": null,
+          "content_identity_method": null,
           "evidence": []
         }
       },

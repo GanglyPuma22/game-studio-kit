@@ -33,7 +33,14 @@ this.
    because that is what the kit reads: `playtest` judges a driven run from the
    log and the exit status, so a harness that only wrote `"ok": false` into its
    own report would be recorded as a clean `completed`.
-5. **`MAX_SECONDS`** — the harness quits itself. `--max-minutes` is the kit's
+5. **`_metrics()`** — optional measured numbers (an apex height, a stopping
+   distance) keyed by name. They are written to the report's `metrics` for
+   comparing builds and never decide `ok`; that stays with `_assertions()`.
+   When a number keeps changing after the last input is released, return
+   false from **`_measurement_ready()`** until it has settled; the report
+   waits for it, and a run that reaches `MAX_SECONDS` first fails the built-in
+   `measurement_settled` check.
+6. **`MAX_SECONDS`** — the harness quits itself. `--max-minutes` is the kit's
    backstop for a harness that hangs, not the plan for how long the run takes.
    Reaching the ceiling before every step is released fails the run through a
    built-in `route_completed` check, so a route truncated by a ceiling somebody

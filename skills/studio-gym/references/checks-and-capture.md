@@ -10,7 +10,7 @@ Read alongside [studio-gym](../SKILL.md). This is step 4: turning room questions
 | Metric snapshot | The same harness writing measured numbers | A tuning value moved or stayed put between builds | Whether the new value is better |
 | Gym session | A person playing the gym route, HUD on, log running | How the verb feels at its edges | That the canonical route reaches it |
 
-Report a room as **built**, **checked** and **observed** separately. A room that passes its check and was never played is checked, not observed. Each status records the `content_digest` from the run's `playtest.json` and the receipts; after a change to the game, a status from an older digest is stale until it runs again.
+Report a room as **built**, **checked** and **observed** separately. A room that passes its check and was never played is checked, not observed. Each status records the `content_digest` and `content_identity_method` from the run's `playtest.json` and the receipts. Only a run started with `--content-identity strict` (method `byte-hashed`) whose `exit.json` shows the build stayed still (later digest byte-hashed and equal, change diagnostic false, and for an attended session `engine_running_at_collect` false, since null means the session's end was not established, as [studio-playtest](../../studio-playtest/SKILL.md) describes) makes a status current; a cached run, or one from an older digest, is stale until it runs again.
 
 ## Room checks
 
@@ -24,7 +24,7 @@ Most checks can run in a minimal world (one room, the player, the system under t
 
 ## Metric snapshots and golden values
 
-- The harness writes the measured numbers per question into its own report, under a `metrics` key next to `checks`; the kit supplies that report's path and hashes it into `exit.json`. A separate file is also fine if it is declared with `--result` at a project path outside the playtest run directory, such as `artifacts/gym-results/<label>.json`, because the kit refuses a result inside `artifacts/playtests/<label>/`. Numbers worth recording: jump apex, standing and running distance, time to top speed, stopping distance, highest step climbed, slope where sliding starts, landing impact, wading multiplier at each depth.
+- The harness writes the measured numbers per question into its own report by returning them from the template's `_metrics()`, which the report writes under `metrics` next to `checks`; the kit supplies that report's path and hashes it into `exit.json`. A separate file is also fine if it is declared with `--result` at a project path outside the playtest run directory, such as `artifacts/gym-results/<label>.json`, because the kit refuses a result inside `artifacts/playtests/<label>/`. Numbers worth recording: jump apex, standing and running distance, time to top speed, stopping distance, highest step climbed, slope where sliding starts, landing impact, wading multiplier at each depth.
 - Compare each number with the plan's `expected` and `tolerance`, then with the last accepted snapshot. Store accepted snapshots in the project (for example `tests/gym-golden/<room>.json`) with the build identity, physics backend and tick rate they were measured on.
 - Update a golden value only when the tuning change was intended, in the same change that moved it, so the history shows why. A moved number with no tuning change is a regression report.
 
