@@ -31,6 +31,8 @@ Isolate controls before a full animation sweep. Move the parent with local contr
 
 ## Block a performance
 
+Follow [block motion rules](block-motion-rules.md) while blocking: rigid blocks, joined joints, joint limits and hinge direction, whole-chain reach, pinned hitting blocks, planted contacts with deliberate steps, weight over support, nothing through ground, scenery or body, no pops or flips, and real gait footfalls. Write the order in which those rules give way before the first conflict appears. When the blocks are posed in the engine from gameplay state rather than keyed and baked, [runtime block rigs](runtime-block-rigs.md) adds a per-move table of what the game provides, an iteration loop and a pitfalls checklist from the first approved pilot.
+
 For each clip, specify intent, duration, loop/one-shot, main beats, contact events, start/end state and transitions. Establish what leads and what follows. Block readable poses, then refine timing, anticipation, decisive action, attention and settling. Add secondary motion where it supports that intent. Uniform smoothing can erase urgency or weight; smoothness alone is not a quality verdict.
 
 Place pivots at actual rotation centers and points at contacts. Label independent facial and appendage controls. Keep their dependencies explicit: a whisker root follows the head and has local acting of its own. Review primitive motion from at least two useful views before expanding the sweep. Preserve the controls and their actions as editable authoring inputs.
@@ -65,7 +67,7 @@ When behaviors live on different rig versions, aggregate them into one model's c
 
 Publish machine-readable pairings with the candidate: immutable blockout identity and hash, per-target clip mapping, exact source identity, editable-plan path/hash, control/part coverage, authorship and unresolved limitations. Use the catalog's existing provenance mechanism when available. The viewer should resolve this explicit relationship, validate model/hash/target identity, and say when it is missing or conflicting. Never pair versions by display-name similarity. The blockout toggle shares phase, camera and root-motion treatment with the detailed model; keep the original comparison available. A proxy that only visualizes inherited source motion must say so.
 
-Keep clip verdicts unresolved until the human reviews them; allow improved / equivalent / worse / needs changes decisions per clip. Promotion to a project default is a separate explicit user decision, informed by repeated results across anatomies, deformation quality, gameplay timing and refinement effort.
+Size each review round for decisions: a handful of moves with per-move approve / needs-work, a changed-since-last-round filter, rule scores beside each move and auto-framed side and front views. Watch every changed move at full speed; evenly spaced stills miss quarter-second artifacts such as a shuffling foot or a head inside a wall. Keep clip verdicts unresolved until the human reviews them; allow improved / equivalent / worse / needs changes decisions per clip. Promotion to a project default is a separate explicit user decision, informed by repeated results across anatomies, deformation quality, gameplay timing and refinement effort.
 
 ## Portable invocation
 
