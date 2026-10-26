@@ -19,5 +19,8 @@ uv venv -q --python 3.10 "$ENVDIR"
 PY="$ENVDIR/bin/python"
 # Not needed here and heavy: TensorRT, deepspeed, the web UI and server.
 grep -v -E '^(tensorrt|deepspeed|gradio|fastapi|uvicorn)' "$R/requirements.txt" > "$HERE/requirements.txt"
-uv pip install -q --python "$PY" -r "$HERE/requirements.txt" --index-strategy unsafe-best-match
+# openai-whisper 20231117 builds from source and its setup.py imports
+# pkg_resources, which setuptools 81 removed: keep build envs below 81.
+echo "setuptools<81" > "$HERE/build-constraints.txt"
+uv pip install -q --python "$PY" -r "$HERE/requirements.txt" --index-strategy unsafe-best-match --build-constraints "$HERE/build-constraints.txt"
 cd "$R" && PYTHONPATH="$R:$R/third_party/Matcha-TTS" MPLBACKEND=Agg "$PY" -c "import torch, soundfile, wetext; from cosyvoice.cli.cosyvoice import CosyVoice3; from wetext import Normalizer; Normalizer(lang='en'); assert torch.cuda.is_available(); print('imports ok', torch.__version__, torch.cuda.get_device_name(0))"
