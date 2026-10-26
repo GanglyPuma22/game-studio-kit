@@ -345,6 +345,13 @@ class SpeechJobTests(unittest.TestCase):
             r = subprocess.run(["bash", str(SCRIPTS / "attended.sh"), str(jf), d, str(Path(d) / "out")], capture_output=True, text=True)
             self.assertEqual(r.returncode, 2)
             self.assertIn("attended", r.stderr)
+            out = Path(d) / "busy"
+            out.mkdir()
+            (out / "old.wav").write_bytes(b"x")
+            jf.write_text(json.dumps(speech_job("casting-qwen3-voicedesign")))
+            r = subprocess.run(["bash", str(SCRIPTS / "attended.sh"), str(jf), d, str(out)], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("not empty", r.stderr)
 
 
 class BudgetLedgerTests(unittest.TestCase):

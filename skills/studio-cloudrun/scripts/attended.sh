@@ -19,6 +19,9 @@ VARGS=(); [ "$(J 'print(len(d.get("inputs") or []))')" -gt 0 ] && VARGS=(--input
 python3 "$KIT/scripts/studio.py" cloudrun validate --job "$JOBFILE" "${VARGS[@]}" > /dev/null \
 	|| { python3 "$KIT/scripts/studio.py" cloudrun validate --job "$JOBFILE" "${VARGS[@]}"; exit 2; }
 [ "$(J 'print(d["type"], d.get("where"))')" = "model-run attended" ] || { echo "attended.sh runs model-run jobs with \"where\": \"attended\" only" >&2; exit 2; }
+# Each run gets its own results folder: never mix takes from two runs.
+if [ -e "$DEST" ] && [ -n "$(ls -A "$DEST" 2> /dev/null)" ]; then echo "$DEST is not empty: give each run a fresh results folder" >&2; exit 2; fi
+[ -e "$DEST.zip" ] && { echo "$DEST.zip already exists: give each run a fresh results folder" >&2; exit 2; }
 RECIPE=$(J 'print(d["recipe"])'); RDIR=$KIT/skills/studio-cloudrun/recipes/$RECIPE
 JOB=$(mktemp -d "${TMPDIR:-/tmp}/attended-XXXX"); mkdir -p "$JOB/repo"; (umask 077; mkdir -p "$JOB/inputs")
 cp -r "$RDIR"/. "$JOB/repo/"
