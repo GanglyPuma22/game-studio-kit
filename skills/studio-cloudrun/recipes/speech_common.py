@@ -110,7 +110,9 @@ class Session:
     def __init__(self, recipe_dir, plan_path, model_dir, out_dir, inputs_dir=None):
         self.recipe_dir = Path(recipe_dir)
         self.recipe = json.loads((self.recipe_dir / "recipe.json").read_text())
-        self.name = self.recipe_dir.name
+        # Packed copies sit in a folder named repo/: the packer writes the real name beside them.
+        named = self.recipe_dir / "recipe.name"
+        self.name = named.read_text().strip() if named.is_file() else self.recipe_dir.name
         self.plan = json.loads(Path(plan_path).read_text())
         self.model_dir = Path(model_dir)
         self.out = Path(out_dir)

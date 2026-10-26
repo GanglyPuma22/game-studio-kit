@@ -23,6 +23,7 @@ RECIPE=$(J 'print(d["recipe"])'); RDIR=$KIT/skills/studio-cloudrun/recipes/$RECI
 JOB=$(mktemp -d "${TMPDIR:-/tmp}/attended-XXXX"); mkdir -p "$JOB/repo"; (umask 077; mkdir -p "$JOB/inputs")
 cp -r "$RDIR"/. "$JOB/repo/"
 grep -q speech_common "$RDIR/worker.py" && cp "$KIT/skills/studio-cloudrun/recipes/speech_common.py" "$JOB/repo/"
+echo "$RECIPE" > "$JOB/repo/recipe.name"
 python3 -c "import json,sys;json.dump(json.load(open(sys.argv[1]))['plan'],open(sys.argv[2],'w'),indent=2)" "$JOBFILE" "$JOB/repo/plan.json"
 J 'print(json.dumps({"id":d["id"],"max_minutes":d["max_minutes"],"setup":"bash setup.sh","command":"bash run.sh"}))' > "$JOB/job.json"
 J 'print("\n".join(i["path"] for i in d.get("inputs") or []))' | while IFS= read -r p; do

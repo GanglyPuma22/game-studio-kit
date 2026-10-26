@@ -270,6 +270,14 @@ class SpeechJobTests(unittest.TestCase):
         self.assertIn("recipe limit is 40", self.errs(speech_job(plan=p)))  # 39 + 3 + 1 repeat
         cast = plan_with("casting-qwen3-voicedesign", controls={})
         self.assertIn("instruct", self.errs(speech_job("casting-qwen3-voicedesign", plan=cast)))
+        cast = plan_with("casting-qwen3-voicedesign", controls=None)
+        cast["cues"][0]["controls"] = None
+        self.assertIn("instruct", self.errs(speech_job("casting-qwen3-voicedesign", plan=cast)))
+        twice = [{"cue": "striker-ult-ally", "seed": 101, "after_reload": True}] * 2
+        self.assertIn("second time", self.errs(speech_job(plan=plan_with(repeats=twice))))
+        sfx = {"schema": 1, "id": "sfx-test", "type": "model-run", "recipe": "stable-audio-open-sfx", "max_minutes": 5,
+               "max_units": 0, "where": "attended", "plan": json.loads((RECIPES / "stable-audio-open-sfx/plan.example.json").read_text())}
+        self.assertIn("gated weights", self.errs(sfx))
         cast = plan_with("casting-qwen3-voicedesign", reference={"input": "x", "sha256": Z, "transcript": "x"})
         self.assertIn("not used by casting", self.errs(speech_job("casting-qwen3-voicedesign", plan=cast)))
 
@@ -328,7 +336,7 @@ class SpeechJobTests(unittest.TestCase):
 
     def test_runners_guard_private_inputs_and_budgets(self):
         text = (SCRIPTS / "colab_job.sh").read_text()
-        for needle in ("budget.py\" open", "bill;", "copies of a private input", '[ "$LEAK" = 0 ]', "speech_common.py"):
+        for needle in ("budget.py\" open", "bill;", "recipe.name", "copies of a private input", '[ "$LEAK" = 0 ]', "speech_common.py"):
             self.assertIn(needle, text)
         self.assertIn("copies of a private input", (SCRIPTS / "attended.sh").read_text())
         with tempfile.TemporaryDirectory() as d:
@@ -349,15 +357,21 @@ class BudgetLedgerTests(unittest.TestCase):
             old = os.environ.get("CLOUDRUN_WORK")
             os.environ["CLOUDRUN_WORK"] = d
             try:
-                self.assertEqual(b.open_group("audition", 3.0), (3.0, None))
-                b.spend("audition", 1.25, "cast-1")
-                self.assertEqual(b.open_group("audition", 3.0), (1.75, None))
+                self.assertEqual(b.open_group("audition", 3.0, 2.0, "run-a"), (2.0, None))
+                # A second run in parallel gets only what the first does not hold.
+                self.assertEqual(b.open_group("audition", 3.0, 2.0, "run-b"), (1.0, None))
+                self.assertIn("no units left", b.open_group("audition", 3.0, 1.0, "run-c")[1])
+                b.spend("audition", 0.5, "run-a", "cast-1")  # releases run-a's 2.0, spends 0.5
+                self.assertEqual(b.open_group("audition", 3.0, 5.0, "run-c"), (1.5, None))
                 self.assertIn("opened with 3.0", b.open_group("audition", 5.0)[1])
-                b.spend("audition", 2.0, "speech-1")
-                self.assertIn("has spent", b.open_group("audition", 3.0)[1])
+                b.spend("audition", 0.0, "run-b", "speech-1")  # never got a GPU: costs nothing
+                b.spend("audition", 1.5, "run-c", "speech-2")
                 led = json.loads((Path(d) / "budgets/audition.json").read_text())
-                self.assertEqual([r["job"] for r in led["runs"]], ["cast-1", "speech-1"])
-                self.assertEqual(b.main(["open", "audition", "3"]), 1)
+                self.assertEqual([r["job"] for r in led["runs"]], ["cast-1", "speech-1", "speech-2"])
+                self.assertEqual(led["reserved"], {})
+                self.assertEqual(led["spent"], 2.0)
+                self.assertEqual(b.main(["open", "audition", "3", "2", "run-d"]), 0)
+                self.assertEqual(b.main(["open", "audition", "3", "2", "run-e"]), 1)
             finally:
                 if old is None:
                     os.environ.pop("CLOUDRUN_WORK")
@@ -420,6 +434,7 @@ class SpeechCommonTests(unittest.TestCase):
             sf.write(d / "in/ref.wav", ref_audio[:, None], 24000, subtype="FLOAT")
             ref_sha = hashlib.sha256((d / "in/ref.wav").read_bytes()).hexdigest()
             (rdir / "recipe.json").write_text(json.dumps({"kind": "speech", "model": {"repo": "org/m", "revision": "a" * 40, "files": {}}}))
+            (rdir / "recipe.name").write_text("speech-chatterbox-en\n")
             plan = {"language": "en", "character": {"id": "striker", "profile_version": 1}, "max_seconds": 1,
                     "reference": {"input": "ref.wav", "sha256": ref_sha, "transcript": "Ready."},
                     "cues": [{"id": "short-line", "text": "Go!", "seeds": [1, 2]},
@@ -444,6 +459,7 @@ class SpeechCommonTests(unittest.TestCase):
                 os.environ.pop(k, None)
             r = json.loads((d / "out/receipt.json").read_text())
             self.assertEqual(r["status"], "generated_pending_listening")
+            self.assertEqual(r["recipe"], "speech-chatterbox-en")
             self.assertEqual(len(loads), 2)  # reloaded for the repeat
             self.assertEqual(len(r["outputs"]), 4)
             self.assertEqual(r["reference"]["sha256"], ref_sha)

@@ -75,6 +75,7 @@ if [ "$TYPE" = model-run ]; then
 	PACK=$(mktemp -d); cp -r "$RDIR"/. "$PACK/"
 	# Speech recipes share one loop (download checks, takes, receipt).
 	grep -q speech_common "$RDIR/worker.py" && cp "$COMMON" "$PACK/"
+	echo "$RECIPE" > "$PACK/recipe.name"
 	python3 -c "import json,sys;json.dump(json.load(open(sys.argv[1]))['plan'],open(sys.argv[2],'w'),indent=2)" "$JOBFILE" "$PACK/plan.json"
 	# The runtime's own job file: the recipe's setup and run, the job's caps.
 	RUNJOB=$RES/runtime-job.json
@@ -87,11 +88,26 @@ else
 	COMMIT=$(git -C "$MIRROR" rev-parse --verify -q "$REF^{commit}") || { say "ref $REF not found in $REPO: stop"; exit 1; }
 	git -C "$MIRROR" archive --format=tar "$COMMIT" > "$RES/repo.tar"
 fi
+# Bill the group once, on every way out: the runtime's whole life at the rate
+# read at start (unknown rate: the run's whole reservation, never less; no
+# runtime started: nothing). Billing releases the run's reservation.
+BILLED=0; RESERVED=0; T0=""; RUN=$(basename "$RES")
+bill() {
+	[ "$RESERVED" = 1 ] && [ "$BILLED" = 0 ] || return 0
+	BILLED=1
+	local u=0
+	if [ -n "$T0" ]; then
+		if [ -n "${OWN:-}" ]; then u=$(python3 -c "import sys;print(round(float(sys.argv[1])*float(sys.argv[2])/3600,4))" "$(( $(date +%s) - T0 ))" "$OWN")
+		else u=$MAXUNITS; fi
+	fi
+	python3 "$HERE/budget.py" spend "$BGROUP" "$u" "$RUN" "$ID" > /dev/null 2>> "$RES/driver.log" || true
+	say "budget $BGROUP: this run cost about $u units (setup included)"
+}
 PRIVATE=$WORK/state/$SESSION-private.sha256; INTAR=""
+trap 'bill; rm -f "$INTAR" "$PRIVATE"' EXIT   # the private copy never outlives this run
 if [ "$NINPUTS" -gt 0 ]; then
 	# Only the files the job lists, packed here (mode 600), unpacked on the runtime only.
 	INTAR=$WORK/state/$SESSION-inputs.tar
-	trap 'rm -f "$INTAR" "$PRIVATE"' EXIT   # the private copy never outlives this run
 	(umask 077; J 'print("\n".join(i["path"] for i in d["inputs"]))' | tar -chf "$INTAR" -C "$INPUTS" --no-recursion -T -)
 	(umask 077; J 'print("\n".join(i["sha256"] for i in d["inputs"] if i.get("private", True)))' > "$PRIVATE")
 	say "inputs: $NINPUTS file(s) checked against their SHA-256; private ones never go to results"
@@ -119,23 +135,13 @@ m = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(?:compute\s*)?(?:units?\s*)?(?:/|per\s*
 print(m.group(1) if m else "")'; }
 RATE0=$("${COLAB[@]}" usage 2> /dev/null | rate || true)
 if [ -n "$BGROUP" ]; then
-	LEFT=$(python3 "$HERE/budget.py" open "$BGROUP" "$BTOTAL" 2>> "$RES/driver.log") || { say "budget group $BGROUP refuses this job (see driver.log): stop"; exit 1; }
-	if python3 -c "import sys;sys.exit(0 if float(sys.argv[1])<float(sys.argv[2]) else 1)" "$LEFT" "$MAXUNITS"; then
-		say "budget group $BGROUP has $LEFT units left: this run's ceiling drops from $MAXUNITS to $LEFT"; MAXUNITS=$LEFT
+	# Reserve this run's units now, before waiting for a GPU, so runs in parallel never share them.
+	GRANT=$(python3 "$HERE/budget.py" open "$BGROUP" "$BTOTAL" "$MAXUNITS" "$RUN" 2>> "$RES/driver.log") || { say "budget group $BGROUP refuses this job (see driver.log): stop"; exit 1; }
+	RESERVED=1
+	if python3 -c "import sys;sys.exit(0 if float(sys.argv[1])<float(sys.argv[2]) else 1)" "$GRANT" "$MAXUNITS"; then
+		say "budget group $BGROUP has $GRANT units free: this run's ceiling drops from $MAXUNITS to $GRANT"; MAXUNITS=$GRANT
 	fi
 fi
-# Bill the group once, on every way out: the runtime's whole life at the rate
-# read at start (unknown rate: the job's whole ceiling, never less).
-BILLED=0
-bill() {
-	[ -n "$BGROUP" ] && [ "$BILLED" = 0 ] || return 0
-	BILLED=1
-	local u
-	if [ -n "${OWN:-}" ]; then u=$(python3 -c "import sys;print(round(float(sys.argv[1])*float(sys.argv[2])/3600,4))" "$(( $(date +%s) - T0 ))" "$OWN")
-	else u=$MAXUNITS; fi
-	python3 "$HERE/budget.py" spend "$BGROUP" "$u" "$ID" > /dev/null 2>> "$RES/driver.log" || true
-	say "budget $BGROUP: this run cost about $u units (setup included)"
-}
 WAIT=${GPU_WAIT_MIN:-240}
 for try in $(seq $(( WAIT / 5 + 1 ))); do
 	"${COLAB[@]}" new --gpu "$GPU" -s "$SESSION" && break

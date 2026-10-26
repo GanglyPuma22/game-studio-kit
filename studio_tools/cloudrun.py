@@ -193,6 +193,9 @@ def _validate_model_run(job):
         errors.append(f"recipe must be one of {', '.join(sorted(known)) or '(none shipped)'}")
         return errors
     recipe = known[name]
+    if where == "attended" and recipe.get("gated"):
+        # Gated weights are staged by the service host's login; a notebook has no such step.
+        errors.append(f"recipe {name} has gated weights and runs on the service only, not attended")
     gpu = job.get("gpu", recipe.get("gpu", "L4"))
     if gpu not in recipe.get("gpus", GPUS):
         errors.append(f"recipe {name} runs on {', '.join(recipe.get('gpus', GPUS))}, not {gpu}")
@@ -418,9 +421,12 @@ def validate_speech_plan(recipe, p, inputs):
         secs = cue.get("max_seconds", p.get("max_seconds"))
         if not isinstance(secs, (int, float)) or isinstance(secs, bool) or not lo <= secs <= hi:
             errors.append(f"{where}.max_seconds (or plan.max_seconds) must be from {lo} to {hi}")
-        merged = {**(p.get("controls") or {}), **(cue.get("controls") or {})} if isinstance(cue.get("controls", {}), dict) else cue.get("controls")
-        _controls(recipe, cue.get("controls"), where, errors)
-        if casting and isinstance(merged, dict) and "instruct" not in merged:
+        cue_controls = cue.get("controls")
+        _controls(recipe, cue_controls, where, errors)
+        # The same merge the runtime does (speech_common.merged_controls): null means none.
+        plan_controls = p.get("controls") if isinstance(p.get("controls"), dict) else {}
+        merged = {**plan_controls, **(cue_controls or {})} if isinstance(cue_controls or {}, dict) else None
+        if casting and merged is not None and "instruct" not in merged:
             errors.append(f"{where}.controls.instruct (the voice description) is required")
         if not _seeds_ok(cue.get("seeds")):
             errors.append(f"{where}.seeds must be a list of distinct whole numbers")
@@ -431,13 +437,17 @@ def validate_speech_plan(recipe, p, inputs):
     if not isinstance(repeats, list):
         errors.append("plan.repeats must be a list")
         repeats = []
+    repeated = set()
     for i, r in enumerate(repeats):
         where = f"plan.repeats[{i}]"
         if not isinstance(r, dict) or r.get("after_reload") is not True or set(r) - {"cue", "seed", "after_reload"}:
             errors.append(f"{where} must be {{cue, seed, after_reload: true}}: the same cue and seed again after reloading the model")
         elif r.get("seed") not in seeds_of.get(r.get("cue"), ()):
             errors.append(f"{where} must repeat a cue and one of its own seeds")
+        elif (r["cue"], r["seed"]) in repeated:
+            errors.append(f"{where} repeats {r['cue']} seed {r['seed']} a second time (one repeat each)")
         else:
+            repeated.add((r["cue"], r["seed"]))
             total += 1
     if total > lim.get("max_outputs", 40):
         errors.append(f"plan asks for {total} outputs; recipe limit is {lim.get('max_outputs', 40)}")
