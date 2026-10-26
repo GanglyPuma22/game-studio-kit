@@ -27,12 +27,13 @@ Every site-wide source above is CC0. OpenGameArt, itch.io, Poly Pizza, Blend Swa
 ```text
 python <KIT>/scripts/studio.py assets search --source polyhaven --query "plaster wall" --kind textures
 python <KIT>/scripts/studio.py assets search --source ambientcg --query "roof tiles" --kind textures
+python <KIT>/scripts/studio.py assets search --source ambientcg --query "leaf" --kind atlases
 python <KIT>/scripts/studio.py assets fetch --project <ROOT> --source polyhaven --id plastered_wall_05 --resolution 1k
 python <KIT>/scripts/studio.py assets fetch --project <ROOT> --source ambientcg --id RoofingTiles013A --resolution 1K
 python <KIT>/scripts/studio.py assets fetch --project <ROOT> --source kenney --url <zip> --page <asset page> --author Kenney --extract
 ```
 
-- `search` covers the two sites with public APIs (Poly Haven, ambientCG) and is read-only. For the rest, open the asset page, find the file link as [sources.md](references/sources.md) describes, and pass it as `--url` with `--source <site id>`.
+- `search` covers the two sites with public APIs (Poly Haven, ambientCG) and is read-only. ambientCG keeps cut-out sheets (leaf sets, foliage, grass strands) apart from tiling materials: search them with `--kind atlases`; `--kind textures` never returns them. For the rest, open the asset page, find the file link as [sources.md](references/sources.md) describes, and pass it as `--url` with `--source <site id>`.
 - Poly Haven textures default to the maps a game shader uses (`Diffuse,nor_gl,Rough,AO,Displacement,arm`); `--maps` narrows them. Models come as glTF with their textures; HDRIs as `.hdr`. The helper checks Poly Haven's md5 for each file.
 - A site-wide CC0 source fills in the licence. A per-asset source needs `--licence` copied from the page, `--author`, and for CC-BY the exact `--attribution` text.
 - The helper refuses NonCommercial, NoDerivatives, ShareAlike, GPL and unknown licences, the same rule `validate-record` applies. When the page and the download disagree, skip the asset.
