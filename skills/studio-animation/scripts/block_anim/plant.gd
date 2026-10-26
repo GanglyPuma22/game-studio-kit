@@ -35,8 +35,16 @@ func configure(leg: float) -> void:
 	tol = leg * 0.33
 	lift = leg * 0.2
 	near = leg * 0.05
+
+
 ## The other foot of the pair: one steps at a time (unless far off).
-var other: RefCounted = null
+## Held weakly, so two feet paired with each other are still freed.
+var other: RefCounted:
+	set(v):
+		_other = weakref(v) if v != null else null
+	get:
+		return _other.get_ref() if _other != null else null
+var _other: WeakRef = null
 
 var at := Vector3.INF
 var planted := false

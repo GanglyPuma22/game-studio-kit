@@ -146,6 +146,17 @@ func _init() -> void:
 	_near("a straight chain folds to reach along its own line", folded[2].distance_to(Vector3(0, 1.5, 0)), 0.0, 0.02)
 	_check("and folds toward the hint", folded[1].z > 0.1)
 
+	var back: PackedVector3Array = Chain.reach(line, Vector3(0, -2, 0), PackedFloat32Array([1.0, 1.0]),
+		PackedFloat32Array([PI, 0.0]))
+	_near("a chain turned right round keeps its child's cone", back[2].distance_to(Vector3(0, -2, 0)), 0.0, 0.02)
+	var fa = Plant.new()
+	var fb = Plant.new()
+	fa.other = fb
+	fb.other = fa
+	var wa: WeakRef = weakref(fa)
+	fa = null
+	fb = null
+	_check("paired feet are freed with their rig", wa.get_ref() == null)
 	var flip: PackedVector3Array = Chain.ease_from(PackedVector3Array([Vector3.ZERO, Vector3.UP]),
 		PackedVector3Array([Vector3.ZERO, Vector3.DOWN]), PackedFloat32Array([1.0]), 15.0, 1.0 / 60.0)
 	_check("an opposite solve is eased, not snapped (%s)" % str(flip[1]), flip[1].y > 0.5)

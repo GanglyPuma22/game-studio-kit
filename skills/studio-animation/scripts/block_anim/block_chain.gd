@@ -64,7 +64,12 @@ static func reach(pts: PackedVector3Array, target: Vector3, lens: PackedFloat32A
 			var ref := (turn * prior_dir[i]).normalized()
 			d = cone_clamp(d, ref, cones[i])
 			p[i + 1] = p[i] + d * lens[i]
-			turn = Quaternion(prior_dir[i], d) if prior_dir[i].dot(d) > -0.999 else turn
+			if prior_dir[i].dot(d) > -0.999:
+				turn = Quaternion(prior_dir[i], d)
+			else:
+				# Turned right round: a half turn about a stable perpendicular.
+				var pa := prior_dir[i]
+				turn = Quaternion(pa.cross(Vector3.RIGHT if absf(pa.x) < 0.9 else Vector3.FORWARD).normalized(), PI)
 		if p[n - 1].distance_to(target) < tol:
 			break
 	return p
