@@ -43,5 +43,12 @@
       "closest_view": null,
       "review_place": null
     }
+  },
+  "character_pipeline": {
+    "voice_approver": null,
+    "animation_route": "not_defined",
+    "repair_round_cap": 3,
+    "runtime_root": null,
+    "library": null
   }
 }
