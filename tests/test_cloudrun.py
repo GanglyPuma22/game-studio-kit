@@ -333,6 +333,9 @@ class SpeechJobTests(unittest.TestCase):
                 self.assertNotIn("llm.rl.pt", m["files"])
                 self.assertIn("speech_common", (RECIPES / name / "worker.py").read_text())
                 self.assertEqual(r.get("inputs", False), r["kind"] == "speech")
+                # Several recipes run on one notebook runtime: own model folder, fresh environment.
+                self.assertIn(f"/content/models/{name}", (RECIPES / name / "run.sh").read_text())
+                self.assertIn('rm -rf "$ENVDIR"', (RECIPES / name / "setup.sh").read_text())
 
     def test_runners_guard_private_inputs_and_budgets(self):
         text = (SCRIPTS / "colab_job.sh").read_text()

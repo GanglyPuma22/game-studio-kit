@@ -8,11 +8,13 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 R=/content/cosyvoice; ENVDIR=/content/speech-env
 read -r COMMIT MATCHA < <(python3 -c "import json,sys;m=json.load(open(sys.argv[1]))['model'];print(m['commit'],m['submodules']['third_party/Matcha-TTS'])" "$HERE/recipe.json")
+rm -rf "$R"  # a fresh checkout each run, so a second run on the same runtime works
 git clone -q https://github.com/FunAudioLLM/CosyVoice.git "$R"
 git -C "$R" checkout -q --detach "$COMMIT"
 git -C "$R" submodule -q update --init third_party/Matcha-TTS
 [ "$(git -C "$R/third_party/Matcha-TTS" rev-parse HEAD)" = "$MATCHA" ] || { echo "Matcha-TTS is not at its pinned commit" >&2; exit 1; }
 python3 -m pip install -q uv
+rm -rf "$ENVDIR"  # recipes share this path with different pins: start clean
 uv venv -q --python 3.10 "$ENVDIR"
 PY="$ENVDIR/bin/python"
 # Not needed here and heavy: TensorRT, deepspeed, the web UI and server.

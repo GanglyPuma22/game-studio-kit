@@ -6,6 +6,7 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ENVDIR=/content/speech-env
 python3 -m pip install -q uv
+rm -rf "$ENVDIR"  # recipes share this path with different pins: start clean
 uv venv -q --python 3.12 "$ENVDIR"
 PY="$ENVDIR/bin/python"
 COMMIT=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['model']['commit'])" "$HERE/recipe.json")

@@ -4,4 +4,4 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 JOB=${JOB_ROOT:-/content/job}
 R=/content/cosyvoice
 cd "$R"
-PYTHONPATH="$R:$R/third_party/Matcha-TTS" MPLBACKEND=Agg exec /content/speech-env/bin/python "$HERE/worker.py" "$HERE/plan.json" /content/speech-model "$OUT_DIR" "$JOB/inputs"
+PYTHONPATH="$R:$R/third_party/Matcha-TTS" MPLBACKEND=Agg exec /content/speech-env/bin/python "$HERE/worker.py" "$HERE/plan.json" /content/models/speech-cosyvoice3 "$OUT_DIR" "$JOB/inputs"
