@@ -1,0 +1,193 @@
+{
+  "base": "97b3397d550e0043966ff9190e5cb1dd2062b412",
+  "source_identity": {
+    "attachment.py": {
+      "executed_bytes_sha256": "0cfc5a583443a6b500e87a9a89f85e7111becc3fafa2f491e767d42ea15de30c",
+      "lf_text_sha256": "0cfc5a583443a6b500e87a9a89f85e7111becc3fafa2f491e767d42ea15de30c"
+    },
+    "clipping.py": {
+      "executed_bytes_sha256": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+      "lf_text_sha256": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e"
+    },
+    "ecology.py": {
+      "executed_bytes_sha256": "618e9b9a8a2128123bc43b48e9724d04e9c22985bebc05429d80808eb1e76af3",
+      "lf_text_sha256": "618e9b9a8a2128123bc43b48e9724d04e9c22985bebc05429d80808eb1e76af3"
+    },
+    "geometry.py": {
+      "executed_bytes_sha256": "b0cab3fa0aba883b0e7dc86bb11cd324c53930010dcb4cc848cf2970511b9f7a",
+      "lf_text_sha256": "b0cab3fa0aba883b0e7dc86bb11cd324c53930010dcb4cc848cf2970511b9f7a"
+    },
+    "gltf_pose.py": {
+      "executed_bytes_sha256": "049c36f4a3f363e5b645b81000a0dfb040b35f8b8a62ad447d1ecf32f3558cde",
+      "lf_text_sha256": "049c36f4a3f363e5b645b81000a0dfb040b35f8b8a62ad447d1ecf32f3558cde"
+    },
+    "report.py": {
+      "executed_bytes_sha256": "bad1eb8fd056c2a4915f09837212562b5b54eba4a93ae32e3123c0c638024e69",
+      "lf_text_sha256": "bad1eb8fd056c2a4915f09837212562b5b54eba4a93ae32e3123c0c638024e69"
+    },
+    "silhouettes.py": {
+      "executed_bytes_sha256": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+      "lf_text_sha256": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3"
+    },
+    "worker.py": {
+      "executed_bytes_sha256": "5dbf68d95a924dd29072429f5c1c11244d384ea5a9ef535cdb36929875f1e551",
+      "lf_text_sha256": "5dbf68d95a924dd29072429f5c1c11244d384ea5a9ef535cdb36929875f1e551"
+    },
+    "__init__.py": {
+      "executed_bytes_sha256": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+      "lf_text_sha256": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002"
+    },
+    "__main__.py": {
+      "executed_bytes_sha256": "a3da323a0497db3c87b691c74ed8f9f0951c29b54b1487e67d4d6b64880492a6",
+      "lf_text_sha256": "a3da323a0497db3c87b691c74ed8f9f0951c29b54b1487e67d4d6b64880492a6"
+    }
+  },
+  "source_identity_note": "Executed Windows byte hashes and Git-normalized LF text hashes are both retained.",
+  "labels": "External source node names replaced by specimen mesh labels; part indices, bounds, counts, hashes and metrics unchanged.",
+  "families": [
+    {
+      "id": "specimen-a",
+      "budget_tris": 5000,
+      "inputs": [
+        {
+          "file": "model-lod0.glb",
+          "lod": 0,
+          "sha256": "4af1bb8de22e7d182da1ad895eb988f2975170f26015c77ae937774a0a6f6001"
+        },
+        {
+          "file": "model-lod1.glb",
+          "lod": 1,
+          "sha256": "d1b1c8900b1c4d0237df7bc92f8f1b4d46bd2a828d9a91bab9f893a801d410fb"
+        },
+        {
+          "file": "model-lod2.glb",
+          "lod": 2,
+          "sha256": "a3488ca02540a3419e20fe2ba133b7d09d3657441d2a770a9996bfe4c7d23597"
+        }
+      ],
+      "blender_sha256": "f9d2e744702354e7d182861fb924bc128ea85d8cf0577b91dcb4d92f09cdc287",
+      "worker_seconds": 50.453,
+      "artifacts": {
+        "contact-sheet.png": "bad2f76ad04aa05d714f7110d8e0116bc50793dffa8f91507218ca26a89627a7",
+        "report.json": "31092c090c7741143529ab4c81054394616d59c46c430a2120966ef7ea0d6f1e",
+        "REPORT.md": "ae3448bd5ba5e95f3c9ba7fb45570fdc792ee2fde29f9e976910d5afdbf7e4f9",
+        "silhouettes/model-0-lod0-at-1-back.png": "9c313aac475b3bdbf41718d17f1d088d3ab09bbae26c8914be02fa9feaf51e63",
+        "silhouettes/model-0-lod0-at-1-front.png": "d1ccaea5b4b46cf935c46f81af9eedd4a83b4e766b50861b635e714a98448ec2",
+        "silhouettes/model-0-lod0-at-1-left.png": "73125643cf20c4423d7b016b4c10db834dce7fc2367f0a9003a6eeb274f9d639",
+        "silhouettes/model-0-lod0-at-1-right.png": "2151911363012a054cf29c56ff2b0094e62e3116bf52ff93976a2e3d8ef2ee59",
+        "silhouettes/model-0-lod0-back.png": "3d046023c3632ae0aec69bb6d8d0a23c375f4d52634de576ff93016bf75b69bc",
+        "silhouettes/model-0-lod0-front.png": "1d6b9b65e5ee749b02154e05131d47336c8804dc3492f71a56bcaec6e8824c31",
+        "silhouettes/model-0-lod0-left.png": "aa63bfc3d8ff28ae6342a09c0741e549840d0b05739760789e34d4c37ff35d89",
+        "silhouettes/model-0-lod0-right.png": "9d9f06690a056c1c7f0bd7d63351599b3eb0b2ce3151f6089d8e52bf5dc00ff4",
+        "silhouettes/model-0-lod1-at-2-back.png": "05c5abee36100a4805dbdd70392076621ebc6fca9c5652f75d37cb7cc7710f51",
+        "silhouettes/model-0-lod1-at-2-front.png": "6679a5923c3ab9b4d43d4afd895e97006a770cf0090af5e5a4a9ea6b029165ef",
+        "silhouettes/model-0-lod1-at-2-left.png": "b0b48eceaaa6948c91c2488e68014310d342e03b9766313094e090fb12837479",
+        "silhouettes/model-0-lod1-at-2-right.png": "cd925483b75900615763090e09234b56b4fea471849af774c98eb43467c17dc7",
+        "silhouettes/model-0-lod1-back.png": "91747bcf7b482138ccaf09df3c9c09995aaa1ee3235fe306511ada89a91fd2f3",
+        "silhouettes/model-0-lod1-front.png": "37af0ce672f83f2efebe3fa4e9abb0a98fd14444446d820a97c757add49f97a3",
+        "silhouettes/model-0-lod1-left.png": "cae64e768cc7bca0a9016918491bfdb10708ece6a241992548245d53a847c67f",
+        "silhouettes/model-0-lod1-right.png": "ac3203d384f03b657dd295dd07a52ef63cb05cfd0dddab4dded7b577ae3244b6",
+        "silhouettes/model-0-lod2-back.png": "370ba9caea2a027355c72c8015fd14e070d3c1383048b6f897a77244671225e0",
+        "silhouettes/model-0-lod2-front.png": "fbf24879f121f4aca6e0bdda608c0bcb67d95b3598058a643946aba0b46e4c20",
+        "silhouettes/model-0-lod2-left.png": "8ca1ef62f3d9e11e5836da3464c1e07bf152472b3f71c4e76a80ed192561324f",
+        "silhouettes/model-0-lod2-right.png": "10434dbd18dcb4705c70e6f8fd213bb6c8dc6272ad79882b3538e41acdbec89f"
+      }
+    },
+    {
+      "id": "specimen-b",
+      "budget_tris": 5000,
+      "inputs": [
+        {
+          "file": "model-lod0.glb",
+          "lod": 0,
+          "sha256": "b0e073d97bb1df675a237fe07ca8d04988e3e7041154531a6320bf1ee7908086"
+        },
+        {
+          "file": "model-lod1.glb",
+          "lod": 1,
+          "sha256": "3de5d9c195f368ad091e1e0ebdffc05a401b87ca2a63c43b8a2e5dfdca35f851"
+        },
+        {
+          "file": "model-lod2.glb",
+          "lod": 2,
+          "sha256": "40e4c0335dac5b331e62fa64781cec91275304b4a2d0f4940170ee152b6f5eb1"
+        }
+      ],
+      "blender_sha256": "f9d2e744702354e7d182861fb924bc128ea85d8cf0577b91dcb4d92f09cdc287",
+      "worker_seconds": 48.562,
+      "artifacts": {
+        "contact-sheet.png": "87997d3171823eeb25b6b1e42e6cd9ac3e326f8aecc534534da1a6d870991ce4",
+        "report.json": "86a3ce90ff5b2e6a914765e024884c604675cfdab010db11ba22e0e6e9a9706f",
+        "REPORT.md": "546aa4bdfcf785963a04db16f37b01d59666ff6c9c3a23ce879029a26c3e351b",
+        "silhouettes/model-0-lod0-at-1-back.png": "3833e19651b69458f14f73a55e4475680f0da9ceafbc92e8c5a15d633b2ac450",
+        "silhouettes/model-0-lod0-at-1-front.png": "2e7cd0a0085e886729e79d86e7ae8036168081603574f6b6d21e1ed459b79942",
+        "silhouettes/model-0-lod0-at-1-left.png": "c96ff015b06d3c87d308c973c5d3e948a049220725d2a2e4c421cb5005f8aef2",
+        "silhouettes/model-0-lod0-at-1-right.png": "4409e5c96c804f600c1ac1c39c3a7a7d8a25ac3453fa54ff364452927b69784c",
+        "silhouettes/model-0-lod0-back.png": "385f0e446b2d4f724ea497b5297a9f6e91cd4d1dec4af2b6fd67e4fbd8bdef97",
+        "silhouettes/model-0-lod0-front.png": "5c7b6e7f3940ad7145211290e11185445a28c2f7eee525e4a280889f69d48ff6",
+        "silhouettes/model-0-lod0-left.png": "bda05065294e46f67e2d83af6c698bc58865c7b70e19349368ebeec9402d0c78",
+        "silhouettes/model-0-lod0-right.png": "a308dc6af4df1a7a06d8a506bb5a73e344406fcb5e5ff993ce4f4fa5574ec4f0",
+        "silhouettes/model-0-lod1-at-2-back.png": "4bc5bbb6d6629872c5667a4a09bd77bc4b50743f8bb252d6c9ca99a37bafd3ed",
+        "silhouettes/model-0-lod1-at-2-front.png": "95dfeefbda84b1b5bc925edaa43a15ce356d6fe11f80c83f25db27c76647f059",
+        "silhouettes/model-0-lod1-at-2-left.png": "4b39b8832b1240c78b291051b49a180b53403829b8207b737505802fc8b1c97c",
+        "silhouettes/model-0-lod1-at-2-right.png": "709647a48e38054db82f26d2a1578d2a4ccc49361914daf46802b07e25a5e7c4",
+        "silhouettes/model-0-lod1-back.png": "19e7c7032b94814f755d3c55183690389e4d1b49205b306e783330e8e083cfeb",
+        "silhouettes/model-0-lod1-front.png": "12d661a5ac8a767eb3d2a27886dd639d359f8ba2a9450995d24f19b75593c6e3",
+        "silhouettes/model-0-lod1-left.png": "6ab405a0fd3ec76675370e783f01e652cd914683e3ac85060c6187318a0e1653",
+        "silhouettes/model-0-lod1-right.png": "98a70b3106cab9c2f6e63265a934ed8a1f2bc56c152ace1f5b889b077290f18e",
+        "silhouettes/model-0-lod2-back.png": "55e789c7c63095333ce73270f4480454f6e73552460a12576e8ee8c86cc4e09e",
+        "silhouettes/model-0-lod2-front.png": "ca9224b519902e31ea6e16b6e3ed21957bb884e59d421d0ac8377c683ec0492a",
+        "silhouettes/model-0-lod2-left.png": "2e17cd6096fa5c2c569b8452a777c996fb52a4e5e3899faa554cd1f43dcc503b",
+        "silhouettes/model-0-lod2-right.png": "b747cea9fa6b87bff78ea574131547cf0bcca4904d6676fde80a21a5200916c0"
+      }
+    },
+    {
+      "id": "specimen-c",
+      "budget_tris": 2000,
+      "inputs": [
+        {
+          "file": "model-lod0.glb",
+          "lod": 0,
+          "sha256": "33e1528b576caeaac46e35e326de70c2bf20c1647538676e6e0f0e89fe23c46c"
+        },
+        {
+          "file": "model-lod1.glb",
+          "lod": 1,
+          "sha256": "336c16da9ee3faa9e3e3e040df383d8869e41ce073161b76ff40199d4e8d7807"
+        },
+        {
+          "file": "model-lod2.glb",
+          "lod": 2,
+          "sha256": "0aabac4d303d67fabc00ddf614a60081a3cf6cec1132c3707697166194e99667"
+        }
+      ],
+      "blender_sha256": "f9d2e744702354e7d182861fb924bc128ea85d8cf0577b91dcb4d92f09cdc287",
+      "worker_seconds": 21.562,
+      "artifacts": {
+        "contact-sheet.png": "dd919a25c4c0e6c7318e50831024c6a49d2da339f31505bb490b653d3a1e0ddb",
+        "report.json": "138469ae126f848c270f8960bc6f56720be3fac2b61e26190a5bc3960f88989e",
+        "REPORT.md": "ba8189cf0e2ad0ef402610a0137844dcc4b0b9fdacb5e2875e2fe002886e9ba0",
+        "silhouettes/model-0-lod0-at-1-back.png": "9d5452dc22385c90b754fd7e89a674a3c8bbd3cb375623586c2f28a87d99e06c",
+        "silhouettes/model-0-lod0-at-1-front.png": "79465c693a3e945999b05288d45619fae6b6f0b8e4ae08d130fb12a886c77a98",
+        "silhouettes/model-0-lod0-at-1-left.png": "786dfa1c89bf04bad9f30ab66d351b08d87e9a0c01ad02706cfb2aa044d4bded",
+        "silhouettes/model-0-lod0-at-1-right.png": "d5523fa58d6f96ac473b8d99cd577fb14594e1eefb315e165f251588b8687123",
+        "silhouettes/model-0-lod0-back.png": "85cb25a5b1ef7db243d7676d8697ef52b3be061a635bf2dd49ff6792b49ef46a",
+        "silhouettes/model-0-lod0-front.png": "e771baf1523338a2b9797b1049a6aa3ecf178567373bea3fe7cb5fe7974e1778",
+        "silhouettes/model-0-lod0-left.png": "91a1faa41858fd96bfdfdcd731d0f3ae82ee0ae80bdd475673e8e150f47d6f9e",
+        "silhouettes/model-0-lod0-right.png": "6ac6e126582b7ca63e1d7c862579c83eef17756142dd50b379492e6aa635638e",
+        "silhouettes/model-0-lod1-at-2-back.png": "f2e265685b3645a8dcdd547f220a79b94a0c08056abdce2a4369096fb65726a1",
+        "silhouettes/model-0-lod1-at-2-front.png": "3f276e93e953cb398b3dd35706afd7d97f711b51a78dc6a2739928bafb09cd88",
+        "silhouettes/model-0-lod1-at-2-left.png": "7fdd77816679ee3d2ec933774f59a535d743c4f169d2548a9ef2e8cde232aa4e",
+        "silhouettes/model-0-lod1-at-2-right.png": "234a9faf23eb6d38324bc86151d79e8a9bd045c1efb0058906e6ba4bc5712d45",
+        "silhouettes/model-0-lod1-back.png": "dd76d5e78f496cc31db84e4cdbf1d92be7fa059ef52a10519f5b3fc314c26d6c",
+        "silhouettes/model-0-lod1-front.png": "43bf72d976a386f41f9d83a2bd01b9604a4a73417ffde2918ab35cc8b3b3003b",
+        "silhouettes/model-0-lod1-left.png": "ce2871e9d5c2773181335c467b4163a33fd88bff664ff3d5891a1930c8f82d0f",
+        "silhouettes/model-0-lod1-right.png": "951a54ed85a10f702c4ac7aa204f74d8a1c0262f95a4554945fb8ebf0fa5239d",
+        "silhouettes/model-0-lod2-back.png": "4d92224619ebf101afb8708c8cd2e8202e2dd763b489e46396d2322800ef1e6a",
+        "silhouettes/model-0-lod2-front.png": "6ce89866e2caf220c52e9c451ced979cbc770826e3c70c328497dff19707c676",
+        "silhouettes/model-0-lod2-left.png": "05d150a7778207a7bea2247baea76d7bd79d7f1627d74955922df7db938bbaf6",
+        "silhouettes/model-0-lod2-right.png": "58b5a64c724c39dfcf442c53a37b89e1a60d04a6b7fff48c82fa9eb8538fad8d"
+      }
+    }
+  ]
+}

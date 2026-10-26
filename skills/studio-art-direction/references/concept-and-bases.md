@@ -28,7 +28,7 @@ Keep the approved image as a project reference with its ID, version, hash, appro
 
 ## 5. Look for a free base
 
-Before modelling from scratch, spend a short, bounded look on openly licensed sources such as Poly Haven, ambientCG, Quaternius, Kenney, or Sketchfab filtered to CC0 and CC-BY. Decide case by case for this one asset; do not bulk-download or build a library. Some hosts (cloud containers behind a proxy) cannot reach these sites; fetch from a host that can, into the project's reference folder with hashes, and say which host fetched it.
+Before modelling from scratch, spend a short, bounded look on openly licensed sources with [studio-assets](../../studio-assets/SKILL.md): its catalogue lists the sites (Poly Haven, ambientCG, Kenney, Quaternius, The Base Mesh, Sketchfab filtered to CC0 and CC-BY and more), how to download from each, and which ones a proxied cloud host could reach when last checked. Decide case by case for this one asset and fetch only what it needs; a library grows from those fetches and their ledger, never from mirroring a site. When a host cannot reach a site, fetch from one that can and say which host fetched it.
 
 - Prefer CC0. Use CC-BY only with the attribution recorded exactly as the licence requires, and carried into the game's credits.
 - Skip anything NonCommercial, NoDerivatives, editorial-only, "free for personal use", scraped or with an unclear licence. When the licence page and the download disagree, skip it.

@@ -26,6 +26,7 @@ PENDING_KEYS = {
 HIGH_PERFORMANCE_GUIDS = {"8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c", "e9a42b02-d5df-448d-aa00-03f14749eb61"}
 LIMITS = [
     "registry state is read at one instant; a later Settings change is not observed",
+    "ready means no blocking preflight reasons; advisory and unknown readings are not verified readiness",
     "tool entitlement and licence state are not checked here; run doctor separately",
     "apply changes Windows Update pause, active hours and the power scheme only",
 ]
@@ -53,12 +54,17 @@ def _registry_reader():
         except OSError:
             return None
 
-    def exists(key):
+    def exists(key, name=None):
+        """Presence only: absent is False, unreadable is None; never expose value contents."""
         try:
-            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key):
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key) as handle:
+                if name is not None:
+                    winreg.QueryValueEx(handle, name)
                 return True
-        except OSError:
+        except FileNotFoundError:
             return False
+        except OSError:
+            return None
 
     from .cleanroom import read_battery, read_power_scheme
 
@@ -74,7 +80,7 @@ def _registry_reader():
         "pending_reboot": {
             "cbs": exists(PENDING_KEYS["cbs"]),
             "wu": exists(PENDING_KEYS["wu"]),
-            "pending_file_rename": value(r"SYSTEM\CurrentControlSet\Control\Session Manager", "PendingFileRenameOperations") is not None,
+            "pending_file_rename": exists(r"SYSTEM\CurrentControlSet\Control\Session Manager", "PendingFileRenameOperations"),
         },
         "power_scheme": read_power_scheme(),
         "battery": read_battery(),
@@ -117,21 +123,27 @@ def evaluate(state, window=None, *, now=None, tz=None):
     """Pure readiness decision; window is (start_utc, end_utc) datetimes or None."""
     now = now or datetime.now(timezone.utc)
     if state.get("host_kind") != "windows":
-        return {"ready": False, "reasons": ["host kind is not Windows; preflight is informational only"],
+        return {"ready": False, "reasons": ["host kind is not Windows; preflight is informational only"], "advisories": [],
                 "checks": {}, "limits": []}
     reasons = []
+    advisories = []
     checks = {}
     limits = []
     pending = state.get("pending_reboot", {})
-    checks["pending_reboot"] = {k: bool(pending.get(k)) for k in ("cbs", "wu", "pending_file_rename")}
-    if any(checks["pending_reboot"].values()):
+    checks["pending_reboot"] = {k: pending.get(k) for k in ("cbs", "wu", "pending_file_rename")}
+    if pending.get("cbs") or pending.get("wu"):
         reasons.append("a reboot is pending; restart before the window")
+    if pending.get("pending_file_rename"):
+        advisories.append("pending file rename signal is present; restart necessity and timing are unverified")
+    unknown = [k for k, value in checks["pending_reboot"].items() if value is None]
+    if unknown:
+        limits.append("pending-reboot readings unavailable: " + ", ".join(unknown))
     expiry = _parse_registry_time(state.get("windows_update", {}).get("pause_expiry"))
-    checks["windows_update"] = {"paused": bool(expiry and expiry > now), "pause_expiry": expiry.isoformat() if expiry else None}
+    checks["windows_update"] = {"paused": expiry > now if expiry else None, "pause_expiry": expiry.isoformat() if expiry else None}
     if expiry is None or expiry <= now:
-        reasons.append("Windows Update is not paused")
+        advisories.append("Windows Update pause is not established (absent, expired or unreadable)")
     elif window is not None and expiry < window[1]:
-        reasons.append("Windows Update pause expires before the window ends")
+        advisories.append("Windows Update pause expires before the window ends")
     hours = state.get("active_hours", {})
     start, end = hours.get("start"), hours.get("end")
     checks["active_hours"] = {"start": start, "end": end}
@@ -155,11 +167,13 @@ def evaluate(state, window=None, *, now=None, tz=None):
                 cursor += timedelta(minutes=1)
             needed.add((window[1] - timedelta(microseconds=1)).astimezone(tz).hour)
         checks["active_hours"]["window_hours_local"] = sorted(needed)
-        checks["active_hours"]["covers_window"] = bool(needed) and hours_covered(start, end, needed)
+        checks["active_hours"]["covers_window"] = (bool(needed) and hours_covered(start, end, needed)
+                                                     if start is not None and end is not None else None)
         if not checks["active_hours"]["covers_window"]:
-            reasons.append("active hours do not cover the whole window")
+            advisories.append("active hours are unavailable; window coverage is unverified" if start is None or end is None
+                              else "active hours do not cover the whole window")
     elif start is None or end is None:
-        reasons.append("active hours are not set")
+        advisories.append("active hours are unavailable; window coverage is unverified")
     scheme = state.get("power_scheme", {})
     checks["power_scheme"] = scheme
     if scheme.get("status") != "ok":
@@ -174,7 +188,7 @@ def evaluate(state, window=None, *, now=None, tz=None):
         limits.append("AC line status unknown")
     elif battery.get("status") == "ok" and battery.get("on_ac") is False:
         reasons.append("host is on battery power")
-    return {"ready": not reasons, "reasons": reasons, "checks": checks, "limits": limits}
+    return {"ready": not reasons, "reasons": reasons, "advisories": advisories, "checks": checks, "limits": limits}
 
 
 def preflight(config, *, window_start=None, window_end=None, output=None, reader=None):
@@ -200,6 +214,7 @@ def preflight(config, *, window_start=None, window_end=None, output=None, reader
         "window": {"start_utc": window[0].isoformat(), "end_utc": window[1].isoformat()} if window else None,
         "ready": verdict["ready"],
         "reasons": verdict["reasons"],
+        "advisories": verdict["advisories"],
         "checks": verdict["checks"],
         "state": state,
         "limits": LIMITS + list(verdict.get("limits") or ()),

@@ -13,7 +13,8 @@ REQUIRED_SKILLS = {
     for name in (
         "studio-director", "studio-game-design", "studio-art-direction", "studio-blender",
         "studio-meshy", "studio-terrain", "studio-animation", "studio-audio", "studio-godot",
-        "studio-playtest", "studio-gym", "studio-review",
+        "studio-playtest", "studio-gym", "studio-review", "studio-model-qa", "studio-assets",
+        "studio-cloudrun",
     )
 }
 
@@ -140,7 +141,7 @@ def check(root):
         tripo_path = "skills/studio-tripo/SKILL.md"
         tripo_reference = "skills/studio-tripo/references/provider-workflow.md"
         has_tripo = "studio-tripo" in names
-        expected_count = 13 if has_tripo else 12
+        expected_count = len(REQUIRED_SKILLS) + int(has_tripo)
         if len(names) != expected_count:
             errors.append(f"expected {expected_count} distinct studio entrypoints")
         if has_tripo:

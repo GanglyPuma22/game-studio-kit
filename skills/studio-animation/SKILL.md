@@ -7,6 +7,8 @@ description: Prepare a nonhumanoid Blender rig or deformation system, author nam
 
 Inputs: editable mesh and dimensions, intended motion language, rig eligibility, rest/stress poses, clip/event table and root-motion policy. Output an editable rig, named clips with metadata, explicit GLB and source/runtime motion evidence.
 
+**Experimental, opt-in:** when the user explicitly requests boxes-first, bounding-box or primitive-planned animation, read [primitive planning](references/primitive-planning.md). It plans motion with editable proxy controls before transferring it to the detailed character. This is not the default animation workflow; an ordinary animation request continues through the guidance below. Opt-in applies to the named task, not future tasks or other games.
+
 Use [Blender](../studio-blender/SKILL.md) for nonhumanoid bones, shape keys or procedural/keyframed motion. A simple two-bone or deforming setup is sufficient for a bounded response when it preserves silhouette and readable contact. For humanoid services, verify provider-specific body/topology/texture eligibility first; never assume an alien body is supported.
 
 Establish a neutral rest pose and deliberate pivot/root, name deform bones and weight groups, and check weight sums and parent dependencies. Test the maximum intended bend/twist, compressed/extended shapes and attachment points before animating. Save rest and stress evidence even if the rig is small.

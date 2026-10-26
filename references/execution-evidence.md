@@ -444,7 +444,7 @@ lower-rung result is therefore never citable for a higher one.
 
 `host preflight` reads Windows Update pause state, pending-reboot keys, active
 hours, power scheme and battery without changing anything, and judges them
-against an optional `--window-start/--window-end` (UTC). `host apply` runs the
+against an optional `--window-start/--window-end` (UTC). Update-pause and active-hours findings are nonblocking `advisories`; unavailable readings or absent human confirmation do not prevent runs. `ready`/`ok` mean no blocking reasons remain, not that advisory settings were verified. Preserve raw checks and uncertainty. File-rename-only presence is also advisory, not proof of necessary or imminent restart; CBS and Windows Update reboot signals still block. Reboot checks use true/false/null for present/absent/unreadable, without including registry value contents. Unknown readings appear in limits, not as verified absence. Power and invalid-window blockers remain unchanged. `host apply` is optional, requires user authorization, and runs the
 packaged [Prepare-OvernightHost.ps1](../skills/studio-review/scripts/host/Prepare-OvernightHost.ps1)
 with a mandatory receipt path; use `--what-if` first, which still writes a real
 receipt because the `--what-if` run is itself the evidence. The script exits 2

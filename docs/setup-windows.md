@@ -47,7 +47,7 @@ python "$Kit\scripts\studio.py" godot smoke --project "$Game" --config "$HostCon
 
 A direct skill start is: ask the host to read `C:\Tools\game-studio-kit\skills\studio-director\SKILL.md` with GAME declared. This needs no registration and tests the package route, but not plugin discovery.
 
-For **registered plugin** use the host's local plugin development/install flow with the complete tree and `.codex-plugin/plugin.json`. See [official packaging](https://developers.openai.com/plugins/build/plugins) and [build/install guidance](https://learn.chatgpt.com/docs/build-plugins). Do not copy only the thirteen folders into a global skills directory; that breaks shared references. In Codex CLI, the verified command surface is `codex plugin marketplace add <local-marketplace-root>` then `codex plugin add game-studio-kit@<marketplace-name>`; check the installed CLI's help if it differs.
+For **registered plugin** use the host's local plugin development/install flow with the complete tree and `.codex-plugin/plugin.json`. See [official packaging](https://developers.openai.com/plugins/build/plugins) and [build/install guidance](https://learn.chatgpt.com/docs/build-plugins). Do not copy only the sixteen folders into a global skills directory; that breaks shared references. In Codex CLI, the verified command surface is `codex plugin marketplace add <local-marketplace-root>` then `codex plugin add game-studio-kit@<marketplace-name>`; check the installed CLI's help if it differs.
 
 A local marketplace can be staged in a separate host-owned directory with this layout:
 
@@ -98,7 +98,18 @@ the limit "AC line status unknown" rather than as a host on battery. A planned W
 Update restart inside an unattended window has already cost one production run
 more than four hours.
 
-To make the host ready, run the packaged script once by hand from an elevated
+Update pause and active-hours readings are advisory only, including absent or
+unreadable values, expired pauses and hours that do not cover the window. They
+do not block runs or require explicit user confirmation. Receipts preserve the
+readings and expose `advisories` separately from blocking `reasons`; `ready` is
+not a claim that these settings were verified. A pending-file-rename signal alone
+is advisory, because presence does not establish restart necessity or timing.
+CBS and Windows Update reboot signals still block. Unreadable reboot values,
+pause state and active-hours coverage remain null, not verified false.
+Unrelated blockers remain.
+
+To optionally change these host settings, only when the user authorizes it,
+run the packaged script once by hand from an elevated
 PowerShell with `-WhatIf` and read the receipt, then without it:
 
 ```powershell
@@ -199,3 +210,19 @@ Confirm in a throwaway Codex session by asking which rules apply to an
 overnight run. Update the pointer when the kit checkout moves; the block
 itself carries no host paths.
 
+
+### Upgrading existing installations
+
+This behavior takes effect only in a release containing the updated helper and
+instructions. An upstream PR does not modify existing installs or backport itself
+to older versions. Upgrade each runtime through its normal plugin workflow after
+a release, and refresh the managed overnight instruction block from
+`references/codex/AGENTS-overnight.md`, preserving personal content outside it.
+Older local/global instructions may still impose a blanket preflight stop.
+Older receipts stay historical; do not rewrite their verdict or pretend unknown
+values were measured. When applying the updated policy to an old receipt,
+disregard Update/active-hours reasons and disregard a reboot reason only when
+its recorded CBS and Windows Update checks are both false and file-rename is
+the sole signal. Otherwise rerun the read-only preflight with the upgraded kit.
+A cache replacement can overwrite local patches; merge/release and explicit
+upgrades are needed for durable distribution. No OS settings change is required.

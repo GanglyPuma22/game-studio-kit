@@ -1,0 +1,640 @@
+{
+  "runs": 33,
+  "source_glbs": 74,
+  "ecology_documents": 11,
+  "inputs_unchanged": true,
+  "thresholds_unchanged": true,
+  "default_timeout_seconds": 90,
+  "process_limit_gib": 3,
+  "job_limit_gib": 4,
+  "owned_cleanup_verified": true,
+  "evidence": [
+    {
+      "run": "declared-clump-family-07",
+      "report_sha256": "3310a89fa6bd3edd822fe8c662a35b39c772e284e48139e1490e44768dd40890",
+      "request_sha256": "2a0d2869748fcc55dbe7830d677a1a7074680f679356b5a6bdc12a2865434f87",
+      "execution_sha256": "9835b7937496a5416ea605bf63b31fa1a945e63b033fcd8eed1386bc322719ff",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "declared-clump-family-14",
+      "report_sha256": "9fffd1fd95bc50d7410a42d9659d4e30f54554691eb662d127f55a66d5cd8393",
+      "request_sha256": "945a6e58a53eab8294e0e2f549ed2eca668c49d6a19414fe1360255ba07016e5",
+      "execution_sha256": "dbc13893dc4be71db92835cba9b1099dab9cfdda60ea7579a35787c7510551b4",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "declared-clump-family-15",
+      "report_sha256": "f8ca585eea740cc8ec608bf4e626becf0a0d6cc51bf038c7d477a66faf00c628",
+      "request_sha256": "9c6928ae12dff2b5b33c4fa142e7dab197189f32e60468c57a389233f47ba52b",
+      "execution_sha256": "cce052114697d8d8169231a5746404089d6c2e389214dc6fd50e60dbfafd35ed",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "declared-clump-family-16",
+      "report_sha256": "21290e21f8bcde3e0a0944367a25e6f2a5223751ddfcf886c0ae283b7b7168d3",
+      "request_sha256": "6e9fcbdfd680e5adbf7622fb088b478efd6474309e1782e64a054ca912cc6691",
+      "execution_sha256": "583e59f1a8fd0d34c159c3b5d4aa2c0b4bb0e7d119b652f3732cc233fce19454",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "declared-clump-family-17",
+      "report_sha256": "de206ac6406452453dfe855e17b11b5914cea0a55c95a2fb4c85eac76f6e4598",
+      "request_sha256": "7f03da852b995dba52d39b03c5cf370bdb9c098fb75579d3f24568c7d982cb15",
+      "execution_sha256": "ebc0724f7002ce894b991b75219b3ed49fb247eb2af3d0010c8f553998fe175b",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "declared-clump-family-18",
+      "report_sha256": "09f693589008def352b7fed44e784037672d7773e79dad540c3c82898aa24442",
+      "request_sha256": "de297b9db47a95172e77c5a8fee43ed525849aca9f028c812cca8d929aeadc37",
+      "execution_sha256": "df511d05fedb57948cc9153ee3129ea709ba8d1b6a6996118097f4df00ff7a11",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "declared-scatter-family-12",
+      "report_sha256": "9dd2b9cb0e56de570bec0d986ad1ad6ad0228a8b0d5335d96e414485de815d7e",
+      "request_sha256": "6fc480c4408b84b3aaca457e7fcbc00315ba1366153c7bbf4d333722f2f48296",
+      "execution_sha256": "afe278d06c4d85b6c22f0f7563fe15c47d4777fcd0c9706d1dd93b471e4f2f6e",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-01",
+      "report_sha256": "30467eea47b33b7d9feaf38d52856b53a327dc7e5426c54bd4a0900e83a0bc23",
+      "request_sha256": "f38d835537a12a4e39d941bcb5986acb1e578c0e248ee508bd355ba6c5989dd7",
+      "execution_sha256": "ac1ad8d3d92f233197f886fad9aa88937af4b84f7d65c863abfae0944fc7a422",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-02",
+      "report_sha256": "5f61130182a9d36c39ad25eedbd522502153957e1000fc94f6e6904afd3c2680",
+      "request_sha256": "bb56877ac0ddabe81a47e5380197c95e3c1d395665b48cfdddd6b24fe51072ea",
+      "execution_sha256": "8b2f1cd75577c666f91dc3fcac72c0db5fdb86c7c98ecc55db6d9a5c4a252633",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-03",
+      "report_sha256": "feddfb5b56991b9234f9e9d17d35c84854c37c007e140d818fc2c4d2f284531a",
+      "request_sha256": "0957c81bf6c383d8f9d380bec729c30949dd48da677d169c905d904c9c130ed7",
+      "execution_sha256": "85c7c4f210b940ebbf6d98e74a46632f87675bdd28f94466f9625690aa5f1c2c",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-04",
+      "report_sha256": "cc07a3547041a8c2b3c72aff06e7f0345bc0ba4c06defb66fe712eb8cc1bcf7b",
+      "request_sha256": "d37648ac210fb00af1a5546e3e241e11555d33ccc61f97a4e37447dbfec0a068",
+      "execution_sha256": "df111d835207e2ca596fc32673968549bf7090cccec8e031420a8cb33194886a",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-05",
+      "report_sha256": "ad568fd22c8534a9e4568b67115ea35aa23f0fcf9ffdb110d138c2877778dbd8",
+      "request_sha256": "269571724f638ebd164c71af072bc8c0370f7b0e6307a3bd683f803ebe94d1da",
+      "execution_sha256": "dab394cede54138cf4710de6d3a730c3f4f85d8672c4245f0ff6fb3c43a628e7",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-06",
+      "report_sha256": "967d3f7434c0a39b124924370bd1d65fd7455840df57855ee76902b62b9446e2",
+      "request_sha256": "aa9448b4a2ee2d1d42d4416abb46b58cb2ebcfcdcfc40240a6de29621d79795d",
+      "execution_sha256": "e56d4d943c8a404a309357486d4f7496cab3da22c3c44780ca72058fd2a2157b",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-07",
+      "report_sha256": "b39b1574bf83112caf751b7613c9db37cb30318a335340838aa82aa186e6f96e",
+      "request_sha256": "40256493728e6477895c2405d4c6e76846a44d8f8cfef9bf5ac0cd61fbc553c8",
+      "execution_sha256": "0769b97daec3de0acd0592c14de427910222529c8a4ce313543f1721dcf28599",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-08",
+      "report_sha256": "283a2869656c04aa830188fe596315690f1b887f439b7745ec27ae049ee1d7cd",
+      "request_sha256": "1ffb9eb69fa12713ae43543ec1c5e92028ac30af3f77cef6cd866fe4ffbc3d51",
+      "execution_sha256": "9d4d9d7bf2f4b49ffa7b52db4117867ac0806d63b74e1ef5714792d37a539b69",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-09",
+      "report_sha256": "c3fa20264dd3c8fd687873940940c311e2396f5ee45068eb3a9d69b0b5bb0ef3",
+      "request_sha256": "5b72a165470975428272e75255c9683845fc40d5005658c61121eb80be667030",
+      "execution_sha256": "e1fb08c64530c676dd4043164d1a59f43718208ee75b1fbe6fb74078a793dcc2",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-10",
+      "report_sha256": "ac2a68688fbd3fbef2dd44801eed87eea66bf4f17506d856e93db58bbb079814",
+      "request_sha256": "476c6266c1d22aebeee57ba77ed8562467187de8633b1533e47da739a985a3fe",
+      "execution_sha256": "978f585ab10c5d63b910549afd8078ce540f92cf6847e715b7a83e15a8a3fca5",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-11",
+      "report_sha256": "2e496af22c65b8865b3976a918f1d8a1abee34f0937a9f21611dc954f81c4f5d",
+      "request_sha256": "cec2580f3609d5ac6416f30f1195af1f346a2d9e2cf3429f387210c54645f442",
+      "execution_sha256": "cdf5a15ca241267b67b0dae36fcf12d67cd76a73d8187a1958849325c7e56d58",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-12",
+      "report_sha256": "4a95a2841472a1933bf5a171990db8574b5474b7c0463edcd5709c72b1df2f3b",
+      "request_sha256": "eaa8fb403da5f7033f4c5c8491ee9c0ecabe55513af2f5b8c36329ca41983221",
+      "execution_sha256": "c578da97e9eab3cc0499bc1085090cea8898987bf42784282b629f7673142c52",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-13",
+      "report_sha256": "5f89ec759f46552c965cabd93492de39bc150291db659632d8bd2796b5bf6b64",
+      "request_sha256": "43f073f851a2f07d1058ae7146a27f683e1a6c348185233ee25d821cdf1dd0c7",
+      "execution_sha256": "acdb815db013a9ce02a02d09ad1b35096cd1ff36112623eda46b479fbd113266",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-14",
+      "report_sha256": "3271fe4c00ea2ea3c026135eecf7787b5a127780240005155a0913c272c2236e",
+      "request_sha256": "527d5485cef4f84b56955758199a80ffbaf877cec4f32edf3447d85d081f6f69",
+      "execution_sha256": "6f9f94614a96f13a8ebc24a2ef47d0283013e14aca12ddc6ee9ea6a33e23648c",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-15",
+      "report_sha256": "a5b2e518ecb4095d077aca6c97274147c8f3eb3ec60afc09134f7ba185b86c1f",
+      "request_sha256": "9ca43ac21243ca3607325d689234a5ba53895357833af886f7e860f4e08694ac",
+      "execution_sha256": "d5b2c7144e3ef01743c2987e1659ffd0e3937450adbe7d9b9865a75b03a864d1",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-16",
+      "report_sha256": "2efe1bb8bd986c413f20ab88c1a03b43c18c82d5c70b30acdc06a89237f4f9d0",
+      "request_sha256": "43b342bc3c1d7836440e90127e3703f479b19f080c0b171b13b7df7475f63401",
+      "execution_sha256": "7b40996d8dcbc487d56414bc0dbcb3d9c98acbd540a8f03e7293a9ff1cd950a7",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-17",
+      "report_sha256": "be712996fc88e4f1ea6096d3d75607969c37e2ef81bbfc26a55b4393c35fb191",
+      "request_sha256": "dc23fc19ce5aedf62ff9ea20c49fe6389b08c2088e00dc0182e91e3c3732239f",
+      "execution_sha256": "0d167d6a79e5623fbc5b49464b926c6022d7c22b39495c52f912ceec84b23efa",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-18",
+      "report_sha256": "31db9555d261ff32db564a9890c9217206f79af79ff5c626eb673ea1f9645465",
+      "request_sha256": "3795fc71b67aa58b1e42850d77bd30ecd0fc429e31da13876be65c24e5210aa0",
+      "execution_sha256": "72440e0956b9ff6a76e6a360c2c5c81859e7c4ab107afb4e72eb33d74455797e",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-19",
+      "report_sha256": "c5bef45bcfc2001f957accf25fbc31c4b5af277c0eabcc221e9f102bf5cdd9e4",
+      "request_sha256": "813c3f45a9edc1c3c355d7bcbad0e1ee5b54765725a7c6c7f8335e32ece0a86e",
+      "execution_sha256": "5926dab0586332f0ba49bacab9cbe5339590f6eb148030f943954de03d23c1e1",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-20",
+      "report_sha256": "5f73aff50b5c561b1dae8200ca179ddeea6ead07fa1f7d16cf674b2f8773bd11",
+      "request_sha256": "ec0fc928127672bbf7a71e2e1104b93f57a6d5674de9109636fa68bf79537eaa",
+      "execution_sha256": "a02139f239cdaa1b597f12394e72ca45e50d66767dd58935e6b37f8252940461",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-21",
+      "report_sha256": "a8922119673e2a5856ed70f688baca20be8ba1ea48176d8ae658e213131f9ab4",
+      "request_sha256": "6c8c3ba912e962b2fa0015d20b66d46af25bc997e373e0aae391b0cbc5451b07",
+      "execution_sha256": "92656bd4cdf9ee2686a67915a904327f4b02e13f538165b33e21459c47e8beac",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-22",
+      "report_sha256": "23b12c6a4937c2fe14f7ae385e3a8a6e143a8c9c66ff1d35e66a1b91bccde7bf",
+      "request_sha256": "0ac3f98c13cd31f8812b193c3e4a1a08be562da0a07cd397a1630b2771b8f746",
+      "execution_sha256": "171a4183797f0c45a4d4b44242d33c04dd31e3a8a0b706b75fc79338c687b16e",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-23",
+      "report_sha256": "0908db23e3a5688d21082ad45d93defbbdbb092cd7a899481b5deaf1d1405429",
+      "request_sha256": "27d97d2b7594e93ec4257bf1d5a6241057ae9d197fe39ad130471fbedac90bcc",
+      "execution_sha256": "50596e6df64068c16d151e33fb96e7f73fcda7f9e503a78f705b38bff2e1d765",
+      "cleanup": "owned_tree_stopped",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-24",
+      "report_sha256": "3d48d4bd8945dc19dbcd235f034f44f9b3e7de72ece3adebe280031f531f7945",
+      "request_sha256": "ebe23da1cae66613d13f506526da4dfa4bf221bcb906ae95f461336e8fa3feb4",
+      "execution_sha256": "50596e6df64068c16d151e33fb96e7f73fcda7f9e503a78f705b38bff2e1d765",
+      "cleanup": "owned_tree_stopped",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-25",
+      "report_sha256": "b6e75370a632ed95ec09fbaea8d00a3816ee34ec93fba63bc0940444b85a1a1e",
+      "request_sha256": "bbfd1e1e2966fdb8c74550f97a456d23e8f09d9607d32327f7a848981de8bfa4",
+      "execution_sha256": "e687836fe10a8b3f99bd35957702cd09158b433609565f84677fb81d0bf4072f",
+      "cleanup": "ok",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    },
+    {
+      "run": "strict-family-26",
+      "report_sha256": "8b106f4d765712fb0e136fe16fe22ff1d13c4976686fb45e3ff67d8995e23fd1",
+      "request_sha256": "afb9c2e0bbd1eeb27938c42299d770b510c97665819cb155cc2dc48334666cbe",
+      "execution_sha256": "50596e6df64068c16d151e33fb96e7f73fcda7f9e503a78f705b38bff2e1d765",
+      "cleanup": "owned_tree_stopped",
+      "source_sha256": {
+        "__init__.py": "ed2943f73f409edd153060c98b773afb9c78fd36a62c36ead1df64493f664002",
+        "__main__.py": "5b082eb6d950c407fa098f84becc8ee9e0c7fd16cf28ebd1218b665a37185dc9",
+        "attachment.py": "1f364693050f83c6437a7399f38f1cbe94e41162834ecf5888a1aadd701db812",
+        "clipping.py": "4aa3de8c7e9528f10e3672d7db635ccfc9d00e7979053cdaedd7efc6723bd43e",
+        "ecology.py": "1238a9e21a69d071b64cd07d028807c9461e849f6b32e0a4fd77558371be46c8",
+        "geometry.py": "bd01008a9ac5aa9312a2430d67892c0c7ae7679534c7d49f1b47f60a7761b409",
+        "gltf_pose.py": "2e8925e1015a5ca26611fee0abddcca12dc79c2d65dd4495e54f9ec85ebeca80",
+        "report.py": "0fcce6736272594db9c4b2ec2f7a54b1bd6e8fe63c4e121e3a24b647b16c8367",
+        "silhouettes.py": "d5e9e47f7306cfeaccd5e43c4144a6d3229e66ac59384f9f0c9b1df4adc3eac3",
+        "worker.py": "6be35541a7954cae58b9b3e94c74bf4af2b441a1d67c52cc29e118469b160ebc"
+      }
+    }
+  ]
+}
