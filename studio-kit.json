@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "game-studio-kit",
-  "version": "0.1.18",
+  "version": "0.1.21",
   "skills": [
     {
       "name": "studio-director",
@@ -198,7 +198,10 @@
     "skills/studio-cloudrun/scripts/runtime_job.sh",
     "skills/studio-cloudrun/scripts/service.sh",
     "skills/studio-cloudrun/scripts/studio-cloudrun.service",
-    "studio_tools/cloudrun.py"
+    "studio_tools/cloudrun.py",
+    "studio_tools/character_run.py",
+    "templates/character-run.json",
+    "skills/studio-director/references/character-pipeline.md"
   ],
   "commands": [
     "check-package",

@@ -233,8 +233,12 @@ def validate(record, root):
         from .evidence import validate_candidate
 
         validate_candidate(record, root)
+    elif kind == "character-run":
+        from .character_run import validate_character_run
+
+        return {"ok": True, "kind": kind, **validate_character_run(record, root)}
     else:
         raise StudioError(
-            "Unknown record kind; expected project, asset, audio-cues, candidate, run-policy or run-decision"
+            "Unknown record kind; expected project, asset, audio-cues, candidate, character-run, run-policy or run-decision"
         )
     return {"ok": True, "kind": kind}
