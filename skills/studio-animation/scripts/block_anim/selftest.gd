@@ -100,6 +100,20 @@ func _init() -> void:
 		c.add(p0, Transform3D(Basis(), Vector3(10.0 * float(step[0]), 0, 0)), -1.0, float(step[1]), false, {})
 	_near("steady motion at uneven frame times has no pop", c.report().pop_m_s2, 0.0, 1.0)
 
+	# A step is measured from where the foot stood, not from the first
+	# airborne frame: down at x=0, up at x=0.2, down at x=0.7 is a 0.7 m step.
+	var sc = Check.new()
+	sc.setup(["foot"], PackedInt32Array([-1]), PackedFloat32Array([180.0]), [Transform3D.IDENTITY],
+		[Vector3.ZERO], [Vector3(0.1, 0.1, 0.1)], PackedInt32Array([0]), [], [])
+	for fx in [[0.0, 0.1], [0.2, 1.0], [0.7, 0.1]]:
+		sc.add([Transform3D(Basis(), Vector3(float(fx[0]), float(fx[1]), 0))], Transform3D.IDENTITY, 0.0, 1.0 / 60.0, false, {})
+	_check("a 0.7 m step is not a shuffle", sc.report().steps == 1 and sc.report().shuffles == 0)
+	sc.setup(["foot"], PackedInt32Array([-1]), PackedFloat32Array([180.0]), [Transform3D.IDENTITY],
+		[Vector3.ZERO], [Vector3(0.1, 0.1, 0.1)], PackedInt32Array([0]), [], [0])
+	sc.setup(["foot"], PackedInt32Array([-1]), PackedFloat32Array([180.0]), [Transform3D.IDENTITY],
+		[Vector3.ZERO], [Vector3(0.1, 0.1, 0.1)], PackedInt32Array([0]), [], [])
+	_check("setting up again forgets old soft blocks", sc.soft.is_empty())
+
 	# A box rotated 45 deg cutting a ledge's corner: no corner is inside,
 	# yet its edge goes 0.5 m deep (wall: solid where x < 0 and y < 1).
 	var wc = Check.new()
@@ -131,6 +145,10 @@ func _init() -> void:
 		PackedFloat32Array([deg_to_rad(90.0), deg_to_rad(90.0)]), Vector3.ZERO, Vector3.ZERO, 12, 0.01, Vector3(0, 0, 1))
 	_near("a straight chain folds to reach along its own line", folded[2].distance_to(Vector3(0, 1.5, 0)), 0.0, 0.02)
 	_check("and folds toward the hint", folded[1].z > 0.1)
+
+	var flip: PackedVector3Array = Chain.ease_from(PackedVector3Array([Vector3.ZERO, Vector3.UP]),
+		PackedVector3Array([Vector3.ZERO, Vector3.DOWN]), PackedFloat32Array([1.0]), 15.0, 1.0 / 60.0)
+	_check("an opposite solve is eased, not snapped (%s)" % str(flip[1]), flip[1].y > 0.5)
 
 	# Stepper: nudges below a third of a leg do not step; a step that would
 	# land where the foot stands is dropped.

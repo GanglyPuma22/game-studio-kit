@@ -124,13 +124,16 @@ func step(gx: Transform3D, vel: Vector3, gait_mix: float, cadence: float, delta:
 		else:
 			if _down[i]:
 				_from[i] = _at[i]
+				_q[i] = 1.0   # a corrective step still in the air hands over to the swing
 			var u := (f - duty) / maxf(1.0 - duty, 0.01)
 			var left := (1.0 - u) * (1.0 - duty) / cadence
 			var to: Vector3 = gx * land + flat * left
 			to.y = ground
 			var e := u * u * (3.0 - 2.0 * u)
 			var p2: Vector3 = (_from[i] as Vector3).lerp(to, e)
-			p2.y = ground + float(lift[i]) * sin(PI * u)
+			# Start from the foot's height at liftoff (above ground when a
+			# corrective step was cut short), so the swing does not drop it.
+			p2.y = maxf(ground + float(lift[i]) * sin(PI * u), lerpf((_from[i] as Vector3).y, ground, e))
 			_at[i] = p2
 			_u[i] = u
 		_down[i] = down

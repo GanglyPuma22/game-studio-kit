@@ -65,6 +65,8 @@ func setup(p_names: Array, p_parent: PackedInt32Array, p_limits: PackedFloat32Ar
 	box_h = p_box_h
 	contacts = p_contacts
 	pairs = p_pairs
+	soft = {}
+	_skip_pairs = {}
 	for b in p_soft:
 		soft[b] = true
 	_rel_bind.resize(bind.size())
@@ -313,7 +315,7 @@ func add(pose: Array, gx: Transform3D, ground_y: float, dt: float, slow: bool, d
 			r.steps += 1
 			if slow:
 				r.slow_steps += 1
-			_lift_at[b] = c2
+			_lift_at[b] = _down_at[b]   # where it stood, not where the first airborne frame caught it
 		elif down and not _down_prev.get(b, true) and _lift_at.has(b):
 			var went := Vector2(c2.x - (_lift_at[b] as Vector3).x, c2.z - (_lift_at[b] as Vector3).z).length()
 			if went < shuffle:

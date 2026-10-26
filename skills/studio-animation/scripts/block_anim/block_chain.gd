@@ -133,7 +133,13 @@ static func ease_from(prev: PackedVector3Array, now: PackedVector3Array, lens: P
 	for i in now.size() - 1:
 		var a := _dir(prev[i], prev[i + 1])
 		var b := _dir(now[i], now[i + 1])
-		var d := a.slerp(b, k) if a.dot(b) > -0.999 else b
+		var d: Vector3
+		if a.dot(b) > -0.999:
+			d = a.slerp(b, k)
+		else:
+			# Opposite directions: turn about a stable perpendicular, still eased.
+			var ax := a.cross(Vector3.RIGHT if absf(a.x) < 0.9 else Vector3.FORWARD).normalized()
+			d = a.rotated(ax, PI * k)
 		out.append(out[i] + d.normalized() * lens[i])
 	return out
 
