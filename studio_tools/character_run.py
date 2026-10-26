@@ -115,21 +115,28 @@ def validate_character_run(record, root):
                     raise StudioError(label + " needs unknown gate " + need)
             elif need not in seen:
                 raise StudioError(label + " needs " + need + ", which is not an earlier stage")
-        if status != "pending":
+        # A reopened stage waits for its reopened inputs like a pending one.
+        if status not in {"pending", "reopened"}:
             for need in needs:
                 if need.startswith("gate:"):
-                    state = gate_state[need[5:]]
-                    if state == "open":
+                    if gate_state[need[5:]] == "open":
                         raise StudioError(stage_id + " started before the " + need[5:] + " gate")
-                    if state == "provisional" and stage_id == "review" and status == "done":
-                        raise StudioError("review cannot finish on a provisional " + need[5:] + " pick")
                 elif seen[need]["status"] != "done":
                     raise StudioError(stage_id + " started before " + need + " was done")
+        # The run ends at review, so both gates need the owner's confirmation
+        # whatever the review stage lists as its inputs.
+        if stage_id == "review" and status == "done":
+            for name in GATES:
+                if gate_state[name] != "approved":
+                    raise StudioError("review cannot finish before the owner approves the " + name
+                                      + " gate (" + gate_state[name] + ")")
         rounds = stage.get("repair_rounds", 0)
         if type(rounds) is not int or rounds < 0:
             raise StudioError(label + ".repair_rounds must be a nonnegative integer")
-        if rounds > record["repair_round_cap"] and status not in {"stopped", "done"}:
-            raise StudioError(stage_id + " passed the repair round cap; stop it and report")
+        cap = record["repair_round_cap"]
+        failing = isinstance(stage.get("check"), dict) and stage["check"].get("verdict") == "fail"
+        if status not in {"stopped", "done"} and (rounds > cap or (rounds == cap and failing)):
+            raise StudioError(stage_id + " still fails after the repair round cap; stop it and report")
         for paid in stage.get("paid", []):
             if not isinstance(paid, dict):
                 raise StudioError(label + ".paid entries must be objects")

@@ -101,6 +101,12 @@ class CharacterRunTests(unittest.TestCase):
         self.finish(self.record, "model")
         qa = self.stage(self.record, "model_qa")
         qa["status"] = "running"
+        qa["repair_rounds"] = 3
+        self.check(self.record)
+        qa["check"] = {"verdict": "fail"}
+        with self.assertRaisesRegex(StudioError, "repair round cap"):
+            self.check(self.record)
+        qa["check"] = {"verdict": "not_run"}
         qa["repair_rounds"] = 4
         with self.assertRaisesRegex(StudioError, "repair round cap"):
             self.check(self.record)
@@ -116,10 +122,24 @@ class CharacterRunTests(unittest.TestCase):
             self.finish(self.record, stage_id)
         self.check(self.record)
         self.finish(self.record, "review")
-        with self.assertRaisesRegex(StudioError, "provisional voice"):
+        with self.assertRaisesRegex(StudioError, "approves the voice gate"):
+            self.check(self.record)
+        self.stage(self.record, "review")["needs"] = ["integration"]
+        with self.assertRaisesRegex(StudioError, "approves the voice gate"):
             self.check(self.record)
         self.approve(self.record, "voice")
         self.check(self.record)
+
+    def test_reopened_stages_wait_for_reopened_inputs(self):
+        self.approve(self.record, "concept")
+        for stage_id in ("model", "model_qa", "library"):
+            self.finish(self.record, stage_id)
+        for stage_id in ("model", "model_qa", "library"):
+            self.stage(self.record, stage_id)["status"] = "reopened"
+        self.check(self.record)
+        self.stage(self.record, "model_qa")["status"] = "running"
+        with self.assertRaisesRegex(StudioError, "before model was done"):
+            self.check(self.record)
 
     def test_needs_must_name_earlier_stages(self):
         self.stage(self.record, "model")["needs"] = ["gate:concept", "review"]
