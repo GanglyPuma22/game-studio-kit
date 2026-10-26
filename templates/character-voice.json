@@ -33,6 +33,11 @@
     "controls": {},
     "picked_after": "blind listening of the audition"
   },
+  "post": {
+    "chain": "",
+    "applies_to": "every generated line, after the engine; the reference stays untreated",
+    "picked_after": "listening to the take as cast and treated"
+  },
   "approved_by": "",
   "approved_on": ""
 }

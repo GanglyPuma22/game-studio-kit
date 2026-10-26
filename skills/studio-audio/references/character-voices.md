@@ -17,6 +17,7 @@ One voice per character, used for every line that character speaks. The voice is
 4. **Reference.** The picked take (or an authorized recording) becomes the private reference: 5-15 s, one speaker, no music, the exact transcript written down. Record its path, SHA-256, origin and consent in the profile.
 5. **Audition.** The same lines, same seeds and same reference through each speech recipe ([open voices](open-voices.md)), with a repeat after reload to see whether the engine is stable. One `budget` group caps the whole audition when it runs on the service.
 6. **Blind listening.** Previews are level matched. Play them without engine names; per take record fits / wrong delivery / artefact / unintelligible, and whether it still sounds like the same character. Pick the engine and controls for this character; write them into the profile.
+   If a treatment (for example an ffmpeg pitch, EQ and echo chain for a giant) is what made a take fit, write the exact chain into `post.chain`: it is applied to every generated line, and the reference stays the untreated take so the engine copies a clean voice.
 7. **Lines.** Generate the line sheet with the picked engine. Listen to every take; never ship one that only passed the receipt checks. A take marked `overlength` was kept whole: shorten the text or raise the ceiling, never trim a word off.
 8. **Import.** Prepare with `studio audio prepare`, then add each cue to the [cue manifest](../../../templates/audio-cues.json) with `character_id` and `line_id`, keeping the receipt beside the original.
 
