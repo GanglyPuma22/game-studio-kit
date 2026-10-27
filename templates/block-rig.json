@@ -16,7 +16,7 @@
   "default_limit": 45,
   "limits": {"chest": 30, "head": 60, "thigh_l": 80, "shin_l": 140, "foot_l": 40, "thigh_r": 80, "shin_r": 140, "foot_r": 40},
   "hinges": {
-    "shin_l": {"axis": [1, 0, 0], "sign": 1, "note": "knee: bends back only; axis in the parent's frame"},
+    "shin_l": {"axis": [1, 0, 0], "sign": 1, "rest_deg": 0, "note": "knee: bends back only; axis in the parent's frame; rest_deg = the bind's own bend (a crouched bind), measured from straight"},
     "shin_r": {"axis": [1, 0, 0], "sign": 1}
   },
   "contacts": ["foot_l", "foot_r"],

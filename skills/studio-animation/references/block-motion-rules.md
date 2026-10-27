@@ -115,6 +115,8 @@ share of the stride when each foot lands; duty is the share it stays down.
 | Walk (lateral sequence) | 0, 0.5, 0.25, 0.75 | 0.65 | none | small sway |
 | Canter (3 beats, right lead) | 0, 0.3, 0.3, 0.6 | 0.35 | one, after the leading fore (the last 5% of the stride) | mild flex |
 | Rotary gallop (cheetah) | 0.6, 0.5, 0, 0.1 | 0.28 | two: gathered and extended | flex in gathered flight, extend in extended flight (flex about twice extension) |
+| Biped walk (`BIPED`) | 0, 0.5 (limbs 0, 1) | 0.6 | none (double support) | hips bob, arms swing against the legs |
+| Biped run (`BIPED`) | 0, 0.5 | 0.36 | one after each foot | forward lean, hips lower, arms pump |
 
 The gallop's two flights carry its look: in **gathered flight** (after the
 fore feet lift) the spine flexes and all four legs swing under the body;
