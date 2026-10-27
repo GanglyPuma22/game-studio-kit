@@ -5,7 +5,8 @@
 ## ends are and how the spine flexes and extends.
 ##
 ## Limbs: 0 left hind, 1 right hind, 2 left fore, 3 right fore. The gait
-## slides from walk (0) through canter (1) to rotary gallop (2).
+## slides from walk (0) through canter (1) to rotary gallop (2); with
+## `table = BIPED`, a two-legged walk (0) to run (1) on limbs 0 and 1.
 ##
 ## Feet plant where they land and stay there until they lift, so they never
 ## slide while down. Driven by the body's own speed on each screen: it adds
@@ -26,6 +27,17 @@ const GAITS := [
 	{"off": [0.0, 0.3, 0.3, 0.6], "duty": 0.35, "flex_at": 0.85, "flex": 0.35},  # canter, right lead (flight 0.95..1)
 	{"off": [0.1, 0.0, 0.5, 0.6], "duty": 0.28, "flex_at": 0.94, "flex": 1.0},   # rotary gallop
 ]
+## Two legs (limbs 0 and 1; 2 and 3 copy them): a walk, whose feet overlap
+## (double support), and a run, with a flight after each foot (duty under
+## a half). A biped's walk and run share the alternating footfalls; the run
+## comes from a shorter contact, not a different order.
+const BIPED := [
+	{"off": [0.0, 0.5, 0.0, 0.5], "duty": 0.6, "flex_at": 0.0, "flex": 0.0},    # walk
+	{"off": [0.0, 0.5, 0.0, 0.5], "duty": 0.36, "flex_at": 0.0, "flex": 0.0},   # run
+]
+
+## The gaits step() blends through, by mix (GAITS, or BIPED for two legs).
+var table: Array = GAITS
 
 ## Where each foot rests (body frame, on the ground), and how high it lifts.
 var home: Array = [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]
@@ -63,10 +75,12 @@ func reset() -> void:
 ## `vel` its velocity (world), `gait_mix` 0 walk .. 2 gallop, `cadence`
 ## strides per second.
 func step(gx: Transform3D, vel: Vector3, gait_mix: float, cadence: float, delta: float) -> void:
-	mix = clampf(gait_mix, 0.0, 2.0)
-	var a: Dictionary = GAITS[mini(int(mix), 1)]
-	var b: Dictionary = GAITS[mini(int(mix) + 1, 2)]
-	var k := mix - float(mini(int(mix), 1))
+	var last := table.size() - 1
+	mix = clampf(gait_mix, 0.0, float(last))
+	var lo := mini(int(mix), last - 1)
+	var a: Dictionary = table[lo]
+	var b: Dictionary = table[lo + 1]
+	var k := mix - float(lo)
 	for i in 4:
 		var d := wrapf(float(b.off[i]) - float(a.off[i]), -0.5, 0.5)
 		_off[i] = fposmod(float(a.off[i]) + d * k, 1.0)

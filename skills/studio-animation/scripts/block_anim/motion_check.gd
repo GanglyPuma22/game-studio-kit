@@ -41,6 +41,8 @@ var shuffle := 0.6
 ## Hinges (knees, elbows): block -> [axis, sign]. The axis is in the
 ## parent block's frame; the joint's signed turn about it must have `sign`
 ## (+1 or -1). A turn the other way past `hinge_slack` degrees is counted.
+## A rig bound with the joint already bent gives that bend as "rest_deg"
+## (positive, in the bending direction): the check is then from straight.
 var hinges: Dictionary = {}
 var hinge_slack := 5.0
 ## Event thresholds: block acceleration (m/s²), planted slide (m/s) and a
@@ -113,7 +115,7 @@ func setup_rig(p_names: Array, p_parent: PackedInt32Array, p_bind: Array, p_box_
 	for k in hg:
 		if _known(idx, k):
 			var a: Array = hg[k].axis
-			hinges[idx[k]] = [Vector3(a[0], a[1], a[2]).normalized(), signf(float(hg[k].get("sign", 1.0)))]
+			hinges[idx[k]] = [Vector3(a[0], a[1], a[2]).normalized(), signf(float(hg[k].get("sign", 1.0))), float(hg[k].get("rest_deg", 0.0))]
 	setup(p_names, p_parent, lim, p_bind, p_box_c, p_box_h, con, prs, sf)
 
 
@@ -206,7 +208,12 @@ func add(pose: Array, gx: Transform3D, ground_y: float, dt: float, slow: bool, d
 			var ang := shortest_turn_deg(rq)
 			# Hinges bend one way only (a knee never bends forward).
 			if hinges.has(i):
-				var wrong: float = -float(hinges[i][1]) * signed_turn_deg(rq, hinges[i][0]) - hinge_slack
+				# Measured from straight: the bind's own bend (rest_deg, in the
+				# hinge's bending direction) counts, so a rig bound with bent
+				# knees can straighten them without reading as bent backwards.
+				var hj: Array = hinges[i]
+				var rest_deg: float = float(hj[2]) if hj.size() > 2 else 0.0
+				var wrong: float = -float(hj[1]) * signed_turn_deg(rq, hj[0]) - rest_deg - hinge_slack
 				if wrong > 0.0:
 					_ev("hinge", names[i], wrong)
 				if wrong > worst_hinge:

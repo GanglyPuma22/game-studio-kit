@@ -38,6 +38,18 @@ func _init() -> void:
 	c.reset()
 	c.add(_leg(bind, -40.0), Transform3D.IDENTITY, -1.0, 1.0 / 60.0, false, {})
 	_near("knee bent the wrong way is a hinge error", c.report().hinge_frames_pct, 100.0, 0.01)
+	# A rig bound with its knee already bent 40 degrees: straightening it is
+	# not bending it backwards (rest_deg), bending past straight still is.
+	var bent_desc := desc.duplicate(true)
+	bent_desc.hinges.shin["rest_deg"] = 40.0
+	var bent_bind := _leg(bind, 40.0)
+	var cb = Check.new()
+	cb.setup_rig(["thigh", "shin"], parent, bent_bind, box_c, box_h, bent_desc)
+	cb.add(_leg(bind, 0.0), Transform3D.IDENTITY, -1.0, 1.0 / 60.0, false, {})
+	_near("a bent-bound knee straightened is not a hinge error", cb.report().hinge_frames_pct, 0.0, 0.01)
+	cb.reset()
+	cb.add(_leg(bind, -30.0), Transform3D.IDENTITY, -1.0, 1.0 / 60.0, false, {})
+	_near("a bent-bound knee bent backwards is a hinge error", cb.report().hinge_frames_pct, 100.0, 0.01)
 	_near("and by how much (40 less 5 slack)", c.report().hinge_over_deg, 35.0, 0.2)
 	c.reset()
 	c.add(_leg(bind, 0.0), Transform3D.IDENTITY, -1.0, 1.0 / 60.0, false, {})
@@ -202,6 +214,27 @@ func _init() -> void:
 			g.step(Transform3D(Basis(), Vector3(0, 0, -k * 0.05)), Vector3(0, 0, -3.0), float(gm[0]), 1.0, 1.0 / 60.0)
 			air += int(g.airborne())
 		_check("%s (%d of 240 frames)" % [gm[1], air], air > 0)
+
+	# Two legs: a walk always has a foot down (double support), a run has
+	# flights.
+	var bp = Gait.new()
+	bp.table = Gait.BIPED
+	bp.home = [Vector3(-0.5, 0, 0), Vector3(0.5, 0, 0), Vector3(-0.5, 0, 0), Vector3(0.5, 0, 0)]
+	var bp_least := 2
+	var bp_double := 0
+	for k in 240:
+		bp.step(Transform3D(Basis(), Vector3(0, 0, -k * 0.02)), Vector3(0, 0, -1.2), 0.0, 1.0, 1.0 / 60.0)
+		var n2 := int(bp.planted(0)) + int(bp.planted(1))
+		bp_least = mini(bp_least, n2)
+		bp_double += int(n2 == 2)
+	_check("biped walk always has a foot down", bp_least >= 1)
+	_check("biped walk has double support (%d of 240 frames)" % bp_double, bp_double > 0)
+	bp.reset()
+	var bp_air := 0
+	for k in 240:
+		bp.step(Transform3D(Basis(), Vector3(0, 0, -k * 0.06)), Vector3(0, 0, -3.6), 1.0, 1.7, 1.0 / 60.0)
+		bp_air += int(not bp.planted(0) and not bp.planted(1))
+	_check("biped run has flights (%d of 240 frames)" % bp_air, bp_air > 0)
 
 	print("block_anim selftest: %s" % ("FAILED %d" % _fails if _fails > 0 else "all passed"))
 	quit(1 if _fails > 0 else 0)

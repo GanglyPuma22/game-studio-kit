@@ -8,11 +8,13 @@ catalog) and [block motion rules](block-motion-rules.md) (the physical
 rules and the checker). The same opt-in applies: use it only when the user
 asks for boxes-first animation on a named task.
 
-Everything here comes from one pilot: a 29-block quadruped giant
-re-authored in Godot over four review rounds (18 moves: idle, turn, walk,
-gallop, punches, bites, a lunge, two kinds of climb, hits, death) until the
-user approved the set. Each lesson below names what went wrong, what it
-cost and what to do instead.
+The first pilot was a 29-block quadruped giant re-authored in Godot over
+four review rounds (18 moves: idle, turn, walk, gallop, punches, bites, a
+lunge, two kinds of climb, hits, death) until the user approved the set.
+The second put three two-legged giants (22 blocks over rigid gameplay
+pieces) and one skinned human hero on the same modules; its lessons are in
+[Two legs](#two-legs-second-pilot). Each lesson names what went wrong,
+what it cost and what to do instead.
 
 ## The modules
 
@@ -128,6 +130,62 @@ pilot.
       thresholds.
 - [ ] **Every changed move watched at full speed** from at least two
       angles.
+
+## Two legs (second pilot)
+
+Three two-legged giants sharing one rig (a base body and two kits that
+hang their own meshes on its blocks) and an experimental pass on a skinned
+human hero. What changed from the quadruped:
+
+- **Gait table.** `gait.gd` takes `table = Gait.BIPED`: walk (duty 0.6,
+  double support) to run (duty 0.36, a flight after each foot), the same
+  alternating footfalls. Limbs 2 and 3 copy 0 and 1. In full stride let
+  the gait drive the feet directly (plant position, planted flag) and keep
+  the stepper only for blends and standing; the two fought and counted
+  zero steps with sliding feet.
+- **Bound-bent hinges.** A rig bound with knees already bent (a crouched
+  game model) read every straightened knee as "bent backwards" (52° on
+  every clip). Give the hinge its bind bend as `rest_deg` in the rig
+  description; the checker then measures from straight. Take the hinge
+  axis from the bind frame of the parent, not a world axis.
+- **Feet level at rest, soles fitted.** A game's foot blob may sink into
+  the ground at bind. Rest the foot level (rotate the bind about its own
+  side axis) and lift the ankle by the foot block's lowest point; the
+  pilot's feet sat 0.75 m underground before this. Tilt the toe in a swing
+  a little, and raise a tipped foot whose corner would dip below ground.
+- **Stable hinges.** An elbow that flipped 130-173° mid-move came from a
+  hinge reference that changed sign. Use the limb line × pole as the
+  reference (fall back to last frame's axis when it degenerates), and a
+  continuous elbow pole from where the hand is (back while it hangs, down
+  once it rises), never a table that switches per move.
+- **A bite is a lunge, not a squat.** Dropping the hips to reach a low
+  head target sank the body through its knees. Hinge at the hips instead:
+  put the hips a trunk's length from the head target, behind it and no
+  lower than a floor taken from the bind hip height, pitch the trunk
+  rigidly toward the target before any residual shift, and keep the trail
+  foot planted (a large step tolerance) while the lead foot steps in.
+- **Hands route round the trunk.** A hand moving to or from a strike
+  passed through the chest. Push its path out of a capsule round the spine
+  toward its own side during wind-up and recovery; for a weapon, plan the
+  blade's direction too (radial along the arc, trailing the motion), and
+  start from the authored grip's roll so the wrist does not spin.
+- **Blocks come from what is drawn.** Box sizes taken from every mesh
+  under a block counted hidden placeholders and orbiting decorations
+  (boxes several times too big; a mane put balance off 100%). Skip
+  invisible meshes and let a part opt out (`rig_no_box`); clip shin boxes
+  at the ankle.
+- **Moving meshes moves what hides them.** The giant's first-person view
+  hid its arms by node; once the meshes moved onto rig blocks the real
+  arms showed. Ask the rig which nodes draw a part now, and test that.
+- **Kit poses through one hook.** Abilities that need a whole-body pose
+  (a rear, a slam, a stomp, a shiver) pass a small dictionary of 0..1
+  hints from state the game already syncs. One rig, no per-kit rig code,
+  no network data.
+- **A skinned hero.** Pose bones, not blocks: take each limb block's
+  basis offset from the bone's rest (a T-pose straight limb needs the pole
+  for its hinge), write bones parents first from global targets, and keep
+  what the clips do for bones the rig leaves alone (fingers, cloth).
+  Render old and new from one stand-in so the comparison is fair.
 
 ## Handoff
 
