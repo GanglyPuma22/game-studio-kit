@@ -43,7 +43,8 @@ def read_manifest(path):
     if "symmetry" in data:
         sym = data["symmetry"]
         if (not isinstance(sym, dict) or set(sym) - {"axis", "allow", "tolerance_mm"} or sym.get("axis", "x") not in ("x", "z")
-                or not all(isinstance(x, str) for x in sym.get("allow", []))
+                or not isinstance(sym.get("allow", []), list)
+                or not all(isinstance(x, str) and x.strip() for x in sym.get("allow", []))
                 or not isinstance(sym.get("tolerance_mm", 10.0), (int, float)) or isinstance(sym.get("tolerance_mm"), bool)
                 or not 0 < sym.get("tolerance_mm", 10.0) <= 1000):
             raise ValueError("Manifest symmetry needs {axis: x|z, allow: [names], tolerance_mm: 0..1000}")

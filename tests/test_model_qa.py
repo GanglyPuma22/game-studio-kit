@@ -73,6 +73,19 @@ class InputTests(unittest.TestCase):
 
 @unittest.skipUnless(BLENDER_PY, "Run inside Blender's Python (mathutils) with the model QA dependencies")
 class AttachmentTests(unittest.TestCase):
+    def test_self_intersection_limit_is_unmeasured_not_pass(self):
+        import trimesh
+        from studio_tools.model_qa.surface import self_intersections
+        # Two crossing slabs welded into one part.
+        a = trimesh.creation.box((1, 0.1, 1))
+        b = trimesh.creation.box((0.1, 1, 1))
+        part = trimesh.util.concatenate([a, b])
+        self.assertEqual(self_intersections([part], ["slabs"])["result"], "FAIL")
+        clean = trimesh.creation.icosphere(subdivisions=3)
+        self.assertEqual(self_intersections([clean], ["ball"])["result"], "PASS")
+        capped = self_intersections([clean], ["ball"], max_pairs=-1)
+        self.assertEqual((capped["result"], capped["truncated"][0]["name"]), ("UNMEASURED", "ball"))
+
     def test_static_clean_floating_and_anchor_chain(self):
         from model_qa_fixtures import build, box
         from studio_tools.model_qa.geometry import load

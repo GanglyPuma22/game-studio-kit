@@ -35,10 +35,14 @@ def overlaps(poses, structure):
 def self_crossings(poses, structure):
     """M14 across sampled poses: the worst pose decides, like M13."""
     worst = max(poses, key=lambda p: (p["major"], p["minor"]))
-    return row("M14", "INFO" if structure == "clump" else all(p["result"] == "PASS" for p in poses),
+    states = {p["result"] for p in poses}
+    state = ("FAIL" if "FAIL" in states else "UNMEASURED" if "UNMEASURED" in states else "PASS")
+    truncated = sorted({t["name"] for p in poses for t in p.get("truncated", [])})
+    return row("M14", "INFO" if structure == "clump" and state != "UNMEASURED" else state,
                f"max {worst['major']} major, {worst['minor']} minor self-crossings in one part; "
                f"{len(poses)} poses; worst {worst['pose']} t={worst['time']:.2f}; "
-               f"{max(p.get('joint_folds', 0) for p in poses)} joint-crease folds (not counted)",
+               f"{max(p.get('joint_folds', 0) for p in poses)} joint-crease folds (not counted)"
+               + (f"; not fully examined: {', '.join(truncated)}" if truncated else ""),
                {"poses": [p for p in poses if p["sites"] or p.get("joint_fold_sites")], "checked_poses": len(poses), "structure": structure})
 
 
@@ -92,7 +96,7 @@ def write(report, out):
               "- Part correspondence flags parts with at most half their vertices near the next LOD surface. This can also flag a moved or strongly simplified part; inspect the named geometry.",
               "- Silhouettes measure opaque geometry, not alpha textures, materials, animation blending, runtime fades or engine visibility ranges.",
               "- Missing switch distances fail M5. Fallback distances produce diagnostic images only.",
-              "- M14 counts triangle crossings inside one connected part at every sampled pose: any crossing chain of 10 mm or more is major. It does not judge whether the crossing is visible.",
+              "- M14 counts triangle crossings inside one connected part at every sampled pose: any crossing chain of 10 mm or more is major. Only crossings visible from one of 26 directions count; buried ones and folds where neighbouring joints bend are listed, not counted. A part with more candidate pairs than the limit is UNMEASURED, never PASS.",
               "- M15 casts 26 orthographic ray grids; a first hit on the back of a single-sided face means the engine shows the inside or what lies behind. Coincident or near-coincident opposed faces (within 2 mm) count as covered. glTF doubleSided materials and manifest double_sided names are exempt.",
               "- M16 measures visible surface distance between LOD0 and each LOD in screen pixels at that LOD's switch distance (the CLI's FOV and height): p99 of area samples at most 1 px, and no visible vertex beyond 3 px.",
               "- M17 runs only when the manifest declares symmetry; it compares each part with the mirrored model across the bounding-box centre plane.",

@@ -109,6 +109,12 @@ class ApplicabilityTests(unittest.TestCase):
         self.assertFalse(family['manifest']['living'])
         (self.root/'model-qa.json').write_text('{"structure": "anything"}')
         with self.assertRaises(ValueError): discover([p])
+        # A bare string would exempt every part name containing one of its letters.
+        for allow in ('"Satchel"', '[""]', '[3]'):
+            (self.root/'model-qa.json').write_text('{"symmetry": {"allow": %s}}' % allow)
+            with self.assertRaises(ValueError): discover([p])
+        (self.root/'model-qa.json').write_text('{"symmetry": {"allow": ["Satchel"]}}')
+        self.assertEqual(discover([p])[0]['manifest']['symmetry']['allow'], ['Satchel'])
 
     def test_missing_worker_is_unmeasured(self):
         p = self.root/'model.glb'; p.write_bytes(b'fixture')
@@ -162,6 +168,20 @@ class ApplicabilityTests(unittest.TestCase):
         sampler.output = accessor(g, values, 'VEC3'); g.save(str(p)); m = geometry.load(p)[3]
         np.testing.assert_allclose(m.sample('detach', .5)[target, 'translation'], [0, .3, 0], atol=1e-7)
         self.assertEqual(len(m.poses(6)), 7)  # rest plus six samples, as M12-M14 use
+
+    def test_vertex_owner_is_the_heaviest_joint_in_any_slot(self):
+        p = self.root/'animated.glb'; skinned(p)
+        g = GLTF2().load(str(p))
+        tip = next(n for n in g.nodes if n.name == 'tip')
+        primitive = g.meshes[tip.mesh].primitives[0]
+        count = g.accessors[primitive.attributes.POSITION].count
+        joints = np.zeros((count, 4), dtype='<u2'); joints[:, 1] = 1        # slot 0: body joint at weight 0
+        weights = np.zeros((count, 4), dtype='<f4'); weights[:, 1] = 1
+        primitive.attributes.JOINTS_0 = accessor(g, joints, 'VEC4', 5123)
+        primitive.attributes.WEIGHTS_0 = accessor(g, weights, 'VEC4')
+        g.save(str(p))
+        m = geometry.load(p)[3]
+        self.assertEqual({m.owner_names[o] for o in m.owner}, {'body-joint', 'tip-joint'})
 
     def test_morph_base_is_measured_and_limitation_recorded(self):
         p = self.root/'morph.glb'; export(p, [('body', box((1, 1, 1), (0, .5, 0)))])

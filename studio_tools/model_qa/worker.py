@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import importlib.metadata
 import json
+import re
 from pathlib import Path
 import sys
 import traceback
@@ -36,7 +37,7 @@ def execute(request):
     report["evidence"] = []
     evidence_dir = out / "evidence"
 
-    def close_up(entry, item, mesh, double, check, sites, pose="rest", time=0.0, limit=4):
+    def close_up(fid, entry, item, mesh, double, check, sites, pose="rest", time=0.0, limit=4):
         """Render each flagged site as the check saw it, with a capture sidecar. Never changes a result."""
         center = mesh.bounds.mean(axis=0)
         radius = float(np.linalg.norm(mesh.extents)) / 2 or 1.0
@@ -46,7 +47,8 @@ def execute(request):
             if look is None:
                 look = center - at
                 look = look / (np.linalg.norm(look) or 1.0)
-            path = evidence_dir / f"{entry['model'].replace('/', '_')}-lod{item['lod']}-{check}-{k}.png"
+            label = re.sub(r"[^A-Za-z0-9_.-]", "_", entry["model"])
+            path = evidence_dir / f"{fid}-{label}-lod{item['lod']}-{check}-{k}.png"
             try:
                 evidence_dir.mkdir(exist_ok=True)
                 capture = evidence.render_site(mesh, at, look, path, distance=min(max(radius * 0.35, 0.3), 3.0),
@@ -118,7 +120,7 @@ def execute(request):
                     fold_mesh = first if worst_fold["pose"] == poses[0][0] and worst_fold["time"] == poses[0][1] else (
                         trimesh.Trimesh(skin.posed(None if worst_fold["pose"] == "rest" else worst_fold["pose"], worst_fold["time"]),
                                         skin.idx, process=False) if skin else tm)
-                    close_up(entry, item, fold_mesh, None, "M14", sorted(worst_fold["sites"], key=lambda r: -r["span_mm"]),
+                    close_up(family["id"], entry, item, fold_mesh, None, "M14", sorted(worst_fold["sites"], key=lambda r: -r["span_mm"]),
                              worst_fold["pose"], worst_fold["time"])
                 face_part = skin_labels if skin else tm.metadata['face_part']
                 double = (skin.face_double if skin else tm.metadata['double_faces']).copy()
@@ -130,7 +132,7 @@ def execute(request):
                 record(entry, row("M15", seen["result"], f"{seen['flagged']} parts seen from behind; "
                                   f"{seen['back_hits']} / {seen['hits']} rays hit a culled back face; 26 views", seen))
                 if seen["parts"]:
-                    close_up(entry, item, first, double, "M15", seen["parts"], poses[0][0], poses[0][1])
+                    close_up(family["id"], entry, item, first, double, "M15", seen["parts"], poses[0][0], poses[0][1])
                 sym = manifest.get('symmetry')
                 if sym:
                     mirror = surface.symmetry(first, face_part, names, axis=sym.get('axis', 'x'), allow=sym.get('allow', []),
@@ -180,7 +182,7 @@ def execute(request):
                     if declared:
                         err = surface.lod_screen_error(loaded[0][2], tm, distance, settings["fov"], settings["height"])
                         if err["result"] == "FAIL":
-                            close_up(entry, item, tm, None, "M16",
+                            close_up(family["id"], entry, item, tm, None, "M16",
                                      [{"name": f"{k} detail", "at": err[k]["worst_at"]} for k in ("added", "lost")
                                       if err.get(k, {}).get("worst_at") and err[k].get("vertices_over_limit")])
                         record(entry, row("M16", err["result"], f"visible surface off LOD0 by p99 {err['p99_px']:g} px, max {err['max_px']:g} px "

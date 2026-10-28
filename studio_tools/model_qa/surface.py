@@ -115,7 +115,7 @@ def self_intersections(parts, names, *, tol_mm=2.0, major_mm=10.0, max_minor_per
     visible sites count; buried ones (inside a crotch, under a coat) stay
     listed with visible false.
     """
-    rows, fold_sites = [], []
+    rows, fold_sites, truncated = [], [], []
     whole_bvh = bvh_of(whole) if whole is not None else None
     for i, part in enumerate(parts):
         if len(part.faces) < 4:
@@ -123,11 +123,17 @@ def self_intersections(parts, names, *, tol_mm=2.0, major_mm=10.0, max_minor_per
         # Two separate trees: Blender's overlap of a tree with itself drops
         # every pair that shares a vertex, and a corner pushed through its own
         # side crosses exactly such neighbours.
-        pairs = bvh_of(part).overlap(bvh_of(part.copy()))
-        if not pairs:
+        pairs = np.asarray(bvh_of(part).overlap(bvh_of(part.copy())), dtype=np.int64).reshape(-1, 2)
+        if not len(pairs):
             continue
         faces = part.faces
-        keep = [(a, b) for a, b in pairs[:max_pairs] if a < b and len(set(faces[a]) & set(faces[b])) < 2]
+        pairs = pairs[pairs[:, 0] < pairs[:, 1]]
+        shared = (faces[pairs[:, 0]][:, :, None] == faces[pairs[:, 1]][:, None, :]).sum(axis=(1, 2))
+        keep = pairs[shared < 2]
+        if len(keep) > max_pairs:
+            # Never pass a part that was only partly examined.
+            truncated.append({"part": i, "name": names[i], "pairs": int(len(keep))})
+            continue
         pts, folded = [], []
         fj = face_joint[i] if face_joint is not None else None
         for a, b in keep:
@@ -157,7 +163,8 @@ def self_intersections(parts, names, *, tol_mm=2.0, major_mm=10.0, max_minor_per
     return {"sites": rows, "major": len(major), "minor": len(minor), "minor_limit": limit,
             "hidden": sum(not r["visible"] for r in rows),
             "joint_folds": len(fold_sites), "joint_fold_sites": sorted(fold_sites, key=lambda r: -r["span_mm"])[:10],
-            "result": "PASS" if not major and len(minor) <= limit else "FAIL"}
+            "truncated": truncated,
+            "result": "FAIL" if major or len(minor) > limit else ("UNMEASURED" if truncated else "PASS")}
 
 
 def _ray_grid(center, radius, d, res):

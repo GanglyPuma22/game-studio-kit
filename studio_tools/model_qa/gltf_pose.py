@@ -77,7 +77,9 @@ class Model:
                     j = acc(g, p.attributes.JOINTS_0).astype(int)
                     w = acc(g, p.attributes.WEIGHTS_0).astype(np.float64)
                     joints = g.skins[node.skin].joints
-                    owner.append(np.array([owner_id(g.nodes[joints[x]].name or 'joint') for x in j[:, 0]], int))
+                    # The joint with the largest weight owns the vertex, whatever its slot.
+                    top = j[np.arange(len(j)), w.argmax(axis=1)]
+                    owner.append(np.array([owner_id(g.nodes[joints[x]].name or 'joint') for x in top], int))
                     groups.append(("skin", node.skin, base, len(v)))
                 else:
                     j = np.zeros((len(v), 4), int); w = np.zeros((len(v), 4)); w[:, 0] = 1
@@ -127,13 +129,23 @@ class Model:
             for start, count, ni in flips:
                 if np.linalg.det(world[ni][:3, :3]) < 0:
                     self.idx[start:start + count] = self.idx[start:start + count, ::-1]
-        # Merge positions in each primitive's own frame (bind space for skins,
-        # rest world for rigid nodes), so a welded seam is one part.
+        # Merge positions in each primitive's own frame (bind space for each
+        # skin, rest world for rigid nodes), so a welded seam is one part.
+        # Frames are kept apart: a vertex never welds to one from another
+        # frame, even where their coordinates happen to coincide.
         rest = self.posed()
         self.label_pos = self.pos.copy()
+        frames = []
         for kind, ni, b, n in groups:
             if kind == "node":
                 self.label_pos[b:b + n] = rest[b:b + n]
+            frames.append((kind, ni if kind == "skin" else None))
+        keys = list(dict.fromkeys(frames))
+        if len(keys) > 1:
+            lo, hi = self.label_pos.min(axis=0), self.label_pos.max(axis=0)
+            step = float((hi - lo).max()) * 4 + 1.0
+            for (kind, ni, b, n), key in zip(groups, frames):
+                self.label_pos[b:b + n, 0] += keys.index(key) * step
 
     def owner_neighbours(self, hops=2):
         """near(a, b): owners a and b (joint or node names) are within `hops` parent links of each other."""
