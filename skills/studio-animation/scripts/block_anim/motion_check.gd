@@ -102,7 +102,8 @@ var sweep_steps := 3
 var sweep_margin := 0.05
 ## The body's height (m), from the bind boxes (set in setup()).
 var height := 1.0
-var _vel: Array = []                # per block: last body-frame velocity (or null)
+var _vel: Array = []                # per block: last moving body-frame velocity (or null), for swings
+var _vprev: Array = []              # per block: last frame's velocity (or null), for acceleration
 var _ang: Array = []                # per block: last angular velocity (or null)
 var _swing: Array = []              # per block: [ext position, time of last turn, run, ext angle sum, ang time, ang run]
 var _prev_pose: Array = []
@@ -604,9 +605,11 @@ func _motion(pose: Array, dt: float) -> void:
 	var n := pose.size()
 	if _vel.size() != n:
 		_vel.resize(n)
+		_vprev.resize(n)
 		_ang.resize(n)
 		_swing.resize(n)
 		_vel.fill(null)
+		_vprev.fill(null)
 		_ang.fill(null)
 		_swing.fill(null)
 	_t += dt
@@ -637,8 +640,8 @@ func _motion(pose: Array, dt: float) -> void:
 			if sp > r.speed:
 				r.speed = sp
 				r.speed_at = "%s@%d" % [nm, r.frames]
-			if _vel[i] != null:
-				var acc := (v - (_vel[i] as Vector3)).length() / dt / height
+			if _vprev[i] != null:
+				var acc := (v - (_vprev[i] as Vector3)).length() / dt / height
 				if acc > accel_max:
 					fast = true
 					_ev("accel", nm, acc)
@@ -679,6 +682,9 @@ func _motion(pose: Array, dt: float) -> void:
 			if hz > r.shake_hz:
 				r.shake_hz = hz
 				r.shake_at = "%s@%d" % [nm, r.frames]
+		_vprev[i] = v
+		# Swings compare against the last frame the block moved (a held
+		# pause between two swings still reverses).
 		if v.length() * dt > 0.0001:
 			_vel[i] = v
 		elif _vel[i] == null:

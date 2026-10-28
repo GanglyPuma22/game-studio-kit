@@ -188,6 +188,12 @@ func _init() -> void:
 	for f in 10:
 		mc.add([body_t, Transform3D(Basis(), Vector3(1.0 + 0.5 * f, 0.0, 0.0))], Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
 	_check("and not when the move names it in fast_ok", mc.report().fast_frames_pct == 0.0)
+	# A block that stops is fast for the stopping frame only, not for the
+	# whole hold after it.
+	mc = mk.call()
+	for x in [1.0, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1]:
+		mc.add([body_t, Transform3D(Basis(), Vector3(x, 0.0, 0.0))], Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	_near("a stop counts once, not through the hold", mc.report().fast_frames_pct, 10.0, 0.01)
 	# 9c: a 5 cm wobble at 10 Hz shakes; the same at 1 Hz is a sway.
 	for hz in [10.0, 1.0]:
 		mc = mk.call()
