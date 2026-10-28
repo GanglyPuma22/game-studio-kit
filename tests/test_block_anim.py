@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ANIM = ROOT / "skills" / "studio-animation"
-MODULES = ["block_chain", "two_bone", "gait", "plant", "motion_check", "selftest"]
+MODULES = ["block_chain", "two_bone", "gait", "plant", "motion_check", "skin_blocks", "selftest"]
 
 
 class BlockAnimPackageTests(unittest.TestCase):

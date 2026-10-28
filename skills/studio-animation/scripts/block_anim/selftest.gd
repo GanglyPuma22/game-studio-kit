@@ -64,6 +64,39 @@ func _init() -> void:
 	c.add(_leg(bind, 0.0), Transform3D.IDENTITY, 0.5, 1.0 / 60.0, false, {})
 	_near("a shin 0.5 m into the ground reads 0.5", c.report().ground_m, 0.5, 0.01)
 
+	# Rule 8b: no block through another. A torso, an arm (upper, fore) off
+	# its top: the forearm swung into the torso is a block through a block;
+	# the upper arm meeting the torso at the shoulder is their joint.
+	var ob_n := ["torso", "upper", "fore"]
+	var ob_par := PackedInt32Array([-1, 0, 1])
+	var ob_bind := [Transform3D(Basis(), Vector3(0, 1, 0)), Transform3D(Basis(), Vector3(0.35, 1.45, 0)), Transform3D(Basis(), Vector3(0.35, 1.05, 0))]
+	var ob_c := [Vector3.ZERO, Vector3(0, -0.2, 0), Vector3(0, -0.2, 0)]
+	var ob_h := [Vector3(0.3, 0.5, 0.15), Vector3(0.07, 0.2, 0.07), Vector3(0.06, 0.2, 0.06)]
+	var cc = Check.new()
+	cc.setup_rig(ob_n, ob_par, ob_bind, ob_c, ob_h, {"no_overlap": "all"})
+	_check("'all' pairs leave out parent and child", cc.pairs.size() == 1)
+	cc.add(ob_bind, Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	_near("arm hanging clear of the torso: no overlap", cc.report().self_overlap_pct, 0.0, 0.01)
+	cc.reset()
+	var ob_thru := ob_bind.duplicate()
+	ob_thru[2] = Transform3D(Basis(Vector3.FORWARD, deg_to_rad(90.0)), Vector3(0.35, 1.05, 0))   # forearm swung in, through the torso
+	cc.add(ob_thru, Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	_near("forearm through the torso is an overlap", cc.report().self_overlap_pct, 100.0, 0.01)
+	_check("and names the pair", cc.report().self_at == "torso/fore")
+	# A graze: the forearm 4 cm into the torso's side counts on a bare
+	# checker, not with a 5 cm floor (a small body's hand on its hip).
+	var ob_graze := ob_bind.duplicate()
+	ob_graze[2] = Transform3D(Basis(), Vector3(0.31, 1.05, 0))
+	cc.reset()
+	cc.add(ob_graze, Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	_near("a 4 cm graze counts with no floor", cc.report().self_overlap_pct, 100.0, 0.01)
+	cc.reset()
+	cc.floor_m = 0.05
+	cc.add(ob_graze, Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	_near("and not with a 5 cm floor", cc.report().self_overlap_pct, 0.0, 0.01)
+	_near("box depth of two unit boxes 0.25 apart is 0.75", Check.box_depth(Vector3.ZERO, Basis(), Vector3(0.5, 0.5, 0.5), Vector3(0.25, 0, 0), Basis(), Vector3(0.5, 0.5, 0.5)), 0.75, 0.001)
+	_near("boxes apart have no depth", Check.box_depth(Vector3.ZERO, Basis(), Vector3(0.5, 0.5, 0.5), Vector3(1.5, 0, 0), Basis(), Vector3(0.5, 0.5, 0.5)), 0.0, 0.001)
+
 	# The Kit's rig description template names only blocks it declares.
 	var tpl = JSON.parse_string(FileAccess.get_file_as_string(_dir + "/../../../../templates/block-rig.json"))
 	_check("block-rig.json template parses", tpl is Dictionary)
@@ -134,6 +167,53 @@ func _init() -> void:
 	wc.walls = [[Vector3(1, 0, 0), 0.0, 1.0]]
 	wc.add([Transform3D(Basis(Vector3.BACK, deg_to_rad(45.0)), Vector3(0, 1, 0))], Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
 	_near("a box cutting a ledge corner reads its edge depth", wc.report().wall_m, 0.5, 0.01)
+
+	# Rules 9b, 9c and 8c on a 2 m body and a small hand block beside it.
+	var mk := func() -> RefCounted:
+		var m = Check.new()
+		m.setup(["body", "hand"], PackedInt32Array([-1, -1]), PackedFloat32Array([180.0, 180.0]),
+			# The hand rests beside the body (a rest overlap would be allowed).
+			[Transform3D.IDENTITY, Transform3D(Basis(), Vector3(1.0, 0.0, 0.0))], [Vector3.ZERO, Vector3.ZERO],
+			[Vector3(0.5, 1.0, 0.3), Vector3(0.1, 0.1, 0.1)], PackedInt32Array(), [[1, 0]], [])
+		return m
+	var body_t := Transform3D.IDENTITY
+	var mc = mk.call()
+	_near("height comes from the bind boxes", mc.height, 2.0, 0.001)
+	# 9b: 0.5 m a frame at 60 fps is 15 body heights a second.
+	for f in 10:
+		mc.add([body_t, Transform3D(Basis(), Vector3(1.0 + 0.5 * f, 0.0, 0.0))], Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	_check("a block faster than speed_max is flagged (9b)", mc.report().fast_frames_pct > 50.0)
+	mc = mk.call()
+	mc.fast_ok = {"hand": true}
+	for f in 10:
+		mc.add([body_t, Transform3D(Basis(), Vector3(1.0 + 0.5 * f, 0.0, 0.0))], Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	_check("and not when the move names it in fast_ok", mc.report().fast_frames_pct == 0.0)
+	# A block that stops is fast for the stopping frame only, not for the
+	# whole hold after it.
+	mc = mk.call()
+	for x in [1.0, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1]:
+		mc.add([body_t, Transform3D(Basis(), Vector3(x, 0.0, 0.0))], Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	_near("a stop counts once, not through the hold", mc.report().fast_frames_pct, 10.0, 0.01)
+	# 9c: a 5 cm wobble at 10 Hz shakes; the same at 1 Hz is a sway.
+	for hz in [10.0, 1.0]:
+		mc = mk.call()
+		for f in 120:
+			mc.add([body_t, Transform3D(Basis(), Vector3(1.0 + 0.05 * sin(TAU * hz * f / 60.0), 0.0, 0.0))], Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+		if hz > 5.0:
+			_check("a 10 Hz wobble shakes (9c)", mc.report().shake_frames_pct > 20.0)
+		else:
+			_check("a 1 Hz sway does not", mc.report().shake_frames_pct == 0.0)
+	mc = mk.call()
+	mc.shake_ok = {"hand": true}
+	for f in 120:
+		mc.add([body_t, Transform3D(Basis(), Vector3(1.0 + 0.05 * sin(TAU * 10.0 * f / 60.0), 0.0, 0.0))], Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	_check("and not when the move names it in shake_ok", mc.report().shake_frames_pct == 0.0)
+	# 8c: a hand passing right through the body between two frames.
+	mc = mk.call()
+	mc.add([body_t, Transform3D(Basis(), Vector3(-1.5, 0.0, 0.0))], Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	mc.add([body_t, Transform3D(Basis(), Vector3(1.5, 0.0, 0.0))], Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	_check("a block tunnelling through another between frames is caught (8c)", mc.report().sweep_frames == 1)
+	_check("though neither frame overlaps", mc.report().self_overlap_pct == 0.0)
 
 	# Whole-chain reach: every segment keeps its length.
 	var pts := PackedVector3Array([Vector3.ZERO, Vector3(0, 1, 0), Vector3(0, 2, 0), Vector3(0, 3, 0)])

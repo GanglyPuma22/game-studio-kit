@@ -70,6 +70,31 @@ the user approved the set.
    first, then over (a straight line cuts through the corner). Walking up
    to a wall, a short ray ahead holds the head and front limbs back before
    contact.
+
+   **8b. No block through another.** Check every pair of blocks, not a
+   hand-picked list: a list misses the pair the user sees first (a forearm
+   through the chest in a slash, two feet crossing in a spin). Parent and
+   child are left out (they meet at their joint). Measure how deep two
+   boxes overlap (the separating-axis depth, not a yes/no), and allow:
+   - pairs two joints apart (a hand and its upper arm, both thighs off the
+     hips, an upper arm and the chest it hangs from by the collarbone) about
+     0.6 of the thinner box's smallest half size, and ignore the limb's end
+     at the shared joint (about 1.2 of its thickness): that region is the
+     joint's;
+   - any other pair about a quarter of that;
+   - a pair that already overlaps at rest, its rest depth plus the margin;
+   - a graze floor (a tenth of the thinner box, or a few centimetres on a
+     person-sized body), so a hand resting on a thigh is contact, not a
+     pass-through;
+   - named exceptions where anatomy overlaps by design (an open jaw swinging
+     back into the throat; a hand's fingers and thumb). Write each down with
+     its reason.
+
+   **8c. No tunnelling between frames.** A fast block (a fist at the snap
+   of a strike) can pass right through another between two frames with
+   neither frame showing it. Check every pair at a few points between
+   frames as well (positions lerped, rotations slerped); deeper there than
+   at both frames, past the allowance, counts.
 9. **Momentum: no pops, no flips.** Block positions and rotations change
    smoothly. A big move starts with anticipation (a counter-move of about a
    fifth of the move, the opposite way), and the heaviest blocks start and
@@ -80,6 +105,25 @@ the user approved the set.
    bent so it never swaps sides as a hand passes close to the shoulder.
    Settle without overshoot unless the overshoot is the point of the move;
    an unmotivated one reads as a wobble.
+
+   **9b. Speed and acceleration limits.** Measure each block in the body's
+   own frame (walking or turning the whole body does not count) and in
+   body heights per second, so a giant and a person share one limit.
+   Defaults: 6 heights/s and 150 heights/s². A strike that rests slowly
+   and then snaps across the body reads as a glitch, not a hit: build the
+   speed up through the wind-up, or take an arc.
+
+   **9c. No shake.** A block whose motion swings back and forth faster
+   than about 4 Hz, each swing more than 0.4% of the body's height or 1.5
+   degrees, three swings in a row, is shaking. A single-frame pop check
+   misses this: it is two constraints fighting (an elbow flipping, a
+   resolver alternating between two answers, a feedback loop with no
+   damping), and users see it at once.
+
+   **Overrides are explicit.** When speed or shake is the point of a move
+   (a whip crack, a shiver, an impact), the move names the blocks it
+   exempts (`fast_ok`, `shake_ok`) with a written reason, in one table
+   beside the move list. Everything else is held to the rule.
 10. **Gaits follow real footfall patterns.** Walk, canter and gallop use
     measured animal footfall orders and duty factors (share of the stride
     a foot is down), with suspension phases where the animal has them. A
@@ -163,9 +207,13 @@ per-frame events (frame, rule, block, amount) for debugging:
 | Steps and shuffles | 6 | steps per clip, and shuffles: steps that land close to where they lifted |
 | Balance | 7 | share of slow frames with the centre of mass outside the support area |
 | Ground and body | 8 | deepest block below the ground (m); frames with a limb inside the torso |
+| Block through block | 8b | share of frames with any pair past its allowance, the deepest excess (m) and the pair, and each pair's worst excess (`self_deep_m`) |
 | Walls | 8 | deepest block inside a wall the body is against (m), which block, how many frames. The rig supplies the wall's face and top; the nearer face counts, so a foot standing on the top is not "in" the wall |
 | Pops | 9 | largest block acceleration (m/s²) |
 | Joint flips | 9 | fastest joint turn between frames (deg/s); an elbow swapping sides shows here, not in position acceleration |
+| Tunnelling | 8c | frames where a pair is deeper between frames than at either end (`sweep_frames`, `sweep_m`, `sweep_at`) |
+| Speed and acceleration | 9b | top block speed (heights/s) and acceleration (heights/s²), share of frames over either, and which blocks (`fast_blocks`) |
+| Shake | 9c | share of frames with a block shaking, its frequency (Hz) and which blocks (`shake_blocks`) |
 
 Thresholds belong to the move, not the rig: which contacts should be
 planted, whether balance applies, how much drift a pinned block may have.

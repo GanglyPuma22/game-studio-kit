@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "game-studio-kit",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "skills": [
     {
       "name": "studio-director",
@@ -207,6 +207,7 @@
     "skills/studio-animation/scripts/block_anim/gait.gd",
     "skills/studio-animation/scripts/block_anim/plant.gd",
     "skills/studio-animation/scripts/block_anim/motion_check.gd",
+    "skills/studio-animation/scripts/block_anim/skin_blocks.gd",
     "skills/studio-animation/scripts/block_anim/selftest.gd",
     "templates/block-rig.json",
     "studio_tools/character_run.py",

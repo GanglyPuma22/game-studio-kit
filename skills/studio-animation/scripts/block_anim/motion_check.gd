@@ -20,13 +20,40 @@ var box_c: Array = []               # per block: box centre in its own frame (or
 var box_h: Array = []               # per block: box half size
 var contacts: PackedInt32Array      # blocks that touch the ground
 var pairs: Array = []               # [a, b] that must not overlap
+## Rule 8b (no box through another box): how deep two boxes may overlap,
+## as a share of the thinner box's smallest half size. Blocks one or two
+## joints apart (a hand and its upper arm, both thighs off the pelvis)
+## overlap round the joint they share; any other pair barely may. Pairs
+## that already overlap at rest may go that deep plus the margin.
+var joint_share := 0.6:
+	set(v):
+		joint_share = v
+		_allow = {}
+var body_share := 0.25:
+	set(v):
+		body_share = v
+		_allow = {}
+## And a least depth (m) that counts, for small bodies whose blocks are
+## thin (a person's fingers resting on a thigh are not a pass-through).
+var floor_m := 0.0:
+	set(v):
+		floor_m = v
+		_allow = {}
+## Pair keys are a * 1024 + b with a < b (see _key).
+var _hops: Dictionary = {}          # key -> joints between the two blocks (1, 2, or 3 = farther)
+var _rest_depth: Dictionary = {}    # key -> overlap depth at rest (m)
+var _allow: Dictionary = {}         # key -> allowed_depth (cached; cleared when a share changes)
+## Two joints apart (an upper arm and the chest it hangs from by the
+## collarbone, both thighs off the hips), a limb's end at that joint turns
+## inside the other block: that end, about a limb's thickness, is the
+## joint's and does not count. key -> [[centre a, half a], [centre b, half b]].
+var _joint_cut: Dictionary = {}
 ## Frames to leave out (the body was just placed somewhere new).
 var skip := 0
 var pad := 0.8                      # support area margin round each contact (m)
 var touch := 0.35                   # a contact this close to the ground is down (m)
 
 var _rel_bind: Array = []
-var _skip_pairs := {}
 var _prev1: Array = []
 var _prev2: Array = []
 var _prev_dt := 0.0
@@ -50,6 +77,37 @@ var hinge_slack := 5.0
 var pop_event := 1500.0
 var slide_event := 1.0
 var flip_event := 900.0
+## Rule 9b, speed and acceleration: measured in the body's own frame (so
+## walking or turning the whole body does not count) and in body heights,
+## so a giant and a person compare. A frame with any block past either
+## counts. A move that means a block to snap (a strike's fist) names it in
+## `fast_ok` (block name -> true).
+var speed_max := 6.0                # body heights per second
+var accel_max := 150.0              # body heights per second²
+var fast_ok: Dictionary = {}
+## Rule 9c, no wobble: a block whose motion (body frame) swings back and
+## forth faster than `vib_hz`, each swing more than `vib_amp` of the body's
+## height or `vib_deg` of turn, shakes. Three such swings in a row count.
+## A move that means to shake (a shiver, an impact) names the block in
+## `shake_ok`.
+var vib_hz := 4.0
+var vib_amp := 0.004
+var vib_deg := 1.5
+var shake_ok: Dictionary = {}
+## Rule 8c, no tunnelling: a fast block can pass right through another
+## between two frames with neither frame showing it. Every pair is also
+## checked at `sweep_steps` points between frames; deeper there than at
+## both frames by `sweep_margin` (m) counts.
+var sweep_steps := 3
+var sweep_margin := 0.05
+## The body's height (m), from the bind boxes (set in setup()).
+var height := 1.0
+var _vel: Array = []                # per block: last moving body-frame velocity (or null), for swings
+var _vprev: Array = []              # per block: last frame's velocity (or null), for acceleration
+var _ang: Array = []                # per block: last angular velocity (or null)
+var _swing: Array = []              # per block: [ext position, time of last turn, run, ext angle sum, ang time, ang run]
+var _prev_pose: Array = []
+var _t := 0.0
 var r := {}
 ## Debugging: every rule break this clip, [frame, rule, block, amount]
 ## (capped per rule).
@@ -68,18 +126,160 @@ func setup(p_names: Array, p_parent: PackedInt32Array, p_limits: PackedFloat32Ar
 	contacts = p_contacts
 	pairs = p_pairs
 	soft = {}
-	_skip_pairs = {}
 	for b in p_soft:
 		soft[b] = true
 	_rel_bind.resize(bind.size())
 	for i in bind.size():
 		if parent[i] >= 0:
 			_rel_bind[i] = (bind[parent[i]] as Transform3D).affine_inverse() * bind[i]
-	# Pairs that already touch at rest (the model hugs itself) are not errors.
+	var y_lo := INF
+	var y_hi := -INF
+	for i in bind.size():
+		if box_c[i] == null:
+			continue
+		var bt: Transform3D = bind[i]
+		for k in 8:
+			var cn := Vector3(-1.0 if k & 1 else 1.0, -1.0 if k & 2 else 1.0, -1.0 if k & 4 else 1.0)
+			var y: float = (bt * ((box_c[i] as Vector3) + cn * (box_h[i] as Vector3))).y
+			y_lo = minf(y_lo, y)
+			y_hi = maxf(y_hi, y)
+	height = maxf(y_hi - y_lo, 0.01) if y_hi > y_lo else 1.0
+	# Pairs that already overlap at rest (the model hugs itself) may go
+	# that deep; deeper is a block passing through another.
+	_hops = {}
+	_rest_depth = {}
+	_joint_cut = {}
+	_allow = {}
 	for pr in pairs:
-		if _overlap(bind, Transform3D.IDENTITY, pr[0], pr[1]):
-			_skip_pairs["%d_%d" % [pr[0], pr[1]]] = true
+		var key := _key(pr[0], pr[1])
+		_hops[key] = _hop_count(pr[0], pr[1])
+		if int(_hops[key]) == 2 and box_c[pr[0]] != null and box_c[pr[1]] != null:
+			# Stored low index first, the order pair_depth reads them in.
+			var lo: int = mini(pr[0], pr[1])
+			var hi: int = maxi(pr[0], pr[1])
+			_joint_cut[key] = [_cut_root(lo, hi), _cut_root(hi, lo)]
+		var d := _depth(bind, Transform3D.IDENTITY, pr[0], pr[1])
+		if d > 0.0:
+			_rest_depth[key] = d
 	reset()
+
+
+## Block a's box ([centre, half]) for a pair two joints from block b: a
+## limb (long along its own y, starting at its joint) hanging off b's
+## child or off b's parent loses the end at that joint.
+func _cut_root(a: int, b: int) -> Array:
+	var c: Vector3 = box_c[a]
+	var h: Vector3 = box_h[a]
+	var thick := maxf(h.x, h.z)
+	var shares_joint: bool = parent[a] >= 0 and (parent[parent[a]] == b or parent[a] == parent[b])
+	if not shares_joint or h.y < 1.5 * thick:
+		return [c, h]
+	var lo := c.y - h.y
+	var hi := c.y + h.y
+	# The joint is at the block's origin (y = 0): cut from that end.
+	if absf(lo) <= absf(hi):
+		lo = maxf(lo, 0.0) + 1.2 * thick
+	else:
+		hi = minf(hi, 0.0) - 1.2 * thick
+	if hi <= lo:
+		return [c, Vector3(h.x, 0.0, h.z)]
+	return [Vector3(c.x, (lo + hi) * 0.5, c.z), Vector3(h.x, (hi - lo) * 0.5, h.z)]
+
+
+## How deep blocks a and b overlap with these transforms (in one frame),
+## leaving out a joint's end where they meet two joints apart.
+func pair_depth(a: int, ta: Transform3D, b: int, tb: Transform3D) -> float:
+	if a > b:
+		return pair_depth(b, tb, a, ta)
+	if box_c[a] == null or box_c[b] == null:
+		return 0.0
+	var ca: Vector3 = box_c[a]
+	var ha: Vector3 = box_h[a]
+	var cb: Vector3 = box_c[b]
+	var hb: Vector3 = box_h[b]
+	var key := _key(a, b)
+	if _joint_cut.has(key):
+		var cut: Array = _joint_cut[key]
+		ca = cut[0][0]
+		ha = cut[0][1]
+		cb = cut[1][0]
+		hb = cut[1][1]
+		if ha.y <= 0.0 or hb.y <= 0.0:
+			return 0.0
+	return box_depth(ta * ca, ta.basis, ha, tb * cb, tb.basis, hb)
+
+
+## How far blocks a and b go into each other past their allowance.
+func pair_over(a: int, ta: Transform3D, b: int, tb: Transform3D) -> float:
+	var d := pair_depth(a, ta, b, tb)
+	if d <= 0.0:
+		return 0.0
+	return maxf(0.0, d - allowed_depth(mini(a, b), maxi(a, b)))
+
+
+## Every pair of boxed blocks that are not parent and child (those always
+## meet at their joint): what "no_overlap": "all" asks for.
+static func all_pairs(p_parent: PackedInt32Array, p_box_c: Array, exclude: Array = []) -> Array:
+	var out: Array = []
+	var n := p_parent.size()
+	for a in n:
+		for b in range(a + 1, n):
+			if p_box_c[a] == null or p_box_c[b] == null:
+				continue
+			if p_parent[a] == b or p_parent[b] == a:
+				continue
+			var skip := false
+			for ex in exclude:
+				if (ex[0] == a and ex[1] == b) or (ex[0] == b and ex[1] == a):
+					skip = true
+			if not skip:
+				out.append([a, b])
+	return out
+
+
+## Joints between blocks a and b along the tree (1 = parent and child, 2 =
+## grandparent or siblings), capped at 3.
+func _hop_count(a: int, b: int) -> int:
+	var up_a := {a: 0}
+	var x := a
+	var k := 0
+	while parent[x] >= 0 and k < 3:
+		x = parent[x]
+		k += 1
+		up_a[x] = k
+	x = b
+	k = 0
+	while k <= 3:
+		if up_a.has(x):
+			return mini(3, int(up_a[x]) + k)
+		if parent[x] < 0:
+			break
+		x = parent[x]
+		k += 1
+	return 3
+
+
+## How deep blocks a and b may overlap before it counts (m).
+func allowed_depth(a: int, b: int) -> float:
+	var key := _key(a, b)
+	var cached = _allow.get(key)
+	if cached != null:
+		return cached
+	var ha: Vector3 = box_h[a]
+	var hb: Vector3 = box_h[b]
+	var thin := minf(minf(ha.x, minf(ha.y, ha.z)), minf(hb.x, minf(hb.y, hb.z)))
+	var share := joint_share if int(_hops.get(key, 3)) <= 2 else body_share
+	var allow := share * thin
+	if _rest_depth.has(key):
+		allow = maxf(allow, float(_rest_depth[key]) + body_share * thin)
+	# A graze too slight to see is not a pass-through.
+	allow += maxf(0.1 * thin, floor_m)
+	_allow[key] = allow
+	return allow
+
+
+static func _key(a: int, b: int) -> int:
+	return mini(a, b) * 1024 + maxi(a, b)
 
 
 ## Same as setup() but limits, contacts, pairs and soft blocks come from a
@@ -103,9 +303,18 @@ func setup_rig(p_names: Array, p_parent: PackedInt32Array, p_bind: Array, p_box_
 		if _known(idx, k):
 			con.append(idx[k])
 	var prs: Array = []
-	for pr in desc.get("no_overlap", []):
-		if _known(idx, pr[0]) and _known(idx, pr[1]):
-			prs.append([idx[pr[0]], idx[pr[1]]])
+	var no: Variant = desc.get("no_overlap", [])
+	if no is String and no == "all":
+		# Every pair but parent and child, less the pairs named in "overlap_ok".
+		var ex: Array = []
+		for pr in desc.get("overlap_ok", []):
+			if _known(idx, pr[0]) and _known(idx, pr[1]):
+				ex.append([idx[pr[0]], idx[pr[1]]])
+		prs = all_pairs(p_parent, p_box_c, ex)
+	else:
+		for pr in no:
+			if _known(idx, pr[0]) and _known(idx, pr[1]):
+				prs.append([idx[pr[0]], idx[pr[1]]])
 	var sf: Array = []
 	for k in desc.get("soft", []):
 		if _known(idx, k):
@@ -158,10 +367,18 @@ func reset() -> void:
 	_down_at = {}
 	_lift_at = {}
 	_prev_rel = {}
+	_vel = []
+	_ang = []
+	_swing = []
+	_prev_pose = []
+	_t = 0.0
 	r = {"hinge_frames": 0, "hinge_over": 0.0, "hinge_at": "", "turn_rate": 0.0, "turn_at": "", "frames": 0, "stretch": 0.0, "gap": 0.0, "gap_at": "", "limit_frames": 0, "limit_over": 0.0, "limit_at": "",
 		"slide": 0.0, "down_time": 0.0, "slide_max": 0.0, "ground": 0.0, "ground_at": "",
-		"wall": 0.0, "wall_at": "", "wall_frames": 0, "steps": 0, "slow_steps": 0, "shuffles": 0, "self_frames": 0, "self_at": "", "slow_frames": 0, "unbalanced": 0, "air_frames": 0,
-		"pop": 0.0, "pop_at": "", "drift": {}}
+		"wall": 0.0, "wall_at": "", "wall_frames": 0, "steps": 0, "slow_steps": 0, "shuffles": 0, "self_frames": 0, "self_at": "", "self_depth": 0.0, "self_pairs": {}, "self_max": {}, "slow_frames": 0, "unbalanced": 0, "air_frames": 0,
+		"pop": 0.0, "pop_at": "", "drift": {},
+		"speed": 0.0, "speed_at": "", "accel": 0.0, "accel_at": "", "fast_frames": 0, "fast_blocks": {},
+		"shake_frames": 0, "shake_at": "", "shake_hz": 0.0, "shake_blocks": {},
+		"sweep_frames": 0, "sweep": 0.0, "sweep_at": ""}
 
 
 ## One frame: `pose` per block (body frame), the body's world transform,
@@ -175,6 +392,10 @@ func add(pose: Array, gx: Transform3D, ground_y: float, dt: float, slow: bool, d
 		_prev_dt = 0.0
 		_down_prev = {}
 		_prev_rel = {}
+		_vel = []
+		_ang = []
+		_swing = []
+		_prev_pose = []
 		return
 	r.frames += 1
 	var n := pose.size()
@@ -291,14 +512,25 @@ func add(pose: Array, gx: Transform3D, ground_y: float, dt: float, slow: bool, d
 		if ground_y - low > r.ground:
 			r.ground = ground_y - low
 			r.ground_at = names[i]
+	# Rule 8b: no block through another (beyond the joint they share).
+	var self_hit := false
 	for pr in pairs:
-		if _skip_pairs.has("%d_%d" % [pr[0], pr[1]]):
+		var dep := _depth(pose, gx, pr[0], pr[1])
+		if dep <= 0.0:
 			continue
-		if _overlap(pose, gx, pr[0], pr[1]):
-			r.self_frames += 1
-			_ev("self", "%s/%s" % [names[pr[0]], names[pr[1]]], 1.0)
-			r.self_at = "%s/%s" % [names[pr[0]], names[pr[1]]]
-			break
+		var over := dep - allowed_depth(pr[0], pr[1])
+		if over <= 0.0:
+			continue
+		var pn := "%s/%s" % [names[pr[0]], names[pr[1]]]
+		self_hit = true
+		_ev("self", pn, over)
+		r.self_pairs[pn] = int(r.self_pairs.get(pn, 0)) + 1
+		r.self_max[pn] = maxf(float(r.self_max.get(pn, 0.0)), over)
+		if over > r.self_depth:
+			r.self_depth = over
+			r.self_at = pn
+	if self_hit:
+		r.self_frames += 1
 	# Rule 6: planted contacts hold still.
 	var support: Array = []
 	for b in contacts:
@@ -353,6 +585,10 @@ func add(pose: Array, gx: Transform3D, ground_y: float, dt: float, slow: bool, d
 			if a > r.pop:
 				r.pop = a
 				r.pop_at = "%s@%d" % [names[i], r.frames]
+	if dt > 0.0:
+		_motion(pose, dt)
+		_sweep(pose, gx)
+	_prev_pose = pose.duplicate()
 	_prev2 = _prev1
 	_prev1 = centres
 	_prev_dt = dt
@@ -363,10 +599,147 @@ func add(pose: Array, gx: Transform3D, ground_y: float, dt: float, slow: bool, d
 		r.drift[k] = d
 
 
+## Rules 9b and 9c for one frame: each block's speed, acceleration and
+## back-and-forth swings in the body's own frame.
+func _motion(pose: Array, dt: float) -> void:
+	var n := pose.size()
+	if _vel.size() != n:
+		_vel.resize(n)
+		_vprev.resize(n)
+		_ang.resize(n)
+		_swing.resize(n)
+		_vel.fill(null)
+		_vprev.fill(null)
+		_ang.fill(null)
+		_swing.fill(null)
+	_t += dt
+	var fast := false
+	var shook := false
+	var ready := _prev_pose.size() == n
+	for i in n:
+		if box_c[i] == null or not ready:
+			continue
+		var t: Transform3D = pose[i]
+		var tp: Transform3D = _prev_pose[i]
+		var c: Vector3 = t * (box_c[i] as Vector3)
+		var cp: Vector3 = tp * (box_c[i] as Vector3)
+		var v := (c - cp) / dt
+		var q := (tp.basis.orthonormalized().inverse() * t.basis.orthonormalized()).get_rotation_quaternion()
+		var turn := shortest_turn_deg(q)
+		var w := Vector3.ZERO
+		if turn > 0.001:
+			var ax := q.get_axis()
+			w = tp.basis.orthonormalized() * (ax if q.get_angle() <= PI else -ax) * (turn / dt)
+		var sp := v.length() / height
+		var nm: String = names[i]
+		if not fast_ok.has(nm):
+			if sp > speed_max:
+				fast = true
+				_ev("fast", nm, sp)
+				r.fast_blocks[nm] = int(r.fast_blocks.get(nm, 0)) + 1
+			if sp > r.speed:
+				r.speed = sp
+				r.speed_at = "%s@%d" % [nm, r.frames]
+			if _vprev[i] != null:
+				var acc := (v - (_vprev[i] as Vector3)).length() / dt / height
+				if acc > accel_max:
+					fast = true
+					_ev("accel", nm, acc)
+					r.fast_blocks[nm] = int(r.fast_blocks.get(nm, 0)) + 1
+				if acc > r.accel:
+					r.accel = acc
+					r.accel_at = "%s@%d" % [nm, r.frames]
+		# Swings: a turn of direction (velocity reversing) ends one. Three
+		# swings in a row, each big enough and quicker than half a period
+		# at vib_hz, are a shake.
+		var sw: Array = _swing[i] if _swing[i] != null else [cp, -1.0, 0, 0.0, -1.0, 0]
+		var hz := 0.0
+		if _vel[i] != null and (_vel[i] as Vector3).dot(v) < 0.0 and v.length() * dt > 0.0001:
+			var size := ((sw[0] as Vector3) - cp).length()
+			var gap: float = _t - float(sw[1])
+			if size >= vib_amp * height and float(sw[1]) >= 0.0 and gap < 0.5 / vib_hz:
+				sw[2] = int(sw[2]) + 1
+				hz = 0.5 / maxf(gap, dt)
+			else:
+				sw[2] = 0
+			sw[0] = cp
+			sw[1] = _t
+		if _ang[i] != null and (_ang[i] as Vector3).dot(w) < 0.0 and turn > 0.01:
+			var gap2: float = _t - float(sw[4])
+			if float(sw[3]) >= vib_deg and float(sw[4]) >= 0.0 and gap2 < 0.5 / vib_hz:
+				sw[5] = int(sw[5]) + 1
+				hz = maxf(hz, 0.5 / maxf(gap2, dt))
+			else:
+				sw[5] = 0
+			sw[3] = 0.0
+			sw[4] = _t
+		sw[3] = float(sw[3]) + turn
+		_swing[i] = sw
+		if (int(sw[2]) >= 2 or int(sw[5]) >= 2) and hz > 0.0 and not shake_ok.has(nm):
+			shook = true
+			_ev("shake", nm, hz)
+			r.shake_blocks[nm] = int(r.shake_blocks.get(nm, 0)) + 1
+			if hz > r.shake_hz:
+				r.shake_hz = hz
+				r.shake_at = "%s@%d" % [nm, r.frames]
+		_vprev[i] = v
+		# Swings compare against the last frame the block moved (a held
+		# pause between two swings still reverses).
+		if v.length() * dt > 0.0001:
+			_vel[i] = v
+		elif _vel[i] == null:
+			_vel[i] = v
+		if turn > 0.01:
+			_ang[i] = w
+	if fast:
+		r.fast_frames += 1
+	if shook:
+		r.shake_frames += 1
+
+
+## Rule 8c for one frame: every pair at points between last frame's pose
+## and this one.
+func _sweep(pose: Array, gx: Transform3D) -> void:
+	var n := pose.size()
+	if _prev_pose.size() != n or sweep_steps <= 0:
+		return
+	var worst := 0.0
+	var worst_at := ""
+	var mids: Array = []
+	for k in sweep_steps:
+		var u := float(k + 1) / float(sweep_steps + 1)
+		var m: Array = []
+		m.resize(n)
+		for i in n:
+			var a: Transform3D = _prev_pose[i]
+			var b: Transform3D = pose[i]
+			var qa := a.basis.orthonormalized().get_rotation_quaternion()
+			var qb := b.basis.orthonormalized().get_rotation_quaternion()
+			m[i] = Transform3D(Basis(qa.slerp(qb, u)).scaled(b.basis.get_scale()), a.origin.lerp(b.origin, u))
+		mids.append(m)
+	for pr in pairs:
+		var a0: int = pr[0]
+		var b0: int = pr[1]
+		var ends := maxf(_depth(_prev_pose, gx, a0, b0), _depth(pose, gx, a0, b0))
+		var allow := allowed_depth(a0, b0)
+		for m in mids:
+			var d := _depth(m, gx, a0, b0)
+			var over := d - maxf(ends, allow) - sweep_margin
+			if over > worst:
+				worst = over
+				worst_at = "%s/%s" % [names[a0], names[b0]]
+	if worst > 0.0:
+		r.sweep_frames += 1
+		_ev("sweep", worst_at, worst)
+		if worst > r.sweep:
+			r.sweep = worst
+			r.sweep_at = worst_at
+
+
 func _ev(rule: String, block: String, amount: float) -> void:
 	var n: int = _ev_n.get(rule, 0)
 	_ev_n[rule] = n + 1
-	if n < (600 if rule == "wall" else 40):
+	if n < (600 if rule == "wall" else (3000 if rule == "self" else 40)):
 		events.append([r.frames, rule, block, snappedf(amount, 0.01)])
 
 
@@ -392,6 +765,24 @@ func report() -> Dictionary:
 	out.ground_at = r.ground_at
 	out.self_overlap_pct = snappedf(100.0 * r.self_frames / f, 0.1)
 	out.self_at = r.self_at
+	out.self_depth_m = snappedf(r.self_depth, 0.01)
+	var sp: Array = []
+	for k in r.self_pairs:
+		sp.append([k, r.self_pairs[k]])
+	sp.sort_custom(func(x, y): return x[1] > y[1])
+	var top := {}
+	for e in sp.slice(0, 6):
+		top[e[0]] = snappedf(100.0 * float(e[1]) / f, 0.1)
+	out.self_pairs_pct = top
+	# The deepest pairs, how far past their allowance (m).
+	var dp: Array = []
+	for k in r.self_max:
+		dp.append([k, r.self_max[k]])
+	dp.sort_custom(func(x, y): return x[1] > y[1])
+	var deep := {}
+	for e in dp.slice(0, 6):
+		deep[e[0]] = snappedf(e[1], 0.01)
+	out.self_deep_m = deep
 	out.unbalanced_pct = snappedf(100.0 * r.unbalanced / maxi(int(r.slow_frames), 1), 0.1) if r.slow_frames > 0 else -1.0
 	out.wall_m = snappedf(r.wall, 0.01)
 	out.wall_at = r.wall_at
@@ -402,6 +793,19 @@ func report() -> Dictionary:
 	out.airborne_pct = snappedf(100.0 * r.air_frames / f, 0.1)
 	out.pop_m_s2 = snappedf(r.pop, 1.0)
 	out.pop_at = r.pop_at
+	out.speed_hps = snappedf(r.speed, 0.1)
+	out.speed_at = r.speed_at
+	out.accel_hps2 = snappedf(r.accel, 1.0)
+	out.accel_at = r.accel_at
+	out.fast_frames_pct = snappedf(100.0 * r.fast_frames / f, 0.1)
+	out.fast_blocks = r.fast_blocks
+	out.shake_frames_pct = snappedf(100.0 * r.shake_frames / f, 0.1)
+	out.shake_hz = snappedf(r.shake_hz, 0.1)
+	out.shake_at = r.shake_at
+	out.shake_blocks = r.shake_blocks
+	out.sweep_frames = r.sweep_frames
+	out.sweep_m = snappedf(r.sweep, 0.01)
+	out.sweep_at = r.sweep_at
 	var dr := {}
 	for k in r.drift:
 		dr[k] = {"max": snappedf(r.drift[k].max, 0.01), "mean": snappedf(r.drift[k].sum / f, 0.01)}
@@ -467,6 +871,55 @@ static func _outside(p: Vector2, pts: Array) -> float:
 	if hull.size() < 2:
 		best = p.distance_to(pts[0])
 	return best
+
+
+## How deep the boxes of blocks a and b overlap (m): the least overlap
+## along the separating-axis candidates, 0 or less when apart.
+func _depth(pose: Array, gx: Transform3D, a: int, b: int) -> float:
+	return pair_depth(a, gx * (pose[a] as Transform3D), b, gx * (pose[b] as Transform3D))
+
+
+## Overlap depth of two oriented boxes (centre, basis with its scale, half
+## size): 0 or less when apart.
+static func box_depth(ca: Vector3, ba: Basis, ha0: Vector3, cb: Vector3, bb: Basis, hb0: Vector3) -> float:
+	# Separating axes: the six face normals first (most pairs part there),
+	# then the nine edge crossings. Least overlap over all axes, 0 if any
+	# axis separates.
+	var a0 := ba.x
+	var a1 := ba.y
+	var a2 := ba.z
+	var b0 := bb.x
+	var b1 := bb.y
+	var b2 := bb.z
+	var ha := Vector3(ha0.x * a0.length(), ha0.y * a1.length(), ha0.z * a2.length())
+	var hb := Vector3(hb0.x * b0.length(), hb0.y * b1.length(), hb0.z * b2.length())
+	a0 = a0.normalized()
+	a1 = a1.normalized()
+	a2 = a2.normalized()
+	b0 = b0.normalized()
+	b1 = b1.normalized()
+	b2 = b2.normalized()
+	var d := cb - ca
+	var least := INF
+	for k in 15:
+		var n: Vector3
+		if k < 3:
+			n = [a0, a1, a2][k]
+		elif k < 6:
+			n = [b0, b1, b2][k - 3]
+		else:
+			n = ([a0, a1, a2][(k - 6) / 3] as Vector3).cross([b0, b1, b2][(k - 6) % 3])
+			var len := n.length()
+			if len < 0.001:
+				continue
+			n /= len
+		var o := absf(ha.x * a0.dot(n)) + absf(ha.y * a1.dot(n)) + absf(ha.z * a2.dot(n)) \
+			+ absf(hb.x * b0.dot(n)) + absf(hb.y * b1.dot(n)) + absf(hb.z * b2.dot(n)) - absf(d.dot(n))
+		if o <= 0.0:
+			return 0.0
+		if o < least:
+			least = o
+	return least
 
 
 ## Do the boxes of blocks a and b overlap (separating axis test)?

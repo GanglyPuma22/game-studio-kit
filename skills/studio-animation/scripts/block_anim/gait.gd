@@ -42,6 +42,9 @@ var table: Array = GAITS
 ## Where each foot rests (body frame, on the ground), and how high it lifts.
 var home: Array = [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]
 var lift: Array = [1.0, 1.0, 1.0, 1.0]
+## The swing's height curve: 1 rises and falls evenly; under 1 lifts early
+## (a run's heel kicks up behind, then the knee comes through).
+var swing_skew := 1.0
 ## Now: stride phase, gait mix, stride length (m).
 var phase := 0.0
 var mix := 0.0
@@ -147,7 +150,7 @@ func step(gx: Transform3D, vel: Vector3, gait_mix: float, cadence: float, delta:
 			var p2: Vector3 = (_from[i] as Vector3).lerp(to, e)
 			# Start from the foot's height at liftoff (above ground when a
 			# corrective step was cut short), so the swing does not drop it.
-			p2.y = maxf(ground + float(lift[i]) * sin(PI * u), lerpf((_from[i] as Vector3).y, ground, e))
+			p2.y = maxf(ground + float(lift[i]) * sin(PI * pow(u, swing_skew)), lerpf((_from[i] as Vector3).y, ground, e))
 			_at[i] = p2
 			_u[i] = u
 		_down[i] = down
