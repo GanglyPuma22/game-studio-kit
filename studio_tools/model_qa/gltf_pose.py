@@ -132,14 +132,22 @@ class Model:
         # Merge positions in each primitive's own frame (bind space for each
         # skin, rest world for rigid nodes), so a welded seam is one part.
         # Frames are kept apart: a vertex never welds to one from another
-        # frame, even where their coordinates happen to coincide.
+        # frame or motion group, even where their coordinates coincide.
         rest = self.posed()
         self.label_pos = self.pos.copy()
+        # Rigid nodes weld only within one motion group: nodes that share their
+        # nearest animated (or joint) ancestor-or-self move together.
+        moving = {c.target.node for a in g.animations for c in a.channels if c.target.node is not None}
+        moving |= {j for sk in g.skins for j in sk.joints}
+        def motion(k):
+            while k is not None and k not in moving:
+                k = self.parent.get(k)
+            return k
         frames = []
         for kind, ni, b, n in groups:
             if kind == "node":
                 self.label_pos[b:b + n] = rest[b:b + n]
-            frames.append((kind, ni if kind == "skin" else None))
+            frames.append((kind, ni if kind == "skin" else motion(ni)))
         keys = list(dict.fromkeys(frames))
         if len(keys) > 1:
             lo, hi = self.label_pos.min(axis=0), self.label_pos.max(axis=0)

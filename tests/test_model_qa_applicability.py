@@ -183,6 +183,43 @@ class ApplicabilityTests(unittest.TestCase):
         m = geometry.load(p)[3]
         self.assertEqual({m.owner_names[o] for o in m.owner}, {'body-joint', 'tip-joint'})
 
+    def test_independently_animated_rigid_nodes_stay_separate_parts(self):
+        from pygltflib import Node, Animation, AnimationSampler, AnimationChannel, AnimationChannelTarget
+        p = self.root/'panels.glb'
+        # Two panels sharing an edge under one pivot: one part while only the pivot moves them together.
+        import trimesh
+        def panel(x0):
+            v = np.array([[x0, 0, 0], [x0 + 1, 0, 0], [x0 + 1, 1, 0], [x0, 1, 0]], float)
+            return trimesh.Trimesh(v, [[0, 1, 2], [0, 2, 3]], process=False)
+        export(p, [('left', panel(0)), ('right', panel(1))])
+        g = GLTF2().load(str(p))
+        right = next(i for i, n in enumerate(g.nodes) if n.name == 'right')
+        pivot = len(g.nodes)
+        g.nodes.append(Node(name='pivot', children=list(g.scenes[0].nodes)))
+        g.scenes[0].nodes = [pivot]
+        g.animations = [Animation(name='swing', samplers=[AnimationSampler(
+            input=accessor(g, np.array([[0], [1]], dtype='<f4'), 'SCALAR'),
+            output=accessor(g, np.array([[0, 0, 0, 1], [0, .7071, 0, .7071]], dtype='<f4'), 'VEC4'))],
+            channels=[AnimationChannel(sampler=0, target=AnimationChannelTarget(node=pivot, path='rotation'))])]
+        g.save(str(p))
+        self.assertEqual(int(attachment.part_labels(geometry.load(p)[3]).max()) + 1, 1)
+        g.animations[0].channels[0].target.node = right   # now the right box turns on its own
+        g.save(str(p))
+        self.assertEqual(int(attachment.part_labels(geometry.load(p)[3]).max()) + 1, 2)
+
+    def test_seam_split_closed_surface_counts_as_closed(self):
+        cube = box((1, 1, 1), (0, 0, 0))
+        split = SimpleNamespace(pos=cube.vertices[cube.faces].reshape(-1, 3), idx=np.arange(len(cube.faces) * 3).reshape(-1, 3))
+        self.assertFalse(attachment._closed(split.idx))
+        self.assertTrue(attachment._closed(attachment.welded(split).faces))
+
+    def test_empty_symmetry_declaration_is_measured(self):
+        request = {"settings": {"budget_tris": None}, "ecology": None,
+                   "families": [{"name": "m", "manifest": {"structure": "assembly", "symmetry": {}},
+                                 "files": [{"path": "m.glb", "lod": 0, "sha256": "0"}]}]}
+        rows = {r["check"]: r["result"] for r in report.initial(request)["models"][0]["checks"]}
+        self.assertEqual(rows["M17"], "UNMEASURED")
+
     def test_morph_base_is_measured_and_limitation_recorded(self):
         p = self.root/'morph.glb'; export(p, [('body', box((1, 1, 1), (0, .5, 0)))])
         g = GLTF2().load(str(p)); primitive = g.meshes[0].primitives[0]

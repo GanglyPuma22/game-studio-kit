@@ -59,7 +59,7 @@ def initial(request):
          "manifest": family.get("manifest", {"structure": "assembly"}), "manifest_sha256": family.get("manifest_sha256"),
          "checks": [row(c, "UNMEASURED", "0 completed measurements") for c in GEOMETRY]
          + [row("M16", "N/A", "LOD0 is the reference") if item["lod"] == 0 else row("M16", "UNMEASURED", "0 completed measurements")]
-         + [row("M17", "UNMEASURED", "0 completed measurements") if family.get("manifest", {}).get("symmetry")
+         + [row("M17", "UNMEASURED", "0 completed measurements") if "symmetry" in family.get("manifest", {})
             else row("M17", "N/A", "No symmetry declared in the manifest")]
          + metadata_rows(family, request)}
         for family in request["families"] for item in family["files"]]}

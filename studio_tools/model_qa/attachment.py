@@ -149,9 +149,15 @@ def part_owners(m, labels):
     return out
 
 
-def part_labels(m):
+def welded(m):
+    """The model's triangles with UV/normal seam duplicates merged (same face order as m.idx)."""
     tm = trimesh.Trimesh(getattr(m, 'label_pos', m.pos), m.idx, process=False)
     tm.merge_vertices(merge_tex=True, merge_norm=True)          # UV/normal seams are not separate parts
+    return tm
+
+
+def part_labels(m):
+    tm = welded(m)
     return trimesh.graph.connected_component_labels(tm.face_adjacency, node_count=len(tm.faces))
 
 
@@ -166,12 +172,10 @@ def skinned(m, samples=6, max_gap_mm=3.0, free_names=(), include_rest=True):
     anchor = int(np.bincount(lab).argmax())            # the biggest part (hide/trunk) is the anchor
     lim = max_gap_mm / 1000.0
     worst = np.full(n, -1e9); where = [''] * n; best = np.full(n, 1e9)
-    closed = []
-    for v in range(n):
-        f = m.idx[lab == v]
-        e = np.sort(np.concatenate([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]]), axis=1)
-        _, cnt = np.unique(e, axis=0, return_counts=True)
-        closed.append(_closed(f))
+    # Closure on the seam-welded topology: a closed box exported with split
+    # UV/normal seams is still closed.
+    wf = welded(m).faces
+    closed = [_closed(wf[lab == v]) for v in range(n)]
     for clip, t in poses:
         P = m.posed(None if clip == 'rest' else clip, t)
         meshes = [trimesh.Trimesh(P, m.idx[lab == l], process=False) for l in range(n)]
