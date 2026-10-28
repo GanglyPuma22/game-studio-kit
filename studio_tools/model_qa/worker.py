@@ -105,7 +105,8 @@ def execute(request):
                     posed = tm
                     posed_parts = parts
                     if skin:
-                        posed = trimesh.Trimesh(skin.posed(None if clip == "rest" else clip, time), skin.idx, process=False)
+                        pose_clip = None if clip == "rest" else clip
+                        posed = trimesh.Trimesh(skin.posed(pose_clip, time), skin.faces(pose_clip, time), process=False)
                         # Keep rest topology identities when parts touch in a pose.
                         # Re-welding the posed geometry could merge a collision away.
                         posed_parts = [posed.submesh([np.flatnonzero(skin_labels == i)], append=True)
@@ -127,7 +128,8 @@ def execute(request):
                 if worst_fold["sites"]:
                     fold_mesh = first if worst_fold["pose"] == poses[0][0] and worst_fold["time"] == poses[0][1] else (
                         trimesh.Trimesh(skin.posed(None if worst_fold["pose"] == "rest" else worst_fold["pose"], worst_fold["time"]),
-                                        skin.idx, process=False) if skin else tm)
+                                        skin.faces(None if worst_fold["pose"] == "rest" else worst_fold["pose"], worst_fold["time"]),
+                                        process=False) if skin else tm)
                     close_up(family["id"], entry, item, fold_mesh, double_mask(tm, names), "M14", sorted(worst_fold["sites"], key=lambda r: -r["span_mm"]),
                              worst_fold["pose"], worst_fold["time"])
                 face_part = skin_labels if skin else tm.metadata['face_part']
@@ -188,8 +190,10 @@ def execute(request):
                         err = surface.lod_screen_error(loaded[0][2], tm, distance, settings["fov"], settings["height"])
                         if err["result"] == "FAIL":
                             close_up(family["id"], entry, item, tm, double_mask(tm, names), "M16",
-                                     [{"name": f"{k} detail", "at": err[k]["worst_at"]} for k in ("added", "lost")
-                                      if err.get(k, {}).get("worst_at") and err[k].get("vertices_over_limit")])
+                                     [{"name": f"{k} detail", "at": err[k]["worst_at"] if err[k].get("vertices_over_limit")
+                                       else err[k]["worst_area_at"]} for k in ("added", "lost")
+                                      if (err.get(k, {}).get("vertices_over_limit") and err[k].get("worst_at"))
+                                      or (err.get(k, {}).get("p99_px", 0) > err["limit_p99_px"] and err[k].get("worst_area_at"))])
                         record(entry, row("M16", err["result"], f"visible surface off LOD0 by p99 {err['p99_px']:g} px, max {err['max_px']:g} px "
                                           f"at {distance:g} m; {err['vertices_over_limit']} vertices over {err['limit_vertex_px']:g} px; "
                                           f"limit p99 {err['limit_p99_px']:g} px", err))

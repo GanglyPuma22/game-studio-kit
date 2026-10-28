@@ -207,6 +207,21 @@ class ApplicabilityTests(unittest.TestCase):
         g.save(str(p))
         self.assertEqual(int(attachment.part_labels(geometry.load(p)[3]).max()) + 1, 2)
 
+    def test_rigid_faces_own_no_joint_and_wind_per_pose(self):
+        from pygltflib import Animation, AnimationSampler, AnimationChannel, AnimationChannelTarget
+        p = self.root/'mirror.glb'; export(p, [('prop', box((1, 1, 1), (0, .5, 0)))])
+        g = GLTF2().load(str(p))
+        prop = next(i for i, n in enumerate(g.nodes) if n.name == 'prop')
+        g.animations = [Animation(name='mirror', samplers=[AnimationSampler(
+            input=accessor(g, np.array([[0], [1]], dtype='<f4'), 'SCALAR'),
+            output=accessor(g, np.array([[1, 1, 1], [-1, 1, 1]], dtype='<f4'), 'VEC3'), interpolation='STEP')],
+            channels=[AnimationChannel(sampler=0, target=AnimationChannelTarget(node=prop, path='scale'))])]
+        g.save(str(p))
+        m = geometry.load(p)[3]
+        self.assertTrue((m.face_owner() == -1).all())      # rigid: never a joint-crease fold
+        np.testing.assert_array_equal(m.faces('mirror', 0), m.idx)
+        np.testing.assert_array_equal(m.faces('mirror', 1), m.idx[:, ::-1])
+
     def test_seam_split_closed_surface_counts_as_closed(self):
         cube = box((1, 1, 1), (0, 0, 0))
         split = SimpleNamespace(pos=cube.vertices[cube.faces].reshape(-1, 3), idx=np.arange(len(cube.faces) * 3).reshape(-1, 3))

@@ -138,7 +138,7 @@ def self_intersections(parts, names, *, tol_mm=2.0, major_mm=10.0, max_minor_per
         fj = face_joint[i] if face_joint is not None else None
         for a, b in keep:
             hit = _crossings(part, a, part, b)
-            if fj is not None and fj[a] != fj[b] and near(fj[a], fj[b]):
+            if fj is not None and fj[a] >= 0 and fj[b] >= 0 and fj[a] != fj[b] and near(fj[a], fj[b]):
                 folded.append(hit)
             else:
                 pts.append(hit)
@@ -300,11 +300,12 @@ def lod_screen_error(full, lod, distance, fov_deg, height_px, *, samples=12000, 
             continue
         ea = np.array([dst_bvh.find_nearest(Vector(p))[3] for p in area]) / px if len(area) else np.zeros(1)
         ev = np.array([dst_bvh.find_nearest(Vector(p))[3] for p in verts]) / px if len(verts) else np.zeros(1)
-        k = int(np.argmax(ev))
+        k, ka = int(np.argmax(ev)), int(np.argmax(ea))
         out[label] = {"visible_samples": int(len(area)), "visible_vertices": int(len(verts)),
                       "p99_px": round(float(np.percentile(ea, 99)), 3), "max_px": round(float(max(ea.max(), ev.max())), 3),
                       "vertices_over_limit": int((ev > vertex_px).sum()),
-                      "worst_at": [round(float(x), 3) for x in verts[k]] if len(verts) else None}
+                      "worst_at": [round(float(x), 3) for x in verts[k]] if len(verts) else None,
+                      "worst_area_at": [round(float(x), 3) for x in area[ka]] if len(area) else None}
         worst[label] = out[label]
     p99 = max((w["p99_px"] for w in worst.values()), default=0.0)
     mx = max((w["max_px"] for w in worst.values()), default=0.0)

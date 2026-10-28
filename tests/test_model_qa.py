@@ -74,6 +74,7 @@ class InputTests(unittest.TestCase):
 @unittest.skipUnless(BLENDER_PY, "Run inside Blender's Python (mathutils) with the model QA dependencies")
 class AttachmentTests(unittest.TestCase):
     def test_self_intersection_limit_is_unmeasured_not_pass(self):
+        import numpy as np
         import trimesh
         from studio_tools.model_qa.surface import self_intersections
         # Two crossing slabs welded into one part.
@@ -83,8 +84,20 @@ class AttachmentTests(unittest.TestCase):
         self.assertEqual(self_intersections([part], ["slabs"])["result"], "FAIL")
         clean = trimesh.creation.icosphere(subdivisions=3)
         self.assertEqual(self_intersections([clean], ["ball"])["result"], "PASS")
+        # A crossing between faces with no joint owner (-1, rigid) is never exempted as a joint fold.
+        rigid = [np.full(len(part.faces), -1)]
+        self.assertEqual(self_intersections([part], ["slabs"], face_joint=rigid, near=lambda a, b: True)["result"], "FAIL")
         capped = self_intersections([clean], ["ball"], max_pairs=-1)
         self.assertEqual((capped["result"], capped["truncated"][0]["name"]), ("UNMEASURED", "ball"))
+
+    def test_lod_error_names_a_worst_area_point(self):
+        import trimesh
+        from studio_tools.model_qa.surface import lod_screen_error
+        full = trimesh.creation.icosphere(subdivisions=3)
+        lod = full.copy(); lod.apply_scale(1.02)
+        err = lod_screen_error(full, lod, 2.0, 75, 1080)
+        self.assertEqual(err["result"], "FAIL")
+        self.assertEqual(len(err["lost"]["worst_area_at"]), 3)
 
     def test_static_clean_floating_and_anchor_chain(self):
         from model_qa_fixtures import build, box

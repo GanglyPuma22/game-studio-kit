@@ -124,11 +124,8 @@ class Model:
                 self.sampler_data[name, i] = (ts, values)
         # A mirroring node transform turns its triangles inside out unless the
         # winding flips with it (glTF requires renderers to flip it).
-        if flips:
-            world = self.world()
-            for start, count, ni in flips:
-                if np.linalg.det(world[ni][:3, :3]) < 0:
-                    self.idx[start:start + count] = self.idx[start:start + count, ::-1]
+        self.flips, self.raw_idx = flips, self.idx.copy()
+        self.idx = self.faces()
         # Merge positions in each primitive's own frame (bind space for each
         # skin, rest world for rigid nodes), so a welded seam is one part.
         # Frames are kept apart: a vertex never welds to one from another
@@ -172,10 +169,25 @@ class Model:
             return False
         return near
 
+    def faces(self, clip=None, t=0.0):
+        """Triangles wound for one pose: a rigid node whose world transform mirrors
+        at this pose (negative determinant) has its winding flipped."""
+        if not self.flips:
+            return self.raw_idx
+        idx, world = self.raw_idx.copy(), self.world(clip, t)
+        for start, count, ni in self.flips:
+            if np.linalg.det(world[ni][:3, :3]) < 0:
+                idx[start:start + count] = idx[start:start + count, ::-1]
+        return idx
+
     def face_owner(self):
         """Each triangle's owner: the dominant joint shared by most of its corners."""
         o = self.owner[self.idx]
-        return np.where(o[:, 1] == o[:, 2], o[:, 1], o[:, 0])
+        skinned = np.zeros(len(self.pos), bool)
+        for kind, ni, b, n in self.groups:
+            skinned[b:b + n] = kind == "skin"
+        # Rigid faces have no skin weights to crease: -1 never takes a joint-fold exemption.
+        return np.where(skinned[self.idx[:, 0]], np.where(o[:, 1] == o[:, 2], o[:, 1], o[:, 0]), -1)
 
     def poses(self, samples, include_rest=True):
         out = [("rest", 0.0)] if include_rest or not self.anims else []
