@@ -17,14 +17,14 @@ def ground(parts, ground_y_m=0.0, max_gap_mm=3.0):
                 ground_y_m=ground_y_m, max_gap_mm=max_gap_mm, result='FAIL' if bad else 'PASS')
 
 
-def measure(parts, skin=None, *, structure="assembly", ground_y_m=0.0, samples=6):
+def measure(parts, skin=None, *, structure="assembly", ground_y_m=0.0, samples=6, free_names=(), include_rest=True, names=None):
     if structure == "assembly":
-        return skinned(skin, samples=samples) if skin else static(parts)
+        return skinned(skin, samples=samples, free_names=free_names, include_rest=include_rest) if skin else static(parts, free_names=free_names, names=names)
     if not skin:
         return ground(parts, ground_y_m)
     labels = part_labels(skin)
     results = []
-    for clip, t in [('rest', 0.0)] + [(c, float(t)) for c in skin.anims for t in np.linspace(0, skin.duration(c), samples)]:
+    for clip, t in skin.poses(samples, include_rest):
         positions = skin.posed(None if clip == 'rest' else clip, t)
         # Bounds need faces too; retain the complete index space and trim unused vertices.
         pieces = [trimesh.Trimesh(positions, skin.idx[labels == i], process=False) for i in range(int(labels.max()) + 1)]
@@ -35,7 +35,12 @@ def measure(parts, skin=None, *, structure="assembly", ground_y_m=0.0, samples=6
     return {**worst, "poses": len(results), "pose_results": results}
 
 
-def static(parts, max_gap_mm=3.0):
+def is_free(name, free_names):
+    """A declared free part: its name (or any '+'-joined node name) contains a declared entry."""
+    return any(f and f in name for f in free_names)
+
+
+def static(parts, max_gap_mm=3.0, free_names=(), names=None):
     """The lowest Y part anchors static models; chains of touching parts count."""
     n = len(parts)
     anchor = int(np.argmin([p.bounds[0][1] for p in parts]))
@@ -45,16 +50,20 @@ def static(parts, max_gap_mm=3.0):
     _p = _rix.Property(); _p.dimension = 3
     idx = _rix.Index(properties=_p)
     for i in range(n): idx.insert(i, (lo[i][0] - lim, lo[i][1] - lim, lo[i][2] - lim, hi[i][0] + lim, hi[i][1] + lim, hi[i][2] + lim))
+    # Gaps come from Blender's BVH (overlap, nearest point, parity), like the
+    # posed check. trimesh's signed distance guesses inside/outside for open
+    # parts, and a wrong sign reads a loose part as seated.
+    trees = {}
+    def tree(k):
+        if k not in trees:
+            trees[k] = bvh_of(parts[k])
+        return trees[k]
+    closed = [_closed(p.faces) for p in parts]
     G = {}
-    _pq = {}
-    def _q(j):
-        if j not in _pq: _pq[j] = ProximityQuery(parts[j])
-        return _pq[j]
     for i in range(n):
         for j in idx.intersection((lo[i][0] - lim, lo[i][1] - lim, lo[i][2] - lim, hi[i][0] + lim, hi[i][1] + lim, hi[i][2] + lim)):
-            if i == j: continue
-            d = _q(j).signed_distance(parts[i].vertices)
-            G[(i, j)] = -float(d.max())   # min gap of part i's vertices to part j (negative = inside/seated)
+            if i < j:
+                G[(i, j)] = pair_gap(parts[i].vertices, parts[j].vertices, tree(i), tree(j), closed[i], closed[j])
     def gap(i, j): return min(G.get((i, j), np.inf), G.get((j, i), np.inf))
     nb = {i: [] for i in range(n)}
     best = {i: np.inf for i in range(n)}
@@ -71,43 +80,114 @@ def static(parts, max_gap_mm=3.0):
     for l in range(n):
         if l == anchor: continue
         g = best[l]
-        rows.append(dict(part=l, tris=len(parts[l].faces), gap_mm=round(g * 1000, 1) if np.isfinite(g) else 999.0, status='ok' if l in seen else 'FLOATING'))
-    bad = [r for r in rows if r['status'] != 'ok']
+        status = 'ok' if l in seen else ('free (declared)' if names and is_free(names[l], free_names) else 'FLOATING')
+        rows.append(dict(part=l, tris=len(parts[l].faces), gap_mm=round(g * 1000, 1) if np.isfinite(g) else 999.0, status=status))
+    bad = [r for r in rows if r['status'] == 'FLOATING']
     return dict(parts=rows, part_count=n, anchor=anchor, floating=len(bad),
                 max_gap_mm=max_gap_mm, poses=1, result='PASS' if not bad else 'FAIL')
 
 
+def _closed(faces):
+    """Fewer than a fifth of the edges are open: treat the part as a shell with an inside."""
+    f = np.asarray(faces)
+    e = np.sort(np.concatenate([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]]), axis=1)
+    _, cnt = np.unique(e, axis=0, return_counts=True)
+    return float((cnt == 1).sum()) / max(len(cnt), 1) < 0.2
+
+
+def bvh_of(mesh):
+    from mathutils import Vector
+    from mathutils.bvhtree import BVHTree
+    return BVHTree.FromPolygons([Vector(v) for v in mesh.vertices], [tuple(int(i) for i in f) for f in mesh.faces],
+                                all_triangles=True)
+
+
+def inside(tree, point, closed):
+    """Ray parity in a closed part; open sheets have no inside."""
+    if not closed:
+        return False
+    from mathutils import Vector
+    d = Vector((0.5773, 0.5774, 0.5772))
+    o = Vector(point); hits = 0
+    for _ in range(256):
+        loc, _, _, _ = tree.ray_cast(o, d)
+        if loc is None:
+            break
+        hits += 1
+        o = loc + d * 1e-6
+    return hits % 2 == 1
+
+
+def pair_gap(Vi, Vj, ti, tj, closed_i, closed_j):
+    """min(G[i, j], G[j, i]) of the vertex rule, with Blender's BVH.
+
+    Crossing surfaces touch (gap 0). Otherwise each part's vertices are all
+    outside or all inside the other, so one parity ray settles the sign and the
+    nearest-vertex distance gives the size: the same value as the signed
+    distance of every vertex, at C speed.
+    """
+    from mathutils import Vector
+    if ti.overlap(tj):
+        return 0.0
+    gaps = []
+    for V, t, closed in ((Vi, tj, closed_j), (Vj, ti, closed_i)):
+        # A part with only zero-area triangles has an empty tree: nothing to measure against.
+        found = [h[3] for h in (t.find_nearest(Vector(v)) for v in V) if h[3] is not None]
+        if not found:
+            continue
+        dist = min(found)
+        gaps.append(-dist if inside(t, V[0], closed) else dist)
+    return float(min(gaps)) if gaps else float("inf")
+
+
+def part_owners(m, labels):
+    """Each part's name: the owner (joint or node) of most of its first-joint weights."""
+    out = []
+    for i in range(int(labels.max()) + 1):
+        verts = np.unique(m.idx[labels == i])
+        out.append(m.owner_names[int(np.bincount(m.owner[verts]).argmax())])
+    return out
+
+
 def part_labels(m):
-    tm = trimesh.Trimesh(m.pos, m.idx, process=False)
+    tm = trimesh.Trimesh(getattr(m, 'label_pos', m.pos), m.idx, process=False)
     tm.merge_vertices(merge_tex=True, merge_norm=True)          # UV/normal seams are not separate parts
     return trimesh.graph.connected_component_labels(tm.face_adjacency, node_count=len(tm.faces))
 
 
 
-def skinned(m, samples=6, max_gap_mm=3.0, free_names=()):
+def skinned(m, samples=6, max_gap_mm=3.0, free_names=(), include_rest=True):
     lab = part_labels(m)
     n = int(lab.max()) + 1
-    names = [m.g.nodes[j].name for j in m.joints]
     pverts = [np.unique(m.idx[lab == l]) for l in range(n)]
-    pname = [names[np.bincount(m.jn[v, 0]).argmax()] for v in pverts]
+    pname = part_owners(m, lab)
     free = {s.strip() for s in free_names if s.strip()}
-    poses = [('rest', 0.0)] + [(c, float(t)) for c in m.anims for t in np.linspace(0, m.duration(c), samples)]
+    poses = m.poses(samples, include_rest)
     anchor = int(np.bincount(lab).argmax())            # the biggest part (hide/trunk) is the anchor
     lim = max_gap_mm / 1000.0
     worst = np.full(n, -1e9); where = [''] * n; best = np.full(n, 1e9)
+    closed = []
+    for v in range(n):
+        f = m.idx[lab == v]
+        e = np.sort(np.concatenate([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]]), axis=1)
+        _, cnt = np.unique(e, axis=0, return_counts=True)
+        closed.append(_closed(f))
     for clip, t in poses:
         P = m.posed(None if clip == 'rest' else clip, t)
         meshes = [trimesh.Trimesh(P, m.idx[lab == l], process=False) for l in range(n)]
         lo = np.array([P[v].min(0) for v in pverts]); hi = np.array([P[v].max(0) for v in pverts])
-        G = np.full((n, n), np.inf)                    # G[i, j]: gap of part i to part j (signed, + = apart)
+        G = np.full((n, n), np.inf)                    # G[i, j]: gap between parts i and j (+ = apart, - = sunk in)
+        trees = {}
+        def tree(k):
+            if k not in trees:
+                trees[k] = bvh_of(meshes[k])
+            return trees[k]
         for i in range(n):
-            for j in range(n):
-                if i == j:
-                    continue
+            for j in range(i + 1, n):
                 sep = np.maximum(0, np.maximum(lo[i] - hi[j], lo[j] - hi[i])).max()
                 if sep > 0.25:                         # far apart: only an upper bound matters
-                    G[i, j] = sep; continue
-                G[i, j] = -float(ProximityQuery(meshes[j]).signed_distance(P[pverts[i]]).max())
+                    G[i, j] = G[j, i] = sep; continue
+                G[i, j] = G[j, i] = pair_gap(P[pverts[i]], P[pverts[j]], tree(i), tree(j), closed[i], closed[j])
         A = np.minimum(G, G.T) <= lim                  # attached if within the limit either way
         comp = -np.ones(n, int); sizes = []
         for s0 in range(n):                            # connected groups of touching parts
@@ -137,7 +217,7 @@ def skinned(m, samples=6, max_gap_mm=3.0, free_names=()):
     for l in range(n):
         if l == anchor:
             continue
-        status = 'ok' if worst[l] <= max_gap_mm else ('free (declared)' if pname[l] in free else 'FLOATING')
+        status = 'ok' if worst[l] <= max_gap_mm else ('free (declared)' if is_free(pname[l], free) else 'FLOATING')
         rows.append(dict(part=pname[l], part_id=l, tris=int((lab == l).sum()), gap_mm_worst=round(worst[l], 1),
                          gap_mm_best=round(best[l], 1), worst_pose=where[l], status=status))
     rows.sort(key=lambda r: -r['gap_mm_worst'])

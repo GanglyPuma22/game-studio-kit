@@ -16,8 +16,8 @@ def execute(request):
     import bpy
     import numpy as np
     import trimesh
-    from studio_tools.model_qa import attachment, clipping, ecology, geometry, silhouettes
-    from studio_tools.model_qa.report import row, write, CHECKS, initial, budget, overlaps
+    from studio_tools.model_qa import attachment, clipping, ecology, evidence, geometry, silhouettes, surface
+    from studio_tools.model_qa.report import row, write, CHECKS, initial, budget, overlaps, self_crossings
 
     out = Path(request["out"])
     render_dir = out / "silhouettes"
@@ -33,6 +33,32 @@ def execute(request):
         entry['checks'] = [check if c['check'] == check['check'] else c for c in entry['checks']]
         write(report, out)
     tiles = []
+    report["evidence"] = []
+    evidence_dir = out / "evidence"
+
+    def close_up(entry, item, mesh, double, check, sites, pose="rest", time=0.0, limit=4):
+        """Render each flagged site as the check saw it, with a capture sidecar. Never changes a result."""
+        center = mesh.bounds.mean(axis=0)
+        radius = float(np.linalg.norm(mesh.extents)) / 2 or 1.0
+        for k, site in enumerate(sites[:limit]):
+            at = np.asarray(site["at"], float)
+            look = site.get("seen_along")
+            if look is None:
+                look = center - at
+                look = look / (np.linalg.norm(look) or 1.0)
+            path = evidence_dir / f"{entry['model'].replace('/', '_')}-lod{item['lod']}-{check}-{k}.png"
+            try:
+                evidence_dir.mkdir(exist_ok=True)
+                capture = evidence.render_site(mesh, at, look, path, distance=min(max(radius * 0.35, 0.3), 3.0),
+                                               double_faces=double)
+                evidence.write_sidecar(path, item["path"], item["lod"], pose, time, check,
+                                       site.get("name", ""), capture)
+                report["evidence"].append({"image": f"evidence/{path.name}", "model": entry["model"], "lod": item["lod"],
+                                           "check": check, "site": site.get("name", ""), "at": site["at"]})
+            except Exception as exc:
+                report["errors"].append(f"Evidence render {path.name}: {type(exc).__name__}: {exc}")
+        write(report, out)
+
     for family in request["families"]:
         loaded = []
         manifest = family.get('manifest', {'structure': 'assembly'})
@@ -41,12 +67,14 @@ def execute(request):
             try:
                 if sha(item["path"]) != item["sha256"]:
                     raise ValueError("Input changed after the CLI hashed it")
-                tm, parts, names, skin = geometry.load(item["path"])
+                tm, parts, names, skin = geometry.load(item["path"], manifest)
                 entry['notes'] = tm.metadata.get('qa_notes', [])
                 record(entry, budget(len(tm.faces), settings['budget_tris']))
                 entry["parts"] = geometry.part_inventory(parts, names)
                 attach = attachment.measure(parts, skin, samples=settings["samples"],
-                                            structure=manifest['structure'], ground_y_m=manifest.get('ground_y_m', 0.0))
+                                            structure=manifest['structure'], ground_y_m=manifest.get('ground_y_m', 0.0),
+                                            free_names=manifest.get('free_parts', ()), include_rest=manifest.get('include_rest', True),
+                                            names=names)
                 for r in attach["parts"]:
                     if isinstance(r["part"], int):
                         r["name"] = names[r["part"]]
@@ -55,10 +83,14 @@ def execute(request):
                 record(entry, row("M12", attach["result"] == "PASS",
                                             f"{attach['floating']} floating / {attach['part_count']} parts; {attach['poses']} poses; 3 mm",
                                             attach))
-                poses = [("rest", 0.0)] + ([(clip, float(t)) for clip in skin.anims
-                                          for t in np.linspace(0, skin.duration(clip), settings["samples"])] if skin else [])
-                clips = []
+                poses = skin.poses(settings["samples"], manifest.get('include_rest', True)) if skin else [("rest", 0.0)]
+                clips, folds, first = [], [], None
                 skin_labels = attachment.part_labels(skin) if skin else None
+                part_joint = joint_near = None
+                if skin and skin.skinned:
+                    owners = skin.face_owner()
+                    part_joint = [owners[skin_labels == i] for i in range(int(skin_labels.max()) + 1)]
+                    joint_near = skin.owner_neighbours()
                 for clip, time in poses:
                     posed = tm
                     posed_parts = parts
@@ -75,7 +107,37 @@ def execute(request):
                         collision["a_name"] = names[collision["a"]] if collision["a"] < len(names) else f"part-{collision['a']}"
                         collision["b_name"] = names[collision["b"]] if collision["b"] < len(names) else f"part-{collision['b']}"
                     clips.append({"pose": clip, "time": time, **check})
+                    folds.append({"pose": clip, "time": time, **surface.self_intersections(
+                        posed_parts, names, face_joint=part_joint, near=joint_near, whole=posed)})
+                    if first is None:
+                        first = posed
                 record(entry, overlaps(clips, manifest['structure']))
+                record(entry, self_crossings(folds, manifest['structure']))
+                worst_fold = max(folds, key=lambda f: (f["major"], f["minor"]))
+                if worst_fold["sites"]:
+                    fold_mesh = first if worst_fold["pose"] == poses[0][0] and worst_fold["time"] == poses[0][1] else (
+                        trimesh.Trimesh(skin.posed(None if worst_fold["pose"] == "rest" else worst_fold["pose"], worst_fold["time"]),
+                                        skin.idx, process=False) if skin else tm)
+                    close_up(entry, item, fold_mesh, None, "M14", sorted(worst_fold["sites"], key=lambda r: -r["span_mm"]),
+                             worst_fold["pose"], worst_fold["time"])
+                face_part = skin_labels if skin else tm.metadata['face_part']
+                double = (skin.face_double if skin else tm.metadata['double_faces']).copy()
+                declared = manifest.get('double_sided', [])
+                if declared:
+                    double |= np.array([any(d in names[p] for d in declared) for p in face_part], bool)
+                seen = surface.see_through(first, face_part, names, double)
+                seen["pose"] = poses[0][0]
+                record(entry, row("M15", seen["result"], f"{seen['flagged']} parts seen from behind; "
+                                  f"{seen['back_hits']} / {seen['hits']} rays hit a culled back face; 26 views", seen))
+                if seen["parts"]:
+                    close_up(entry, item, first, double, "M15", seen["parts"], poses[0][0], poses[0][1])
+                sym = manifest.get('symmetry')
+                if sym:
+                    mirror = surface.symmetry(first, face_part, names, axis=sym.get('axis', 'x'), allow=sym.get('allow', []),
+                                              tolerance_mm=sym.get('tolerance_mm', 10.0))
+                    mirror["pose"] = poses[0][0]
+                    record(entry, row("M17", mirror["result"], f"{mirror['asymmetric']} parts off their mirror image "
+                                      f"by more than {mirror['tolerance_mm']:g} mm (95th percentile)", mirror))
                 loaded.append((item, entry, tm, parts, names))
             except Exception as exc:
                 report["errors"].append(f"{family['name']} LOD{item['lod']}: {type(exc).__name__}: {exc}")
@@ -115,6 +177,17 @@ def execute(request):
                     details["views"].append({"side": side, **silhouettes.compare(before, mask)})
                 if previous:
                     details["disappeared_parts"] = silhouettes.disappeared(previous[3], previous[4], tm, settings["part_match_mm"])
+                    if declared:
+                        err = surface.lod_screen_error(loaded[0][2], tm, distance, settings["fov"], settings["height"])
+                        if err["result"] == "FAIL":
+                            close_up(entry, item, tm, None, "M16",
+                                     [{"name": f"{k} detail", "at": err[k]["worst_at"]} for k in ("added", "lost")
+                                      if err.get(k, {}).get("worst_at") and err[k].get("vertices_over_limit")])
+                        record(entry, row("M16", err["result"], f"visible surface off LOD0 by p99 {err['p99_px']:g} px, max {err['max_px']:g} px "
+                                          f"at {distance:g} m; {err['vertices_over_limit']} vertices over {err['limit_vertex_px']:g} px; "
+                                          f"limit p99 {err['limit_p99_px']:g} px", err))
+                    else:
+                        record(entry, row("M16", "FAIL", "No declared switch distance", {"distance_declared": False}))
                 worst = max(v["difference_fraction"] for v in details["views"])
                 passed = (declared and valid_chain and not details["disappeared_parts"] and
                           worst <= settings["max_pixel_difference"] and

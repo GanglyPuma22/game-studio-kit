@@ -50,12 +50,13 @@ Dependencies stay optional; the kit's other commands do not import them.
 - Self-contained triangle GLBs use metres and glTF's Y-up convention.
   Node transforms and instances count. Static M12 anchors at the lowest Y
   part; skinned M12 anchors at the largest part by triangle count.
-- Skinned models support one skin, four joint weights, TRS transforms and
-  LINEAR/slerp, STEP and CUBICSPLINE animations. Rest plus six samples per clip are checked by M12
-  and M13. `--samples` controls this finite sampling; it does not prove
-  continuous-motion clearance. Multiple skins, mixed static/skinned geometry,
-  sparse measured accessors, nontriangle primitives, other required extensions,
-  unskinned TRS animation and unsupported interpolation remain UNMEASURED.
+- Posed models: any skins (four joint weights each), plus rigid meshes that
+  ride on joints or animated nodes (a held weapon under a hand bone), with
+  TRS transforms and LINEAR/slerp, STEP and CUBICSPLINE animations. Rest plus
+  six samples per clip are checked by M12, M13 and M14. `--samples` controls
+  this finite sampling; it does not prove continuous-motion clearance. Sparse
+  measured accessors, nontriangle primitives, other required extensions,
+  animated `matrix` nodes and unsupported interpolation remain UNMEASURED.
   KHR_mesh_quantization is decoded with normalized integer bounds and node/skin
   transforms. Morph targets and weight animation are ignored: the base mesh is
   measured and each report explicitly notes that morphs were not checked.
@@ -97,6 +98,60 @@ its owned process and preserves receipts. Unverified descendants are never
 killed by name and prevent a completed result. Completed rows are checkpointed atomically, so a
 resource failure preserves measured defects and leaves unfinished rows UNMEASURED.
 
+## Surface checks (0.1.26)
+
+M12/M13/M5 look at parts touching, parts crossing each other and far LOD
+silhouettes. Defects reviewers kept finding sat outside all three, so four
+measured checks join them. All run offline in the same Blender process.
+
+- **M14 self-intersection.** Triangles of one connected part that cross each
+  other: a welded hood pushed through a head, a crease folded through itself.
+  M13 compares different parts, so these passed before. Sampled at every pose
+  M13 uses. Any crossing chain of 10 mm or more is major and fails; shorter
+  ones count as minor against the M13 allowance (2 per 100 parts).
+- **M15 see-through.** 26 orthographic ray grids around the model. A first hit
+  on the back of a single-sided face is where an engine culls the face and
+  shows the inside of the shell or whatever lies behind it: an inside-out
+  part, flipped faces or a hole. Each flagged part is labelled `inside-out`
+  (negative signed volume) or `open or flipped faces`. Opposed faces within
+  2 mm of each other count as covered (a blade built from two sheets).
+  glTF `doubleSided` materials and manifest `double_sided` names are exempt.
+  Note that Blender's exporter writes `doubleSided: true` unless a material
+  enables backface culling, while game shaders often cull anyway; check the
+  file the game actually draws, or declare what is really double-sided.
+- **M16 LOD screen error.** For each LOD, the visible surface distance to
+  LOD0 measured in screen pixels at that LOD's switch distance, both ways:
+  lost detail (a collapsed finger) and added geometry (a spike). Fails when
+  the 99th percentile of area samples exceeds 1 px or any visible vertex is
+  more than 3 px off. Hidden interior surfaces are ignored. Unlike the M5
+  pixel ratio, a far switch distance does not make every change vanish, and
+  unlike part correspondence it does not flag simplification nobody can see.
+- **M17 mirror symmetry** (only with a manifest `symmetry` entry): parts whose
+  visible surface is more than `tolerance_mm` (95th percentile) from the
+  mirrored model. `allow` names deliberate asymmetry (a satchel, one pauldron).
+
+Failing M14, M15 and M16 sites get close-up renders in `evidence/`, drawn with
+back faces culled the way the engine draws them, and a JSON sidecar per image:
+`schema_version`, `glb_sha256`, `image_sha256`, `lod`, `pose`, `time_s`,
+`check`, `site`, `view`, `direction`, `distance_m`, `fov_deg`, `resolution`,
+`renderer`, `back_faces` and `target_m`. A later reviewer (human or a visual
+claim step) can then say exactly what was and was not shown. The images never
+change a mechanical result.
+
+Manifest keys for real character files:
+
+```json
+{"schema_version": 1, "exclude_meshes": ["Arms"], "exclude_clips": "^fp_",
+ "free_parts": ["Spark"], "include_rest": false, "double_sided": ["Cape"],
+ "symmetry": {"axis": "x", "allow": ["Satchel"], "tolerance_mm": 10}}
+```
+
+`exclude_meshes` leaves out meshes the game never shows with the body (a
+first-person arms mesh). `exclude_clips` is a regular expression for clips
+not played on this model (first-person views). `free_parts` names parts meant
+to float (sparks, a thrown hook). `include_rest: false` skips the bind pose
+when the game never shows it. Every exclusion is listed in the report notes.
+
 ## Tests
 
 ```text
@@ -107,7 +162,14 @@ python -m unittest discover -s tests -p 'test_model_qa*.py' -v
 Set `MODEL_QA_BLENDER` (and optionally `MODEL_QA_PYTHON_SITE_PACKAGES`) to
 enable the end-to-end synthetic GLB tests. They check a clean family, a
 floating cube, crossing boxes, a disappeared LOD tip, missing ecology,
-missing switch metadata, budget failure and an animated detached part.
+missing switch metadata, budget failure, an animated detached part, an
+inside-out box (M15), a top pushed through its own bottom (M14) and a LOD
+spike (M16). Attachment gaps use Blender's BVH, so the direct attachment
+unit tests run inside Blender's Python:
+
+```text
+blender -b --factory-startup --python-expr "import sys; sys.path[:0]=['<qa-env-site-packages>', '.', 'tests']; import unittest; unittest.main(module='test_model_qa', argv=['x', 'AttachmentTests'])"
+```
 Without Blender, the pure Python tests run and native tests are explicitly
 skipped. No asset-generation APIs or binary fixtures are needed.
 
