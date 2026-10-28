@@ -25,17 +25,28 @@ var pairs: Array = []               # [a, b] that must not overlap
 ## joints apart (a hand and its upper arm, both thighs off the pelvis)
 ## overlap round the joint they share; any other pair barely may. Pairs
 ## that already overlap at rest may go that deep plus the margin.
-var joint_share := 0.6
-var body_share := 0.25
+var joint_share := 0.6:
+	set(v):
+		joint_share = v
+		_allow = {}
+var body_share := 0.25:
+	set(v):
+		body_share = v
+		_allow = {}
 ## And a least depth (m) that counts, for small bodies whose blocks are
 ## thin (a person's fingers resting on a thigh are not a pass-through).
-var floor_m := 0.0
-var _hops: Dictionary = {}          # "a_b" -> joints between the two blocks (1, 2, or 3 = farther)
-var _rest_depth: Dictionary = {}    # "a_b" -> overlap depth at rest (m)
+var floor_m := 0.0:
+	set(v):
+		floor_m = v
+		_allow = {}
+## Pair keys are a * 1024 + b with a < b (see _key).
+var _hops: Dictionary = {}          # key -> joints between the two blocks (1, 2, or 3 = farther)
+var _rest_depth: Dictionary = {}    # key -> overlap depth at rest (m)
+var _allow: Dictionary = {}         # key -> allowed_depth (cached; cleared when a share changes)
 ## Two joints apart (an upper arm and the chest it hangs from by the
 ## collarbone, both thighs off the hips), a limb's end at that joint turns
 ## inside the other block: that end, about a limb's thickness, is the
-## joint's and does not count. "a_b" -> [centre a, half a, centre b, half b].
+## joint's and does not count. key -> [[centre a, half a], [centre b, half b]].
 var _joint_cut: Dictionary = {}
 ## Frames to leave out (the body was just placed somewhere new).
 var skip := 0
@@ -95,8 +106,9 @@ func setup(p_names: Array, p_parent: PackedInt32Array, p_limits: PackedFloat32Ar
 	_hops = {}
 	_rest_depth = {}
 	_joint_cut = {}
+	_allow = {}
 	for pr in pairs:
-		var key := "%d_%d" % [pr[0], pr[1]]
+		var key := _key(pr[0], pr[1])
 		_hops[key] = _hop_count(pr[0], pr[1])
 		if int(_hops[key]) == 2 and box_c[pr[0]] != null and box_c[pr[1]] != null:
 			_joint_cut[key] = [_cut_root(pr[0], pr[1]), _cut_root(pr[1], pr[0])]
@@ -139,7 +151,7 @@ func pair_depth(a: int, ta: Transform3D, b: int, tb: Transform3D) -> float:
 	var ha: Vector3 = box_h[a]
 	var cb: Vector3 = box_c[b]
 	var hb: Vector3 = box_h[b]
-	var key := "%d_%d" % [a, b]
+	var key := _key(a, b)
 	if _joint_cut.has(key):
 		var cut: Array = _joint_cut[key]
 		ca = cut[0][0]
@@ -203,7 +215,10 @@ func _hop_count(a: int, b: int) -> int:
 
 ## How deep blocks a and b may overlap before it counts (m).
 func allowed_depth(a: int, b: int) -> float:
-	var key := "%d_%d" % [a, b]
+	var key := _key(a, b)
+	var cached = _allow.get(key)
+	if cached != null:
+		return cached
 	var ha: Vector3 = box_h[a]
 	var hb: Vector3 = box_h[b]
 	var thin := minf(minf(ha.x, minf(ha.y, ha.z)), minf(hb.x, minf(hb.y, hb.z)))
@@ -212,7 +227,13 @@ func allowed_depth(a: int, b: int) -> float:
 	if _rest_depth.has(key):
 		allow = maxf(allow, float(_rest_depth[key]) + body_share * thin)
 	# A graze too slight to see is not a pass-through.
-	return allow + maxf(0.1 * thin, floor_m)
+	allow += maxf(0.1 * thin, floor_m)
+	_allow[key] = allow
+	return allow
+
+
+static func _key(a: int, b: int) -> int:
+	return mini(a, b) * 1024 + maxi(a, b)
 
 
 ## Same as setup() but limits, contacts, pairs and soft blocks come from a
@@ -649,27 +670,43 @@ func _depth(pose: Array, gx: Transform3D, a: int, b: int) -> float:
 ## Overlap depth of two oriented boxes (centre, basis with its scale, half
 ## size): 0 or less when apart.
 static func box_depth(ca: Vector3, ba: Basis, ha0: Vector3, cb: Vector3, bb: Basis, hb0: Vector3) -> float:
-	var ax := [ba.x.normalized(), ba.y.normalized(), ba.z.normalized()]
-	var bx := [bb.x.normalized(), bb.y.normalized(), bb.z.normalized()]
-	var sa := ba.get_scale()
-	var sb := bb.get_scale()
-	var ha: Vector3 = ha0 * sa
-	var hb: Vector3 = hb0 * sb
-	var axes: Array = ax + bx
-	for i in 3:
-		for j in 3:
-			var c: Vector3 = (ax[i] as Vector3).cross(bx[j])
-			if c.length() > 0.001:
-				axes.append(c.normalized())
+	# Separating axes: the six face normals first (most pairs part there),
+	# then the nine edge crossings. Least overlap over all axes, 0 if any
+	# axis separates.
+	var a0 := ba.x
+	var a1 := ba.y
+	var a2 := ba.z
+	var b0 := bb.x
+	var b1 := bb.y
+	var b2 := bb.z
+	var ha := Vector3(ha0.x * a0.length(), ha0.y * a1.length(), ha0.z * a2.length())
+	var hb := Vector3(hb0.x * b0.length(), hb0.y * b1.length(), hb0.z * b2.length())
+	a0 = a0.normalized()
+	a1 = a1.normalized()
+	a2 = a2.normalized()
+	b0 = b0.normalized()
+	b1 = b1.normalized()
+	b2 = b2.normalized()
 	var d := cb - ca
 	var least := INF
-	for l in axes:
-		var ra := absf(ha.x * (ax[0] as Vector3).dot(l)) + absf(ha.y * (ax[1] as Vector3).dot(l)) + absf(ha.z * (ax[2] as Vector3).dot(l))
-		var rb := absf(hb.x * (bx[0] as Vector3).dot(l)) + absf(hb.y * (bx[1] as Vector3).dot(l)) + absf(hb.z * (bx[2] as Vector3).dot(l))
-		var o := ra + rb - absf(d.dot(l))
+	for k in 15:
+		var n: Vector3
+		if k < 3:
+			n = [a0, a1, a2][k]
+		elif k < 6:
+			n = [b0, b1, b2][k - 3]
+		else:
+			n = ([a0, a1, a2][(k - 6) / 3] as Vector3).cross([b0, b1, b2][(k - 6) % 3])
+			var len := n.length()
+			if len < 0.001:
+				continue
+			n /= len
+		var o := absf(ha.x * a0.dot(n)) + absf(ha.y * a1.dot(n)) + absf(ha.z * a2.dot(n)) \
+			+ absf(hb.x * b0.dot(n)) + absf(hb.y * b1.dot(n)) + absf(hb.z * b2.dot(n)) - absf(d.dot(n))
 		if o <= 0.0:
 			return 0.0
-		least = minf(least, o)
+		if o < least:
+			least = o
 	return least
 
 
