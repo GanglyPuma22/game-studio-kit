@@ -244,6 +244,53 @@ with four findings that applied to every giant. What fixed each:
   blocks) and send them to the project's model viewer, one model per move,
   with a direct link per move in the review.
 
+## Third round: wobble, crossing arms, and reacting to hits
+
+The user's third review asked for fixes to five moves and two new rules:
+speed and acceleration limits (9b) and a shake check (9c), each one
+overridable per move. Each fix came from what the new rules measured:
+
+- **Spring every feedback value.** A value that answers an overlap (the
+  neck ducking for the chest, the shoulder dropping for the head) and
+  moves the block it measures will oscillate frame to frame. Spring it
+  toward its target, faster going in than coming out.
+- **Spring the head, and keep it level while pinned.** A head aimed at a
+  pinned skull wobbled side to side in a walk. Spring yaw and pitch, and
+  remove roll (turn its up toward world up about its forward axis).
+- **A held bite leaves the arm free.** While the jaws hold the catch, the
+  arm on that side should follow its own pose, not chase the head's
+  catch point.
+- **Drop the shoulder before the head arrives.** On the bite side, lower
+  the collarbone ahead of time (feed-forward from the wind-up), not only
+  after the head is already in it.
+- **Reach around the shoulder.** A grab reach that lerps in a straight
+  line cuts through the chest. Slerp the hand's direction around the
+  shoulder instead, and ease the drawn hand back onto the game's hand over
+  about 0.1 s when the rig hands control back.
+- **A resolver's memory must fade.** Preferring last frame's way out stops
+  flicker, but kept forever it holds a stale push long after the arm's own
+  pose is clear (an uppercut flipped 157°). Decay the bonus over about
+  0.5 s of clear frames.
+- **Catch-up speed scales with need.** Cap how fast the resolver moves the
+  arm, but scale the cap with the hand's own speed and how deep the overlap
+  is, or a fast strike passes through while the cap holds it back.
+- **Two crossing arms: one leads.** Solving both arms against last frame's
+  other arm makes them push each other back and forth. Solve one, then
+  check the second against the first arm's current frame.
+- **Rate-limit the elbow's swing.** The worst shake on the hero (30% of a
+  run's frames) was the two-bone solve picking a far elbow side. Keep the
+  hinge axis continuous (start from last frame's, rate-limited), and cap
+  how fast the elbow swings round the shoulder-to-hand line (about
+  10 rad/s), solving again with the capped pole. The run's shake fell to
+  1.3%.
+- **React to hits in the drawn pose only.** A flinch (trunk rocks away
+  from the cut, a hit arm knocked back, a hit leg dips the hips), a short
+  pose hold for the hit's pause, and a disabled arm hanging limp as a
+  damped pendulum all read well and cost nothing online: they run on each
+  machine from hits it already sees, and a headless server skips them.
+  Scale them by one slider, and keep them small enough that the rules
+  still pass.
+
 ## Handoff
 
 Report per move: scores before and after, what the game does not provide

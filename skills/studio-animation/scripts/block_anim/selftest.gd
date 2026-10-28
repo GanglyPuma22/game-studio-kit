@@ -168,6 +168,47 @@ func _init() -> void:
 	wc.add([Transform3D(Basis(Vector3.BACK, deg_to_rad(45.0)), Vector3(0, 1, 0))], Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
 	_near("a box cutting a ledge corner reads its edge depth", wc.report().wall_m, 0.5, 0.01)
 
+	# Rules 9b, 9c and 8c on a 2 m body and a small hand block beside it.
+	var mk := func() -> RefCounted:
+		var m = Check.new()
+		m.setup(["body", "hand"], PackedInt32Array([-1, -1]), PackedFloat32Array([180.0, 180.0]),
+			# The hand rests beside the body (a rest overlap would be allowed).
+			[Transform3D.IDENTITY, Transform3D(Basis(), Vector3(1.0, 0.0, 0.0))], [Vector3.ZERO, Vector3.ZERO],
+			[Vector3(0.5, 1.0, 0.3), Vector3(0.1, 0.1, 0.1)], PackedInt32Array(), [[1, 0]], [])
+		return m
+	var body_t := Transform3D.IDENTITY
+	var mc = mk.call()
+	_near("height comes from the bind boxes", mc.height, 2.0, 0.001)
+	# 9b: 0.5 m a frame at 60 fps is 15 body heights a second.
+	for f in 10:
+		mc.add([body_t, Transform3D(Basis(), Vector3(1.0 + 0.5 * f, 0.0, 0.0))], Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	_check("a block faster than speed_max is flagged (9b)", mc.report().fast_frames_pct > 50.0)
+	mc = mk.call()
+	mc.fast_ok = {"hand": true}
+	for f in 10:
+		mc.add([body_t, Transform3D(Basis(), Vector3(1.0 + 0.5 * f, 0.0, 0.0))], Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	_check("and not when the move names it in fast_ok", mc.report().fast_frames_pct == 0.0)
+	# 9c: a 5 cm wobble at 10 Hz shakes; the same at 1 Hz is a sway.
+	for hz in [10.0, 1.0]:
+		mc = mk.call()
+		for f in 120:
+			mc.add([body_t, Transform3D(Basis(), Vector3(1.0 + 0.05 * sin(TAU * hz * f / 60.0), 0.0, 0.0))], Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+		if hz > 5.0:
+			_check("a 10 Hz wobble shakes (9c)", mc.report().shake_frames_pct > 20.0)
+		else:
+			_check("a 1 Hz sway does not", mc.report().shake_frames_pct == 0.0)
+	mc = mk.call()
+	mc.shake_ok = {"hand": true}
+	for f in 120:
+		mc.add([body_t, Transform3D(Basis(), Vector3(1.0 + 0.05 * sin(TAU * 10.0 * f / 60.0), 0.0, 0.0))], Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	_check("and not when the move names it in shake_ok", mc.report().shake_frames_pct == 0.0)
+	# 8c: a hand passing right through the body between two frames.
+	mc = mk.call()
+	mc.add([body_t, Transform3D(Basis(), Vector3(-1.5, 0.0, 0.0))], Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	mc.add([body_t, Transform3D(Basis(), Vector3(1.5, 0.0, 0.0))], Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	_check("a block tunnelling through another between frames is caught (8c)", mc.report().sweep_frames == 1)
+	_check("though neither frame overlaps", mc.report().self_overlap_pct == 0.0)
+
 	# Whole-chain reach: every segment keeps its length.
 	var pts := PackedVector3Array([Vector3.ZERO, Vector3(0, 1, 0), Vector3(0, 2, 0), Vector3(0, 3, 0)])
 	var lens := PackedFloat32Array([1.0, 1.0, 1.0])
