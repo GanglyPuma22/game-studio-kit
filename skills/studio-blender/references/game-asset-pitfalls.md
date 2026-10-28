@@ -8,6 +8,7 @@ Each item cost at least one review round in a production pilot. Check for them b
 - **Per-part budgets with a floor.** A whole-mesh Decimate on a multi-part asset collapses its small parts to single triangles at the coarse levels. Reduce each loose part on its own share, with a minimum (about 14-20 triangles for a small rock).
 - **Vertex-group protection does not protect.** Decimate with a vertex group never collapses weight-0 vertices, so "protect the face" can leave the mesh far over budget. Reduce in two passes: the protected share first, then the rest with the group inverted.
 - **Chain LODs from the previous level** and keep skin weights and the armature modifier order when the mesh is skinned. Record every level's triangle count in one receipt.
+- **Union overlapping closed parts before reducing an assembly.** A prop of overlapping convex parts (piles through a cap, a rope sunk into timber) collapse-decimated part by part lost pieces at the coarse levels and failed clipping and floating checks at every level. One Exact union of the closed parts, a 1-degree limited dissolve per material, then two LODs passed; see [assemblies that pass model QA](asset-brief.md#assemblies-that-pass-model-qa).
 - **Dense small plants** (cushions, mosses, lichens) usually pass faster as dense detail baked onto a simple low mesh than as hand-modelled tubes; tube or stem plants under about 2k triangles often fail at distance without a card.
 
 ## Baking and textures
