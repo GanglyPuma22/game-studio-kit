@@ -13,6 +13,8 @@ from studio_tools.model_qa.__main__ import discover, main
 from studio_tools.model_qa.ecology import check as ecology
 
 GEOMETRY = all(importlib.util.find_spec(name) for name in ("numpy", "trimesh", "scipy", "rtree", "pygltflib"))
+# Attachment gaps use Blender's BVH (mathutils), so these run inside Blender's Python.
+BLENDER_PY = GEOMETRY and importlib.util.find_spec("mathutils") is not None
 
 
 class InputTests(unittest.TestCase):
@@ -58,9 +60,10 @@ class InputTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(main(args), 1)
             report = json.loads((output / "report.json").read_text())
-            self.assertEqual(len(report["models"][0]["checks"]), 5)
+            self.assertEqual(len(report["models"][0]["checks"]), 9)
             self.assertEqual({c['check']: c['result'] for c in report['models'][0]['checks']},
-                             {'M12': 'UNMEASURED', 'M13': 'UNMEASURED', 'M5': 'UNMEASURED',
+                             {'M12': 'UNMEASURED', 'M13': 'UNMEASURED', 'M14': 'UNMEASURED', 'M15': 'UNMEASURED',
+                              'M5': 'UNMEASURED', 'M16': 'N/A', 'M17': 'N/A',
                               'triangles': 'UNMEASURED', 'ecology': 'FAIL'})
             self.assertTrue((output / "contact-sheet.png").read_bytes().startswith(b"\x89PNG"))
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exc:
@@ -68,8 +71,34 @@ class InputTests(unittest.TestCase):
             self.assertEqual(exc.exception.code, 2)
 
 
-@unittest.skipUnless(GEOMETRY, "Optional model QA geometry dependencies not installed")
+@unittest.skipUnless(BLENDER_PY, "Run inside Blender's Python (mathutils) with the model QA dependencies")
 class AttachmentTests(unittest.TestCase):
+    def test_self_intersection_limit_is_unmeasured_not_pass(self):
+        import numpy as np
+        import trimesh
+        from studio_tools.model_qa.surface import self_intersections
+        # Two crossing slabs welded into one part.
+        a = trimesh.creation.box((1, 0.1, 1))
+        b = trimesh.creation.box((0.1, 1, 1))
+        part = trimesh.util.concatenate([a, b])
+        self.assertEqual(self_intersections([part], ["slabs"])["result"], "FAIL")
+        clean = trimesh.creation.icosphere(subdivisions=3)
+        self.assertEqual(self_intersections([clean], ["ball"])["result"], "PASS")
+        # A crossing between faces with no joint owner (-1, rigid) is never exempted as a joint fold.
+        rigid = [np.full(len(part.faces), -1)]
+        self.assertEqual(self_intersections([part], ["slabs"], face_joint=rigid, near=lambda a, b: True)["result"], "FAIL")
+        capped = self_intersections([clean], ["ball"], max_pairs=-1)
+        self.assertEqual((capped["result"], capped["truncated"][0]["name"]), ("UNMEASURED", "ball"))
+
+    def test_lod_error_names_a_worst_area_point(self):
+        import trimesh
+        from studio_tools.model_qa.surface import lod_screen_error
+        full = trimesh.creation.icosphere(subdivisions=3)
+        lod = full.copy(); lod.apply_scale(1.02)
+        err = lod_screen_error(full, lod, 2.0, 75, 1080)
+        self.assertEqual(err["result"], "FAIL")
+        self.assertEqual(len(err["lost"]["worst_area_at"]), 3)
+
     def test_static_clean_floating_and_anchor_chain(self):
         from model_qa_fixtures import build, box
         from studio_tools.model_qa.geometry import load
@@ -169,6 +198,31 @@ class EndToEndTests(unittest.TestCase):
                 self.assertEqual(results["ecology"], "FAIL")
                 self.assertEqual(results["triangles"], "FAIL")
 
+    def test_surface_checks_catch_inverted_folded_and_spiked(self):
+        from model_qa_fixtures import build
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            fixtures = build(root / "fixtures")
+            source = root / "surface"
+            source.mkdir()
+            for name in ("clean", "inverted", "folded", "spiked"):
+                (fixtures / name).rename(source / name)
+            code, report = self.run_cli(source, fixtures / "ecology.md", root / "report", "--switch-distances", "2", "4")
+            self.assertEqual((code, report["errors"]), (1, []))
+            checks = {(m["model"], m["lod"], c["check"]): c for m in report["models"] for c in m["checks"]}
+            for lod in (0, 1):
+                self.assertEqual([checks[("clean", lod, c)]["result"] for c in ("M14", "M15")], ["PASS", "PASS"])
+                # Inside-out: nothing else notices, the shell still touches itself and keeps its silhouette.
+                self.assertEqual(checks[("inverted", lod, "M15")]["result"], "FAIL")
+                self.assertEqual(checks[("inverted", lod, "M15")]["details"]["parts"][0]["kind"], "inside-out")
+                self.assertEqual([checks[("inverted", lod, c)]["result"] for c in ("M12", "M13", "M14")], ["PASS"] * 3)
+                self.assertEqual(checks[("folded", lod, "M14")]["result"], "FAIL")
+            self.assertEqual(checks[("clean", 1, "M16")]["result"], "PASS")
+            self.assertEqual(checks[("clean", 1, "M16")]["details"]["p99_px"], 0)
+            spike = checks[("spiked", 1, "M16")]
+            self.assertEqual(spike["result"], "FAIL")
+            self.assertGreater(spike["details"]["added"]["max_px"], 2)
+
     def test_declared_clump_na_and_unset_budget_are_distinct(self):
         from model_qa_fixtures import build
         with tempfile.TemporaryDirectory() as folder:
@@ -186,7 +240,9 @@ class EndToEndTests(unittest.TestCase):
             for model in data['models']:
                 rows = {r['check']: r for r in model['checks']}
                 self.assertEqual({c: r['result'] for c,r in rows.items()},
-                                 dict(M12='PASS', M13='INFO', M5='PASS', triangles='NOT SET', ecology='N/A'))
+                                 dict(M12='PASS', M13='INFO', M14='INFO', M15='PASS', M5='PASS',
+                                      M16='N/A' if model['lod'] == 0 else 'PASS', M17='N/A',
+                                      triangles='NOT SET', ecology='N/A'))
                 self.assertEqual(rows['M13']['details']['poses'][0]['major'], 1)
 
 

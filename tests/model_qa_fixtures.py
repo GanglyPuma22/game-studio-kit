@@ -1,6 +1,7 @@
 """Build tiny deterministic GLB fixtures; no checked-in binaries or Blender files."""
 from pathlib import Path
 
+import numpy as np
 import trimesh
 
 
@@ -25,8 +26,24 @@ def build(root):
     # A tip seated in the base has half its vertices on the base face. Its
     # disappearance must still be named, rather than hidden by that root contact.
     tip = box((0.5, 0.15, 0.15), (0.55, 0.5, 0))
+    inverted = base.copy()
+    inverted.faces = inverted.faces[:, ::-1]
+    # The middle of the top pushed down through the bottom: one connected
+    # part crossing itself, which M13 (between parts) cannot see.
+    folded = base.subdivide().subdivide().subdivide()
+    v = folded.vertices.copy()
+    r = np.hypot(v[:, 0], v[:, 2])
+    top = v[:, 1] > 0.6 - 1e-6
+    v[top, 1] -= 0.9 * np.clip(1 - r[top] / 0.2, 0, 1)
+    folded = trimesh.Trimesh(v, folded.faces, process=False)
+    # LOD1 adds a 5 cm spike at a corner: small in a far silhouette, several pixels at the switch distance.
+    spiked = base.copy()
+    spiked.vertices[0] = spiked.vertices[0] + (spiked.vertices[0] - spiked.bounds.mean(axis=0)) * 0.15
     cases = {
         "clean": [[("body", base)], [("body", base)]],
+        "inverted": [[("body", inverted)], [("body", inverted)]],
+        "folded": [[("body", folded)], [("body", folded)]],
+        "spiked": [[("body", base)], [("body", spiked)]],
         "floating": [[("body", base), ("floating-cube", floating)]] * 2,
         "clipping": [[("cross-x", box((1.6, 0.22, 0.24), (0, 0.2, 0))),
                       ("cross-z", box((0.24, 0.18, 1.6), (0, 0.23, 0)))]] * 2,

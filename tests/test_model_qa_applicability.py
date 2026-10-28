@@ -1,5 +1,6 @@
 """0.1.16 regressions; synthetic geometry only, no project-specific inputs."""
 import contextlib
+import importlib.util
 import io
 import json
 from pathlib import Path
@@ -86,7 +87,8 @@ class ApplicabilityTests(unittest.TestCase):
 
     def test_ground_contact_and_clump_preserve_raw_failures(self):
         pieces = [box((1, 1, 1), (0, .5, 0)), box((1, 1, 1), (3, .5, 0))]
-        self.assertEqual(attachment.static(pieces)['result'], 'FAIL')
+        if importlib.util.find_spec('mathutils'):  # attachment gaps use Blender's BVH
+            self.assertEqual(attachment.static(pieces)['result'], 'FAIL')
         self.assertEqual(attachment.ground(pieces)['result'], 'PASS')
         for height, expected in ((.5029, 'PASS'), (.5031, 'FAIL'), (-.5031, 'FAIL')):
             self.assertEqual(attachment.ground([box((1, 1, 1), (0, height, 0))])['result'], expected)
@@ -107,6 +109,12 @@ class ApplicabilityTests(unittest.TestCase):
         self.assertFalse(family['manifest']['living'])
         (self.root/'model-qa.json').write_text('{"structure": "anything"}')
         with self.assertRaises(ValueError): discover([p])
+        # A bare string would exempt every part name containing one of its letters.
+        for allow in ('"Satchel"', '[""]', '[3]'):
+            (self.root/'model-qa.json').write_text('{"symmetry": {"allow": %s}}' % allow)
+            with self.assertRaises(ValueError): discover([p])
+        (self.root/'model-qa.json').write_text('{"symmetry": {"allow": ["Satchel"]}}')
+        self.assertEqual(discover([p])[0]['manifest']['symmetry']['allow'], ['Satchel'])
 
     def test_missing_worker_is_unmeasured(self):
         p = self.root/'model.glb'; p.write_bytes(b'fixture')
@@ -159,7 +167,73 @@ class ApplicabilityTests(unittest.TestCase):
         values = np.array([[0,0,0], [0,0,0], [0,.8,0], [0,0,0], [0,.4,0], [0,0,0]], dtype='<f4')
         sampler.output = accessor(g, values, 'VEC3'); g.save(str(p)); m = geometry.load(p)[3]
         np.testing.assert_allclose(m.sample('detach', .5)[target, 'translation'], [0, .3, 0], atol=1e-7)
-        self.assertEqual(attachment.skinned(m)['poses'], 7)
+        self.assertEqual(len(m.poses(6)), 7)  # rest plus six samples, as M12-M14 use
+
+    def test_vertex_owner_is_the_heaviest_joint_in_any_slot(self):
+        p = self.root/'animated.glb'; skinned(p)
+        g = GLTF2().load(str(p))
+        tip = next(n for n in g.nodes if n.name == 'tip')
+        primitive = g.meshes[tip.mesh].primitives[0]
+        count = g.accessors[primitive.attributes.POSITION].count
+        joints = np.zeros((count, 4), dtype='<u2'); joints[:, 1] = 1        # slot 0: body joint at weight 0
+        weights = np.zeros((count, 4), dtype='<f4'); weights[:, 1] = 1
+        primitive.attributes.JOINTS_0 = accessor(g, joints, 'VEC4', 5123)
+        primitive.attributes.WEIGHTS_0 = accessor(g, weights, 'VEC4')
+        g.save(str(p))
+        m = geometry.load(p)[3]
+        self.assertEqual({m.owner_names[o] for o in m.owner}, {'body-joint', 'tip-joint'})
+
+    def test_independently_animated_rigid_nodes_stay_separate_parts(self):
+        from pygltflib import Node, Animation, AnimationSampler, AnimationChannel, AnimationChannelTarget
+        p = self.root/'panels.glb'
+        # Two panels sharing an edge under one pivot: one part while only the pivot moves them together.
+        import trimesh
+        def panel(x0):
+            v = np.array([[x0, 0, 0], [x0 + 1, 0, 0], [x0 + 1, 1, 0], [x0, 1, 0]], float)
+            return trimesh.Trimesh(v, [[0, 1, 2], [0, 2, 3]], process=False)
+        export(p, [('left', panel(0)), ('right', panel(1))])
+        g = GLTF2().load(str(p))
+        right = next(i for i, n in enumerate(g.nodes) if n.name == 'right')
+        pivot = len(g.nodes)
+        g.nodes.append(Node(name='pivot', children=list(g.scenes[0].nodes)))
+        g.scenes[0].nodes = [pivot]
+        g.animations = [Animation(name='swing', samplers=[AnimationSampler(
+            input=accessor(g, np.array([[0], [1]], dtype='<f4'), 'SCALAR'),
+            output=accessor(g, np.array([[0, 0, 0, 1], [0, .7071, 0, .7071]], dtype='<f4'), 'VEC4'))],
+            channels=[AnimationChannel(sampler=0, target=AnimationChannelTarget(node=pivot, path='rotation'))])]
+        g.save(str(p))
+        self.assertEqual(int(attachment.part_labels(geometry.load(p)[3]).max()) + 1, 1)
+        g.animations[0].channels[0].target.node = right   # now the right box turns on its own
+        g.save(str(p))
+        self.assertEqual(int(attachment.part_labels(geometry.load(p)[3]).max()) + 1, 2)
+
+    def test_rigid_faces_own_no_joint_and_wind_per_pose(self):
+        from pygltflib import Animation, AnimationSampler, AnimationChannel, AnimationChannelTarget
+        p = self.root/'mirror.glb'; export(p, [('prop', box((1, 1, 1), (0, .5, 0)))])
+        g = GLTF2().load(str(p))
+        prop = next(i for i, n in enumerate(g.nodes) if n.name == 'prop')
+        g.animations = [Animation(name='mirror', samplers=[AnimationSampler(
+            input=accessor(g, np.array([[0], [1]], dtype='<f4'), 'SCALAR'),
+            output=accessor(g, np.array([[1, 1, 1], [-1, 1, 1]], dtype='<f4'), 'VEC3'), interpolation='STEP')],
+            channels=[AnimationChannel(sampler=0, target=AnimationChannelTarget(node=prop, path='scale'))])]
+        g.save(str(p))
+        m = geometry.load(p)[3]
+        self.assertTrue((m.face_owner() == -1).all())      # rigid: never a joint-crease fold
+        np.testing.assert_array_equal(m.faces('mirror', 0), m.idx)
+        np.testing.assert_array_equal(m.faces('mirror', 1), m.idx[:, ::-1])
+
+    def test_seam_split_closed_surface_counts_as_closed(self):
+        cube = box((1, 1, 1), (0, 0, 0))
+        split = SimpleNamespace(pos=cube.vertices[cube.faces].reshape(-1, 3), idx=np.arange(len(cube.faces) * 3).reshape(-1, 3))
+        self.assertFalse(attachment._closed(split.idx))
+        self.assertTrue(attachment._closed(attachment.welded(split).faces))
+
+    def test_empty_symmetry_declaration_is_measured(self):
+        request = {"settings": {"budget_tris": None}, "ecology": None,
+                   "families": [{"name": "m", "manifest": {"structure": "assembly", "symmetry": {}},
+                                 "files": [{"path": "m.glb", "lod": 0, "sha256": "0"}]}]}
+        rows = {r["check"]: r["result"] for r in report.initial(request)["models"][0]["checks"]}
+        self.assertEqual(rows["M17"], "UNMEASURED")
 
     def test_morph_base_is_measured_and_limitation_recorded(self):
         p = self.root/'morph.glb'; export(p, [('body', box((1, 1, 1), (0, .5, 0)))])
@@ -170,6 +244,7 @@ class ApplicabilityTests(unittest.TestCase):
         np.testing.assert_allclose(tm.bounds, [[-.5, 0, -.5], [.5, 1, .5]])
         self.assertIn('Morph targets were not checked', tm.metadata['qa_notes'])
 
+    @unittest.skipUnless(importlib.util.find_spec('mathutils'), "The worker's geometry runs on Blender's BVH; run inside Blender's Python")
     def test_memory_failure_retains_metadata_and_completed_checks(self):
         from studio_tools.model_qa.worker import execute
         p = self.root/'body.glb'; export(p, [('body', box((1,1,1), (0,.5,0)))])

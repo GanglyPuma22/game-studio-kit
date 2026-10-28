@@ -4,7 +4,8 @@ import struct
 import zlib
 from pathlib import Path
 
-CHECKS = ("M12", "M13", "M5", "triangles", "ecology")
+CHECKS = ("M12", "M13", "M14", "M15", "M5", "M16", "M17", "triangles", "ecology")
+GEOMETRY = ("M12", "M13", "M14", "M15", "M5")
 
 
 def row(check, passed, numbers, details=None):
@@ -31,6 +32,20 @@ def overlaps(poses, structure):
                {"poses": poses, "structure": structure, "applicability": "informational" if structure == "clump" else "strict"})
 
 
+def self_crossings(poses, structure):
+    """M14 across sampled poses: the worst pose decides, like M13."""
+    worst = max(poses, key=lambda p: (p["major"], p["minor"]))
+    states = {p["result"] for p in poses}
+    state = ("FAIL" if "FAIL" in states else "UNMEASURED" if "UNMEASURED" in states else "PASS")
+    truncated = sorted({t["name"] for p in poses for t in p.get("truncated", [])})
+    return row("M14", "INFO" if structure == "clump" and state != "UNMEASURED" else state,
+               f"max {worst['major']} major, {worst['minor']} minor self-crossings in one part; "
+               f"{len(poses)} poses; worst {worst['pose']} t={worst['time']:.2f}; "
+               f"{max(p.get('joint_folds', 0) for p in poses)} joint-crease folds (not counted)"
+               + (f"; not fully examined: {', '.join(truncated)}" if truncated else ""),
+               {"poses": [p for p in poses if p["sites"] or p.get("joint_fold_sites")], "checked_poses": len(poses), "structure": structure})
+
+
 def metadata_rows(family, request, triangles=None):
     from .ecology import check
     eco = check(request.get("ecology"), living=family.get("manifest", {}).get("living"), reason=request.get("ecology_reason"))
@@ -42,7 +57,11 @@ def initial(request):
     return {"schema_version": 2, "settings": request["settings"], "errors": [], "models": [
         {"model": family["name"], "lod": item["lod"], "file": Path(item["path"]).name, "sha256": item["sha256"],
          "manifest": family.get("manifest", {"structure": "assembly"}), "manifest_sha256": family.get("manifest_sha256"),
-         "checks": [row(c, "UNMEASURED", "0 completed measurements") for c in CHECKS[:3]] + metadata_rows(family, request)}
+         "checks": [row(c, "UNMEASURED", "0 completed measurements") for c in GEOMETRY]
+         + [row("M16", "N/A", "LOD0 is the reference") if item["lod"] == 0 else row("M16", "UNMEASURED", "0 completed measurements")]
+         + [row("M17", "UNMEASURED", "0 completed measurements") if "symmetry" in family.get("manifest", {})
+            else row("M17", "N/A", "No symmetry declared in the manifest")]
+         + metadata_rows(family, request)}
         for family in request["families"] for item in family["files"]]}
 
 
@@ -77,6 +96,11 @@ def write(report, out):
               "- Part correspondence flags parts with at most half their vertices near the next LOD surface. This can also flag a moved or strongly simplified part; inspect the named geometry.",
               "- Silhouettes measure opaque geometry, not alpha textures, materials, animation blending, runtime fades or engine visibility ranges.",
               "- Missing switch distances fail M5. Fallback distances produce diagnostic images only.",
+              "- M14 counts triangle crossings inside one connected part at every sampled pose: any crossing chain of 10 mm or more is major. Only crossings visible from one of 26 directions count; buried ones and folds where neighbouring joints bend are listed, not counted. A part with more candidate pairs than the limit is UNMEASURED, never PASS.",
+              "- M15 casts 26 orthographic ray grids; a first hit on the back of a single-sided face means the engine shows the inside or what lies behind. Coincident or near-coincident opposed faces (within 2 mm) count as covered. glTF doubleSided materials and manifest double_sided names are exempt.",
+              "- M16 measures visible surface distance between LOD0 and each LOD in screen pixels at that LOD's switch distance (the CLI's FOV and height): p99 of area samples at most 1 px, and no visible vertex beyond 3 px.",
+              "- M17 runs only when the manifest declares symmetry; it compares each part with the mirrored model across the bounding-box centre plane.",
+              "- Evidence close-ups in `evidence/` are renders with back faces culled; each has a JSON sidecar naming the file hash, LOD, pose, view and camera. They never change a result.",
               "- Ecology checks document structure, not biological truth or proposal approval. Explicit non-living declarations are N/A.",
               "- NOT SET means no triangle maximum was declared; there is no implied minimum. UNMEASURED means evidence is incomplete, never a geometric pass or defect.",
               "", "## Check details and limitations", ""]
@@ -103,6 +127,11 @@ def write(report, out):
         lines.append("None.")
     if report.get("errors"):
         lines += ["", "## Execution errors", "", *[f"- {safe(e)}" for e in report["errors"]]]
+    if report.get("evidence"):
+        lines += ["", "## Evidence close-ups", ""]
+        for e in report["evidence"]:
+            lines.append(f"- {safe(e['model'])} LOD{e['lod']} {e['check']} {safe(e['site'])}: [{e['image']}]({e['image']}) "
+                         f"(sidecar `{e['image']}.json`)")
     lines += ["", "## Silhouettes", "", "![Four side geometric silhouettes](contact-sheet.png)", "",
               "The contact sheet uses one shared center crop with its pixel scale labelled. Full resolution PNGs are in `silhouettes/`.",
               "Each transition includes both LODs at the incoming LOD's distance.", ""]

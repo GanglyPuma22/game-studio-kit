@@ -19,14 +19,35 @@ def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+MANIFEST_KEYS = {"schema_version", "structure", "living", "ground_y_m", "exclude_meshes", "exclude_clips",
+                 "free_parts", "include_rest", "double_sided", "symmetry"}
+
+
 def read_manifest(path):
     data = json.loads(Path(path).read_text(encoding="utf-8")) if path else {}
-    if not isinstance(data, dict) or set(data) - {"schema_version", "structure", "living", "ground_y_m"}:
-        raise ValueError("Model QA manifest needs an object with schema_version, structure, living, ground_y_m only")
+    if not isinstance(data, dict) or set(data) - MANIFEST_KEYS:
+        raise ValueError("Model QA manifest keys: " + ", ".join(sorted(MANIFEST_KEYS)))
     if data.get("schema_version", 1) != 1 or data.get("structure", "assembly") not in ("assembly", "scatter", "clump"):
         raise ValueError("Manifest schema_version must be 1; structure must be assembly, scatter or clump")
-    if "living" in data and not isinstance(data['living'], bool):
-        raise ValueError("Manifest living must be a boolean")
+    for key in ("living", "include_rest"):
+        if key in data and not isinstance(data[key], bool):
+            raise ValueError(f"Manifest {key} must be a boolean")
+    for key in ("exclude_meshes", "free_parts", "double_sided"):
+        if key in data and (not isinstance(data[key], list) or not all(isinstance(x, str) and x.strip() for x in data[key])):
+            raise ValueError(f"Manifest {key} must be a list of nonempty names")
+    if "exclude_clips" in data:
+        try:
+            re.compile(data["exclude_clips"])
+        except (TypeError, re.error) as exc:
+            raise ValueError(f"Manifest exclude_clips must be a regular expression: {exc}")
+    if "symmetry" in data:
+        sym = data["symmetry"]
+        if (not isinstance(sym, dict) or set(sym) - {"axis", "allow", "tolerance_mm"} or sym.get("axis", "x") not in ("x", "z")
+                or not isinstance(sym.get("allow", []), list)
+                or not all(isinstance(x, str) and x.strip() for x in sym.get("allow", []))
+                or not isinstance(sym.get("tolerance_mm", 10.0), (int, float)) or isinstance(sym.get("tolerance_mm"), bool)
+                or not 0 < sym.get("tolerance_mm", 10.0) <= 1000):
+            raise ValueError("Manifest symmetry needs {axis: x|z, allow: [names], tolerance_mm: 0..1000}")
     ground = data.get('ground_y_m', 0.0)
     if isinstance(ground, bool) or not isinstance(ground, (float, int)) or not math.isfinite(ground):
         raise ValueError("Manifest ground_y_m must be finite")

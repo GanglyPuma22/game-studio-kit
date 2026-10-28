@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "game-studio-kit",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "skills": [
     {
       "name": "studio-director",
@@ -212,7 +212,9 @@
     "templates/block-rig.json",
     "studio_tools/character_run.py",
     "templates/character-run.json",
-    "skills/studio-director/references/character-pipeline.md"
+    "skills/studio-director/references/character-pipeline.md",
+    "studio_tools/model_qa/evidence.py",
+    "studio_tools/model_qa/surface.py"
   ],
   "commands": [
     "check-package",
