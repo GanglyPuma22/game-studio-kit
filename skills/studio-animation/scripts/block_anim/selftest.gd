@@ -64,6 +64,39 @@ func _init() -> void:
 	c.add(_leg(bind, 0.0), Transform3D.IDENTITY, 0.5, 1.0 / 60.0, false, {})
 	_near("a shin 0.5 m into the ground reads 0.5", c.report().ground_m, 0.5, 0.01)
 
+	# Rule 8b: no block through another. A torso, an arm (upper, fore) off
+	# its top: the forearm swung into the torso is a block through a block;
+	# the upper arm meeting the torso at the shoulder is their joint.
+	var ob_n := ["torso", "upper", "fore"]
+	var ob_par := PackedInt32Array([-1, 0, 1])
+	var ob_bind := [Transform3D(Basis(), Vector3(0, 1, 0)), Transform3D(Basis(), Vector3(0.35, 1.45, 0)), Transform3D(Basis(), Vector3(0.35, 1.05, 0))]
+	var ob_c := [Vector3.ZERO, Vector3(0, -0.2, 0), Vector3(0, -0.2, 0)]
+	var ob_h := [Vector3(0.3, 0.5, 0.15), Vector3(0.07, 0.2, 0.07), Vector3(0.06, 0.2, 0.06)]
+	var cc = Check.new()
+	cc.setup_rig(ob_n, ob_par, ob_bind, ob_c, ob_h, {"no_overlap": "all"})
+	_check("'all' pairs leave out parent and child", cc.pairs.size() == 1)
+	cc.add(ob_bind, Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	_near("arm hanging clear of the torso: no overlap", cc.report().self_overlap_pct, 0.0, 0.01)
+	cc.reset()
+	var ob_thru := ob_bind.duplicate()
+	ob_thru[2] = Transform3D(Basis(Vector3.FORWARD, deg_to_rad(90.0)), Vector3(0.35, 1.05, 0))   # forearm swung in, through the torso
+	cc.add(ob_thru, Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	_near("forearm through the torso is an overlap", cc.report().self_overlap_pct, 100.0, 0.01)
+	_check("and names the pair", cc.report().self_at == "torso/fore")
+	# A graze: the forearm 4 cm into the torso's side counts on a bare
+	# checker, not with a 5 cm floor (a small body's hand on its hip).
+	var ob_graze := ob_bind.duplicate()
+	ob_graze[2] = Transform3D(Basis(), Vector3(0.31, 1.05, 0))
+	cc.reset()
+	cc.add(ob_graze, Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	_near("a 4 cm graze counts with no floor", cc.report().self_overlap_pct, 100.0, 0.01)
+	cc.reset()
+	cc.floor_m = 0.05
+	cc.add(ob_graze, Transform3D.IDENTITY, -5.0, 1.0 / 60.0, false, {})
+	_near("and not with a 5 cm floor", cc.report().self_overlap_pct, 0.0, 0.01)
+	_near("box depth of two unit boxes 0.25 apart is 0.75", Check.box_depth(Vector3.ZERO, Basis(), Vector3(0.5, 0.5, 0.5), Vector3(0.25, 0, 0), Basis(), Vector3(0.5, 0.5, 0.5)), 0.75, 0.001)
+	_near("boxes apart have no depth", Check.box_depth(Vector3.ZERO, Basis(), Vector3(0.5, 0.5, 0.5), Vector3(1.5, 0, 0), Basis(), Vector3(0.5, 0.5, 0.5)), 0.0, 0.001)
+
 	# The Kit's rig description template names only blocks it declares.
 	var tpl = JSON.parse_string(FileAccess.get_file_as_string(_dir + "/../../../../templates/block-rig.json"))
 	_check("block-rig.json template parses", tpl is Dictionary)

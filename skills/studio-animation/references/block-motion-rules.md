@@ -70,6 +70,25 @@ the user approved the set.
    first, then over (a straight line cuts through the corner). Walking up
    to a wall, a short ray ahead holds the head and front limbs back before
    contact.
+
+   **8b. No block through another.** Check every pair of blocks, not a
+   hand-picked list: a list misses the pair the user sees first (a forearm
+   through the chest in a slash, two feet crossing in a spin). Parent and
+   child are left out (they meet at their joint). Measure how deep two
+   boxes overlap (the separating-axis depth, not a yes/no), and allow:
+   - pairs two joints apart (a hand and its upper arm, both thighs off the
+     hips, an upper arm and the chest it hangs from by the collarbone) about
+     0.6 of the thinner box's smallest half size, and ignore the limb's end
+     at the shared joint (about 1.2 of its thickness): that region is the
+     joint's;
+   - any other pair about a quarter of that;
+   - a pair that already overlaps at rest, its rest depth plus the margin;
+   - a graze floor (a tenth of the thinner box, or a few centimetres on a
+     person-sized body), so a hand resting on a thigh is contact, not a
+     pass-through;
+   - named exceptions where anatomy overlaps by design (an open jaw swinging
+     back into the throat; a hand's fingers and thumb). Write each down with
+     its reason.
 9. **Momentum: no pops, no flips.** Block positions and rotations change
    smoothly. A big move starts with anticipation (a counter-move of about a
    fifth of the move, the opposite way), and the heaviest blocks start and
@@ -163,6 +182,7 @@ per-frame events (frame, rule, block, amount) for debugging:
 | Steps and shuffles | 6 | steps per clip, and shuffles: steps that land close to where they lifted |
 | Balance | 7 | share of slow frames with the centre of mass outside the support area |
 | Ground and body | 8 | deepest block below the ground (m); frames with a limb inside the torso |
+| Block through block | 8b | share of frames with any pair past its allowance, the deepest excess (m) and the pair, and each pair's worst excess (`self_deep_m`) |
 | Walls | 8 | deepest block inside a wall the body is against (m), which block, how many frames. The rig supplies the wall's face and top; the nearer face counts, so a foot standing on the top is not "in" the wall |
 | Pops | 9 | largest block acceleration (m/s²) |
 | Joint flips | 9 | fastest joint turn between frames (deg/s); an elbow swapping sides shows here, not in position acceleration |
