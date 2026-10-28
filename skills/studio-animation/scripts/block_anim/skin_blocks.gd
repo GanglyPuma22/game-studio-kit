@@ -20,7 +20,7 @@ const BLOCKS := ["pelvis", "spine_01", "spine_02", "spine_03", "neck_01", "Head"
 const TRIM_TO := {"upperarm_l": "lowerarm_l", "lowerarm_l": "hand_l", "upperarm_r": "lowerarm_r", "lowerarm_r": "hand_r",
 	"thigh_l": "calf_l", "calf_l": "foot_l", "thigh_r": "calf_r", "calf_r": "foot_r"}
 ## Bones whose skin is cloth (it flows, it is not a block).
-const CLOTH := ["scarf", "tabard", "sash", "Blade"]
+const CLOTH := ["scarf", "tabard", "sash", "skirt", "Blade"]
 
 var skel: Skeleton3D
 var names: Array = []          # block names (BLOCKS that the skeleton has)

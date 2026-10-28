@@ -111,7 +111,10 @@ func setup(p_names: Array, p_parent: PackedInt32Array, p_limits: PackedFloat32Ar
 		var key := _key(pr[0], pr[1])
 		_hops[key] = _hop_count(pr[0], pr[1])
 		if int(_hops[key]) == 2 and box_c[pr[0]] != null and box_c[pr[1]] != null:
-			_joint_cut[key] = [_cut_root(pr[0], pr[1]), _cut_root(pr[1], pr[0])]
+			# Stored low index first, the order pair_depth reads them in.
+			var lo: int = mini(pr[0], pr[1])
+			var hi: int = maxi(pr[0], pr[1])
+			_joint_cut[key] = [_cut_root(lo, hi), _cut_root(hi, lo)]
 		var d := _depth(bind, Transform3D.IDENTITY, pr[0], pr[1])
 		if d > 0.0:
 			_rest_depth[key] = d
