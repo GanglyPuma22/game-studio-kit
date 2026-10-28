@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-09-05",
+  "reviewed_at": "2026-10-27",
   "sources": [
     {
       "repository": "https://github.com/elevenlabs/skills",
@@ -154,6 +154,143 @@
         }
       ],
       "reference_closure": "Adapted local references resolve inside package. Removed SDK/CLI install, broad routers and optional advanced subworkflows; provider links are external documentation only."
+    },
+    {
+      "repository": "https://github.com/arjun988/blender-skills",
+      "revision": "8f778d2405a214b508d4c7d80742be8e43acdd52",
+      "license": "MIT",
+      "files": [
+        {
+          "upstream": "LICENSE",
+          "upstream_sha256": "693a17a74eacc8ad849d248356fba7fab357b0bef5c94f783029033ab2d950d7",
+          "local": "third_party/blender-skills/LICENSE",
+          "sha256": "693a17a74eacc8ad849d248356fba7fab357b0bef5c94f783029033ab2d950d7",
+          "change": "Unmodified license/notice"
+        },
+        {
+          "upstream": ".claude/skills/blender-director/SKILL.md",
+          "upstream_sha256": "ba10ae3243590f94fb114b6cb1e476f8f0510f0a99de100e8c14651d081bc008",
+          "local": "skills/studio-blender/references/asset-brief.md",
+          "sha256": "7a7f47f0efbead1352b77a909ff5e4b5a9020ed8ff717e395da441fc2cdb8013",
+          "change": "Studio-authored condensed adaptation tested in a game lane; MCP routing, engine naming, polycount tables and external skill links removed; no upstream code copied"
+        },
+        {
+          "upstream": ".claude/skills/prop-artist/SKILL.md",
+          "upstream_sha256": "f8db44db9707474893cf265592242148cbe7b4a597eed1f017c25131fb2b91ff",
+          "local": "skills/studio-blender/references/asset-brief.md",
+          "sha256": "7a7f47f0efbead1352b77a909ff5e4b5a9020ed8ff717e395da441fc2cdb8013",
+          "change": "Studio-authored condensed adaptation tested in a game lane; MCP routing, engine naming, polycount tables and external skill links removed; no upstream code copied"
+        },
+        {
+          "upstream": ".claude/skills/references/asset-pipeline.md",
+          "upstream_sha256": "f395dd0ca860c8021743b96fdb5d04af97d578cdfba3e7b2630cd5a56cfa8d05",
+          "local": "skills/studio-blender/references/asset-brief.md",
+          "sha256": "7a7f47f0efbead1352b77a909ff5e4b5a9020ed8ff717e395da441fc2cdb8013",
+          "change": "Studio-authored condensed adaptation tested in a game lane; MCP routing, engine naming, polycount tables and external skill links removed; no upstream code copied"
+        },
+        {
+          "upstream": ".claude/skills/references/reference-image-match.md",
+          "upstream_sha256": "3d43bbb8d05c0219a965b033012995efa62d3f6b85fb25dbffe6bdd44f48aa14",
+          "local": "skills/studio-blender/references/asset-brief.md",
+          "sha256": "7a7f47f0efbead1352b77a909ff5e4b5a9020ed8ff717e395da441fc2cdb8013",
+          "change": "Studio-authored condensed adaptation tested in a game lane; MCP routing, engine naming, polycount tables and external skill links removed; no upstream code copied"
+        },
+        {
+          "upstream": ".claude/skills/collision-proxy/references/collider-recipes.md",
+          "upstream_sha256": "28e5048f5b87f80e608e0dda668ff3b94dafb6c040e8a0b7afea803f27d2b4e9",
+          "local": "skills/studio-blender/references/asset-brief.md",
+          "sha256": "7a7f47f0efbead1352b77a909ff5e4b5a9020ed8ff717e395da441fc2cdb8013",
+          "change": "Studio-authored condensed adaptation tested in a game lane; MCP routing, engine naming, polycount tables and external skill links removed; no upstream code copied"
+        },
+        {
+          "upstream": ".claude/skills/cloth-sim/SKILL.md",
+          "upstream_sha256": "adc458f300a734c647ff3d4f83ea8c06fbb73859f0be89693d7057848175ea22",
+          "local": "skills/studio-blender/references/cloth-drape.md",
+          "sha256": "22402e00a971bd3a3ca574916ca45ddb49301f2a8a1e5d5dd011182c9cf7ffb2",
+          "change": "Studio-authored condensed adaptation tested in a game lane; MCP routing, engine naming, polycount tables and external skill links removed; no upstream code copied"
+        },
+        {
+          "upstream": ".claude/skills/cloth-sim/references/pin-and-collide.md",
+          "upstream_sha256": "2a67fb37f134ea44df0c2790d33b75c6f9aabc1229338fe367f466fc9abb12d6",
+          "local": "skills/studio-blender/references/cloth-drape.md",
+          "sha256": "22402e00a971bd3a3ca574916ca45ddb49301f2a8a1e5d5dd011182c9cf7ffb2",
+          "change": "Studio-authored condensed adaptation tested in a game lane; MCP routing, engine naming, polycount tables and external skill links removed; no upstream code copied"
+        },
+        {
+          "upstream": ".claude/skills/vegetation-artist/SKILL.md",
+          "upstream_sha256": "3b1f43f0f456b95f5c00f1372f64db75f34967c581b02068d80ee6ef63d476ec",
+          "local": "skills/studio-blender/references/vegetation-and-scatter.md",
+          "sha256": "914cade631fc34615547c33875dece3423dbeec851c07ad0d72d6b1b55c6c841",
+          "change": "Studio-authored adaptation tested in a game lane: trunk flare, tapered branches and LOD advice kept; alpha leaf cards rejected for an outlined look; scatter results are studio measurements; no upstream code copied"
+        }
+      ],
+      "inspected_sources": [
+        {
+          "path": "LICENSE",
+          "sha256": "693a17a74eacc8ad849d248356fba7fab357b0bef5c94f783029033ab2d950d7"
+        },
+        {
+          "path": "README.md",
+          "sha256": "141760b66dae2b0b12d43146b363ba1c6bbea0719eb46ba063e6130f76308f69"
+        },
+        {
+          "path": ".mcp.json",
+          "sha256": "44066bddaf90393ae4d65a7598e719e8cf3ebf66b044e8f4b7ae9bd799d7b3bf"
+        },
+        {
+          "path": ".claude/skills/lod-pipeline/SKILL.md",
+          "sha256": "8025238b3ef5238e9d5304d8014645df2889e0fc09aa5d86de5fea57eafd5b0e"
+        },
+        {
+          "path": ".claude/skills/qa-review/SKILL.md",
+          "sha256": "14bd366e4c7831973d67e74580ebfeafb1749ce1530ef64ba900d097ac38fce0"
+        },
+        {
+          "path": ".claude/skills/comic-book-style/SKILL.md",
+          "sha256": "82833b34215774d2ee2df3f2ef3055340322e3b0112f869e60fd6f6c4cd09735"
+        },
+        {
+          "path": ".claude/skills/godot-export/SKILL.md",
+          "sha256": "262eeeffea3a67c7ab5c8165f8ec92f7605b63fd97c878acc92e4c25812ee96b"
+        },
+        {
+          "path": ".claude/skills/references/naming-conventions.md",
+          "sha256": "3573b3dfecf813c18821922c62e815d9969a0c68349813769a7c3f526aafb3e5"
+        },
+        {
+          "path": ".claude/skills/references/polycount-budgets.md",
+          "sha256": "7745680c18fdc83ef06698b590c6af442a604766186a49a14861fa8d487a0a75"
+        },
+        {
+          "path": ".claude/skills/blender-director/SKILL.md",
+          "sha256": "ba10ae3243590f94fb114b6cb1e476f8f0510f0a99de100e8c14651d081bc008"
+        },
+        {
+          "path": ".claude/skills/prop-artist/SKILL.md",
+          "sha256": "f8db44db9707474893cf265592242148cbe7b4a597eed1f017c25131fb2b91ff"
+        },
+        {
+          "path": ".claude/skills/references/asset-pipeline.md",
+          "sha256": "f395dd0ca860c8021743b96fdb5d04af97d578cdfba3e7b2630cd5a56cfa8d05"
+        },
+        {
+          "path": ".claude/skills/references/reference-image-match.md",
+          "sha256": "3d43bbb8d05c0219a965b033012995efa62d3f6b85fb25dbffe6bdd44f48aa14"
+        },
+        {
+          "path": ".claude/skills/collision-proxy/references/collider-recipes.md",
+          "sha256": "28e5048f5b87f80e608e0dda668ff3b94dafb6c040e8a0b7afea803f27d2b4e9"
+        },
+        {
+          "path": ".claude/skills/cloth-sim/SKILL.md",
+          "sha256": "adc458f300a734c647ff3d4f83ea8c06fbb73859f0be89693d7057848175ea22"
+        },
+        {
+          "path": ".claude/skills/cloth-sim/references/pin-and-collide.md",
+          "sha256": "2a67fb37f134ea44df0c2790d33b75c6f9aabc1229338fe367f466fc9abb12d6"
+        }
+      ],
+      "reference_closure": "Adapted local references resolve inside the package. The 94-skill router, live-MCP execution plans, engine naming (UCX/UHX, MAT_), AAA polycount tables, LOD percentages and style packs were inspected and not included."
     }
   ]
 }

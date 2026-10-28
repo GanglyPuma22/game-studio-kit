@@ -13,8 +13,10 @@ four review rounds (18 moves: idle, turn, walk, gallop, punches, bites, a
 lunge, two kinds of climb, hits, death) until the user approved the set.
 The second put three two-legged giants (22 blocks over rigid gameplay
 pieces) and one skinned human hero on the same modules; its lessons are in
-[Two legs](#two-legs-second-pilot). Each lesson names what went wrong,
-what it cost and what to do instead.
+[Two legs](#two-legs-second-pilot), and the second round's (shoulders,
+no block through another, standing tall) in
+[Second round](#second-round-shoulders-and-no-block-through-another).
+Each lesson names what went wrong, what it cost and what to do instead.
 
 ## The modules
 
@@ -29,7 +31,8 @@ sync with the Kit by hand.
 | [two_bone.gd](../scripts/block_anim/two_bone.gd) | two-bone limbs with the bend hint named for its kind (`solve_toward_point`, `solve_toward_direction`) and a hinge axis that remembers last frame's side |
 | [gait.gd](../scripts/block_anim/gait.gd) | walk, canter and rotary gallop footfalls with world plants, spine flex and hind/fore load |
 | [plant.gd](../scripts/block_anim/plant.gd) | the no-slide stepper with deliberate defaults (`configure(leg_length)`, rest, paired feet, no step in place) |
-| [motion_check.gd](../scripts/block_anim/motion_check.gd) | the rule checker: per-clip report plus per-frame events; `setup_rig()` reads a rig description |
+| [motion_check.gd](../scripts/block_anim/motion_check.gd) | the rule checker: per-clip report plus per-frame events; `setup_rig()` reads a rig description; `pair_over()` for a rig that keeps its own limbs clear |
+| [skin_blocks.gd](../scripts/block_anim/skin_blocks.gd) | blocks for a skinned humanoid from its own skin (each vertex's main bone, 4th to 96th percentile, limbs joint to joint), with a checker on them: run rule 8b on any authored clip |
 | [selftest.gd](../scripts/block_anim/selftest.gd) | golden poses for all of the above; `godot --headless --script .../selftest.gd` exits 1 on a failure |
 
 The rig description template is
@@ -128,8 +131,12 @@ pilot.
       pinned blocks that let go when scenery is in the way.
 - [ ] **Per-move expectations**: planted contacts, when balance applies,
       thresholds.
+- [ ] **Every pair checked for block through block** (rule 8b), on the
+      new moves and on the authored ones they replace.
+- [ ] **Two-legged hips at the bind height**, not the quadruped's stance.
+- [ ] **A shoulder block per arm** before tuning any arm move.
 - [ ] **Every changed move watched at full speed** from at least two
-      angles.
+      angles, or from any angle in a model viewer.
 
 ## Two legs (second pilot)
 
@@ -186,6 +193,103 @@ human hero. What changed from the quadruped:
   for its hinge), write bones parents first from global targets, and keep
   what the clips do for bones the rig leaves alone (fingers, cloth).
   Render old and new from one stand-in so the comparison is fair.
+
+## Second round: shoulders and no block through another
+
+The user's second review of the two-legged set approved bites, a grab
+hold, the turn, the kneel, a hit and the death, and sent back the rest
+with four findings that applied to every giant. What fixed each:
+
+- **One block for the whole upper torso cannot load a punch.** An elbow
+  bent back behind the body on every wind-up. Add a shoulder (collarbone)
+  block per side between the chest and the upper arm, turned about the
+  collarbone's inner end from where the hand is going: up for a hand
+  overhead or a shrug, forward for a reach, back for a hand drawn back.
+  The arm hangs from that block, so the shoulder joint moves and the elbow
+  no longer has to.
+- **Every pair, by depth, not a list.** The arm-through-torso and
+  feet-crossing defects the user saw were in pairs nobody had listed. Check
+  all pairs by overlap depth (rule 8b), report each pair's worst excess,
+  and run it on the authored clips too: old clips had small overlaps
+  (hands into hips, 0.1 m on a person) that set the bar for the new ones.
+- **Limbs out of the body is a solve, not a check.** After the arm's
+  two-bone solve, try a few ways out (the elbow swung round the
+  shoulder-to-hand line, the hand moved out, forward, or out and forward)
+  and keep the cheapest: the overlap counts most, then how far it moved,
+  then how far from last frame's choice (or the arm flicks between two
+  equal answers). Ease toward it, but let a fast strike jump as far along
+  as it needs to stay clear (a short line search), or the easing lets the
+  fist pass through. Scale the hand moves to the arm's length; a long-armed
+  body needs more. Do the same for thighs against the belly (turn the knee
+  out) and the head against the chest (lift the neck).
+- **Stand at the bind height.** A rig that copied the quadruped's
+  low-slung hips made every two-legged walk and run a crouch ("a monkey
+  running"). Hips at the bind height, legs nearly straight at a walk, a
+  slight sink only at a run; crouch only where a move asks (a low bite, a
+  kneel). Keep the low stance for the creature built for it.
+- **A strike at something low hinges at the hips** (the shoulders go out
+  over the knees) instead of squatting straight down, so the arm comes
+  down in front of the legs, not through them.
+- **Look where the head points.** In a long hold the head pitched up
+  toward the sky as the chest leaned in; level the gaze with the neck in a
+  hold rather than leaving the bite's head pitch on a leaning body.
+- **Keep authored clips that already work.** On a skinned hero, keep the
+  authored run and jog (the user preferred them) and blend the rig only for
+  moves it improves (here the lunge, spin and slash); blend legs and arms
+  separately so a slash on the run keeps the clip's legs.
+- **Review in a model viewer, from any angle.** Fixed-camera videos hid
+  the far arm in a punch and a grab. Record each move as an animated GLB
+  (each mesh's transform per frame, a skeleton with bone tracks for a
+  skinned body, scale 0 while hidden) in three versions (today, new, the
+  blocks) and send them to the project's model viewer, one model per move,
+  with a direct link per move in the review.
+
+## Third round: wobble, crossing arms, and reacting to hits
+
+The user's third review asked for fixes to five moves and two new rules:
+speed and acceleration limits (9b) and a shake check (9c), each one
+overridable per move. Each fix came from what the new rules measured:
+
+- **Spring every feedback value.** A value that answers an overlap (the
+  neck ducking for the chest, the shoulder dropping for the head) and
+  moves the block it measures will oscillate frame to frame. Spring it
+  toward its target, faster going in than coming out.
+- **Spring the head, and keep it level while pinned.** A head aimed at a
+  pinned skull wobbled side to side in a walk. Spring yaw and pitch, and
+  remove roll (turn its up toward world up about its forward axis).
+- **A held bite leaves the arm free.** While the jaws hold the catch, the
+  arm on that side should follow its own pose, not chase the head's
+  catch point.
+- **Drop the shoulder before the head arrives.** On the bite side, lower
+  the collarbone ahead of time (feed-forward from the wind-up), not only
+  after the head is already in it.
+- **Reach around the shoulder.** A grab reach that lerps in a straight
+  line cuts through the chest. Slerp the hand's direction around the
+  shoulder instead, and ease the drawn hand back onto the game's hand over
+  about 0.1 s when the rig hands control back.
+- **A resolver's memory must fade.** Preferring last frame's way out stops
+  flicker, but kept forever it holds a stale push long after the arm's own
+  pose is clear (an uppercut flipped 157°). Decay the bonus over about
+  0.5 s of clear frames.
+- **Catch-up speed scales with need.** Cap how fast the resolver moves the
+  arm, but scale the cap with the hand's own speed and how deep the overlap
+  is, or a fast strike passes through while the cap holds it back.
+- **Two crossing arms: one leads.** Solving both arms against last frame's
+  other arm makes them push each other back and forth. Solve one, then
+  check the second against the first arm's current frame.
+- **Rate-limit the elbow's swing.** The worst shake on the hero (30% of a
+  run's frames) was the two-bone solve picking a far elbow side. Keep the
+  hinge axis continuous (start from last frame's, rate-limited), and cap
+  how fast the elbow swings round the shoulder-to-hand line (about
+  10 rad/s), solving again with the capped pole. The run's shake fell to
+  1.3%.
+- **React to hits in the drawn pose only.** A flinch (trunk rocks away
+  from the cut, a hit arm knocked back, a hit leg dips the hips), a short
+  pose hold for the hit's pause, and a disabled arm hanging limp as a
+  damped pendulum all read well and cost nothing online: they run on each
+  machine from hits it already sees, and a headless server skips them.
+  Scale them by one slider, and keep them small enough that the rules
+  still pass.
 
 ## Handoff
 
