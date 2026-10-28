@@ -207,6 +207,7 @@
     "skills/studio-animation/scripts/block_anim/gait.gd",
     "skills/studio-animation/scripts/block_anim/plant.gd",
     "skills/studio-animation/scripts/block_anim/motion_check.gd",
+    "skills/studio-animation/scripts/block_anim/skin_blocks.gd",
     "skills/studio-animation/scripts/block_anim/selftest.gd",
     "templates/block-rig.json",
     "studio_tools/character_run.py",
