@@ -171,35 +171,35 @@
           "upstream": ".claude/skills/blender-director/SKILL.md",
           "upstream_sha256": "ba10ae3243590f94fb114b6cb1e476f8f0510f0a99de100e8c14651d081bc008",
           "local": "skills/studio-blender/references/asset-brief.md",
-          "sha256": "71309d8245ee399f230844a69759869da841a6ad155e15132fa37e7c2c6da0e8",
+          "sha256": "7a7f47f0efbead1352b77a909ff5e4b5a9020ed8ff717e395da441fc2cdb8013",
           "change": "Studio-authored condensed adaptation tested in a game lane; MCP routing, engine naming, polycount tables and external skill links removed; no upstream code copied"
         },
         {
           "upstream": ".claude/skills/prop-artist/SKILL.md",
           "upstream_sha256": "f8db44db9707474893cf265592242148cbe7b4a597eed1f017c25131fb2b91ff",
           "local": "skills/studio-blender/references/asset-brief.md",
-          "sha256": "71309d8245ee399f230844a69759869da841a6ad155e15132fa37e7c2c6da0e8",
+          "sha256": "7a7f47f0efbead1352b77a909ff5e4b5a9020ed8ff717e395da441fc2cdb8013",
           "change": "Studio-authored condensed adaptation tested in a game lane; MCP routing, engine naming, polycount tables and external skill links removed; no upstream code copied"
         },
         {
           "upstream": ".claude/skills/references/asset-pipeline.md",
           "upstream_sha256": "f395dd0ca860c8021743b96fdb5d04af97d578cdfba3e7b2630cd5a56cfa8d05",
           "local": "skills/studio-blender/references/asset-brief.md",
-          "sha256": "71309d8245ee399f230844a69759869da841a6ad155e15132fa37e7c2c6da0e8",
+          "sha256": "7a7f47f0efbead1352b77a909ff5e4b5a9020ed8ff717e395da441fc2cdb8013",
           "change": "Studio-authored condensed adaptation tested in a game lane; MCP routing, engine naming, polycount tables and external skill links removed; no upstream code copied"
         },
         {
           "upstream": ".claude/skills/references/reference-image-match.md",
           "upstream_sha256": "3d43bbb8d05c0219a965b033012995efa62d3f6b85fb25dbffe6bdd44f48aa14",
           "local": "skills/studio-blender/references/asset-brief.md",
-          "sha256": "71309d8245ee399f230844a69759869da841a6ad155e15132fa37e7c2c6da0e8",
+          "sha256": "7a7f47f0efbead1352b77a909ff5e4b5a9020ed8ff717e395da441fc2cdb8013",
           "change": "Studio-authored condensed adaptation tested in a game lane; MCP routing, engine naming, polycount tables and external skill links removed; no upstream code copied"
         },
         {
           "upstream": ".claude/skills/collision-proxy/references/collider-recipes.md",
           "upstream_sha256": "28e5048f5b87f80e608e0dda668ff3b94dafb6c040e8a0b7afea803f27d2b4e9",
           "local": "skills/studio-blender/references/asset-brief.md",
-          "sha256": "71309d8245ee399f230844a69759869da841a6ad155e15132fa37e7c2c6da0e8",
+          "sha256": "7a7f47f0efbead1352b77a909ff5e4b5a9020ed8ff717e395da441fc2cdb8013",
           "change": "Studio-authored condensed adaptation tested in a game lane; MCP routing, engine naming, polycount tables and external skill links removed; no upstream code copied"
         },
         {
@@ -215,6 +215,13 @@
           "local": "skills/studio-blender/references/cloth-drape.md",
           "sha256": "22402e00a971bd3a3ca574916ca45ddb49301f2a8a1e5d5dd011182c9cf7ffb2",
           "change": "Studio-authored condensed adaptation tested in a game lane; MCP routing, engine naming, polycount tables and external skill links removed; no upstream code copied"
+        },
+        {
+          "upstream": ".claude/skills/vegetation-artist/SKILL.md",
+          "upstream_sha256": "3b1f43f0f456b95f5c00f1372f64db75f34967c581b02068d80ee6ef63d476ec",
+          "local": "skills/studio-blender/references/vegetation-and-scatter.md",
+          "sha256": "914cade631fc34615547c33875dece3423dbeec851c07ad0d72d6b1b55c6c841",
+          "change": "Studio-authored adaptation tested in a game lane: trunk flare, tapered branches and LOD advice kept; alpha leaf cards rejected for an outlined look; scatter results are studio measurements; no upstream code copied"
         }
       ],
       "inspected_sources": [
