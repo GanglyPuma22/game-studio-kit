@@ -25,4 +25,4 @@ A creature claim names one of these three tiers, and each has a test that settle
 
 A report states which tier it claims, and only the gameplay-ready encounter may be called gameplay-ready. Looping clips reported as residents is the failure this exists to prevent: the word was upgraded, the behaviour was not.
 
-For exploration questions, use [actionable discovery](../../references/actionable-discovery.md). For companion timing/continuity, use [knowledge and delivery](../../references/companion-delivery.md). These are small design references; they do not authorize game-specific lore, state frameworks or live voice integration.
+Before a mode, respawn rule or role is argued for, name the kind of fun it promises and score it with [studio-fun-audit](../studio-fun-audit/SKILL.md); an encounter brief serves a named target, not the word fun. For exploration questions, use [actionable discovery](../../references/actionable-discovery.md). For companion timing/continuity, use [knowledge and delivery](../../references/companion-delivery.md). These are small design references; they do not authorize game-specific lore, state frameworks or live voice integration.

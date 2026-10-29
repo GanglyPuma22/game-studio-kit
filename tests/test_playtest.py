@@ -28,7 +28,8 @@ TEMPLATE = ROOT / "templates/playtest-harness.gd"
 RECEIPTS = ("playtest.json", "exit.json", "process/process.json", "diagnostics.json")
 # check-package counts the manifest's own skills but cannot read prose, so the
 # documents that tell an agent how many entrypoints exist are checked here.
-NUMBER_WORDS = {10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen", 14: "fourteen", 15: "fifteen", 16: "sixteen"}
+NUMBER_WORDS = {10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen", 14: "fourteen", 15: "fifteen", 16: "sixteen",
+                17: "seventeen"}
 CATALOG_DOCS = ("AGENTS.md", "README.md", "docs/agent-start.md", "docs/setup-windows.md",
                 "docs/contributing.md", "references/tool-routing.md")
 CATALOG_NOUN = r"(?:skills|entrypoints|folders)"

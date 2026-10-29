@@ -126,5 +126,6 @@ Return the run directory, the `relaunch` script path, the observations, and the 
 | Input wiring, probe mechanics, `SceneTree` runners, frame-stamped assertions | [studio-godot](../studio-godot/references/testing-and-performance.md) |
 | Filling in the harness template | [harness](references/harness.md) |
 | Rooms built to measure each verb, with checks per room | [studio-gym](../studio-gym/SKILL.md) |
+| Turning observations into fun-target scores, dead-time legs and readable-death counts | [studio-fun-audit](../studio-fun-audit/SKILL.md) |
 
 `ok` in a playtest receipt is run health: the engine ran, logged no errors and produced its declared results. It is never acceptance, and `acceptance` stays `not_established` in every mode. A playtest cannot be passed by a program.

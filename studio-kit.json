@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "game-studio-kit",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "skills": [
     {
       "name": "studio-director",
@@ -10,6 +10,10 @@
     {
       "name": "studio-game-design",
       "path": "skills/studio-game-design/SKILL.md"
+    },
+    {
+      "name": "studio-fun-audit",
+      "path": "skills/studio-fun-audit/SKILL.md"
     },
     {
       "name": "studio-art-direction",
@@ -89,6 +93,10 @@
     "skills/studio-godot/references/architecture.md",
     "skills/studio-godot/references/physics-and-precision.md",
     "skills/studio-godot/references/testing-and-performance.md",
+    "skills/studio-fun-audit/references/kinds-of-fun.md",
+    "skills/studio-fun-audit/references/respawn-and-dead-time.md",
+    "skills/studio-fun-audit/references/worked-examples.md",
+    "skills/studio-fun-audit/references/sources.md",
     "skills/studio-playtest/references/harness.md",
     "skills/studio-gym/references/room-catalog.md",
     "skills/studio-gym/references/godot-gym.md",
@@ -157,6 +165,7 @@
     "studio_tools/validation.py",
     "templates/asset.json",
     "templates/batch-plan.json",
+    "templates/fun-audit.json",
     "templates/gym-plan.json",
     "templates/launch-profile.json",
     "templates/audio-cues.json",
