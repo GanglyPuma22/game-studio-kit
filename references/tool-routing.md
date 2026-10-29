@@ -3,6 +3,7 @@
 | Need | First useful route | Escalation / handoff |
 |---|---|---|
 | Scope, action, story feedback | studio-game-design | Ask only for a material unresolved product decision |
+| Which kind of fun a role is promised; a mode, respawn rule or dead-time audit | [studio-fun-audit](../skills/studio-fun-audit/SKILL.md) | Every score is evidence or hypothesis; the owner's playtest judgment outranks bot data |
 | Reference fidelity and asset family | studio-art-direction | Use the host's available concept tool when authorized; record reported model only |
 | New model or look-changing remodel, when `art_pipeline.concept_required_for` lists it | studio-art-direction [concept and free base](../skills/studio-art-direction/references/concept-and-bases.md) | Owner approves the concept; CC0/CC-BY base check before Blender or a paid generator. Without `art_pipeline` this is a recommendation, not a gate |
 | Critic rounds on a visible asset | studio-review [critic loop](../skills/studio-review/references/critic-loop.md) | Round cap and owner look; `review revision` records the chain |
@@ -21,7 +22,7 @@
 
 `doctor` is offline-first. An executable's `ready` means it answered a version query; operations remain unverified until executed. Credential presence is not authentication, entitlement, balance or provider readiness. The helper always reports host computer use as unverified: the active agent must inspect its actual tool list and perform a bounded native app operation to establish it.
 
-Each output has one writer. Only one operator controls the visible desktop. Delegation is optional and follows host/user authorization; the sixteen skills are not sixteen persistent agents. Save the editable source before a mode switch and track who owns any launched process. Do not reuse another project's environment assumptions.
+Each output has one writer. Only one operator controls the visible desktop. Delegation is optional and follows host/user authorization; the seventeen skills are not seventeen persistent agents. Save the editable source before a mode switch and track who owns any launched process. Do not reuse another project's environment assumptions.
 
 
 | Concrete request | Staged reads and advancement |

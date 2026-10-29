@@ -11,7 +11,7 @@ from .common import read_json, relative, StudioError, sha256
 REQUIRED_SKILLS = {
     name: f"skills/{name}/SKILL.md"
     for name in (
-        "studio-director", "studio-game-design", "studio-art-direction", "studio-blender",
+        "studio-director", "studio-game-design", "studio-fun-audit", "studio-art-direction", "studio-blender",
         "studio-meshy", "studio-terrain", "studio-animation", "studio-audio", "studio-godot",
         "studio-playtest", "studio-gym", "studio-review", "studio-model-qa", "studio-assets",
         "studio-cloudrun",

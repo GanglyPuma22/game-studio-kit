@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "kind": "fun-audit",
+  "project": "<project id>",
+  "work_card": "<path to the work card this audit serves>",
+  "audited_utc": "<ISO 8601>",
+  "auditor": "<session or person>",
+  "vocabulary": {
+    "kinds": ["sensation", "fantasy", "narrative", "challenge", "fellowship", "discovery", "expression", "submission", "competition"],
+    "keys": ["hard", "easy", "people", "serious"],
+    "legs": ["cap", "job", "readability", "stakes"],
+    "leg_marks": ["present", "weak", "absent"],
+    "status_values": ["evidence", "hypothesis", "not_run"]
+  },
+  "targets": [
+    {
+      "role": "<role as the project names it, or team>",
+      "primary": "<one kind>",
+      "secondary": [],
+      "mechanic": "<the one or two mechanics the primary rests on; path:line when it is code>",
+      "keys": [],
+      "status": "hypothesis",
+      "basis": "<playtest report, session label or none>"
+    }
+  ],
+  "candidates": [
+    {
+      "id": "<mode, feature or rule>",
+      "branch": "<branch or build that carries it, or main>",
+      "roles": [
+        {
+          "role": "<role>",
+          "delivery": {"mark": "present|weak|absent", "mechanic": "<what delivers the primary kind>", "status": "hypothesis", "basis": ""},
+          "use": {"mark": "present|weak|absent", "status": "hypothesis", "basis": ""},
+          "face": {"mark": "present|weak|absent|not_applicable", "status": "hypothesis", "basis": ""},
+          "required_fellowship": {"count": 0, "mechanics": [], "status": "hypothesis"},
+          "visible_contribution": {"mark": "present|weak|absent", "how": "", "status": "hypothesis"},
+          "efficiency_fantasy": {"mark": "present|weak|absent", "note": "", "status": "hypothesis"},
+          "keys": []
+        }
+      ],
+      "dead_states": [
+        {
+          "state": "<dead and waiting, respawning, between rounds, walk back>",
+          "role": "<role>",
+          "seconds_per_stretch": null,
+          "share_of_match": null,
+          "legs": {"cap": "absent", "job": "absent", "readability": "absent", "stakes": "absent"},
+          "weakest_leg": "<cap|job|readability|stakes>",
+          "status": "hypothesis",
+          "basis": ""
+        }
+      ],
+      "micro_victory_devices": []
+    }
+  ],
+  "death_readability": {
+    "window_seconds": null,
+    "slider": "<tuning slider name, or none yet>",
+    "deaths_reviewed": 0,
+    "deaths_meeting_window": 0,
+    "status": "not_run",
+    "basis": ""
+  },
+  "death_screen_progress": {
+    "shows": [],
+    "data_available": [],
+    "data_gaps": [],
+    "flag": "<default-off launch flag or slider, or none yet>",
+    "status": "not_run"
+  },
+  "experiments": [
+    {
+      "hypothesis": "<the score it would turn into evidence>",
+      "prototype": "<smallest branch build>",
+      "measures": [],
+      "changes_recommendation_if": "<the result that would change the call>",
+      "branch": null
+    }
+  ],
+  "recommendation": {
+    "candidate": null,
+    "targets_hit": [],
+    "weakest_leg": null,
+    "plan_for_weakest_leg": "",
+    "runner_up_wins_if": "",
+    "owner_decision_needed": ""
+  }
+}

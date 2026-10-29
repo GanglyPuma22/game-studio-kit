@@ -32,6 +32,7 @@ preserve unique run logs and classify completed output before reporting status.
 | Task | Read next |
 |---|---|
 | Gameplay action, story/companion state | [studio-game-design](../studio-game-design/SKILL.md) |
+| What kind of fun a role or mode promises, scored from playtests; respawn and dead-time rules; death readability; the death-screen progress display | [studio-fun-audit](../studio-fun-audit/SKILL.md) |
 | Reference/style contract and concept comparison | [studio-art-direction](../studio-art-direction/SKILL.md) |
 | Modeling, material, render, GLB | [studio-blender](../studio-blender/SKILL.md) |
 | Is this Blender question perceptual (silhouette, proportion, construction language, reference match, composition, material response, camera readability) or deterministic (import, export, bake, reduce, measure, qualify, replay a settled edit)? | Perceptual: a persistent [live scene](../studio-blender/SKILL.md#live-sessions-journal-then-save-announce-stop). Deterministic: an owned background job, `blender run`, the row below. Decide it on this row, because a monolithic background generator answers a look question with one take nobody watched being made |
