@@ -8,9 +8,11 @@ recipe shipped with this kit (``skills/studio-cloudrun/recipes``) and its plan
 - ``here``: in the current machine (a cloud agent box or a workstation), with a
   virtual screen and whatever Vulkan driver it has (a software one in a cloud
   box). Free and slow; needs no approval.
-- ``colab``: on a Colab GPU runtime, started by the queue service on an
-  always-on host. Fast; spends compute units; starts only after the person's
-  typed go for the service.
+- ``colab``: on a Colab runtime, started by the queue service on an
+  always-on host: a GPU (``gpu``: L4, T4, A100) or, with ``"gpu": "CPU"``, a
+  CPU-only runtime for work that never draws on a GPU (headless sims,
+  benches, soaks), which costs far fewer units an hour. Spends compute units;
+  starts only after the person's typed go for the service.
 
 The service host never runs a job's commands itself. It packs the named
 commit with ``git archive``, copies it to the runtime and runs the commands
@@ -32,8 +34,8 @@ SCHEMA = 1
 # the job's own commands run; the commands themselves come from the job.
 JOB_TYPES = {
     "godot-capture": {
-        "summary": "Check out a Godot game, run its own capture command on a GPU with a virtual screen, bring back OUT_DIR (clips, stills, numbers).",
-        "runtime": ["virtual screen (Xvfb :99)", "Vulkan on the runtime GPU", "ffmpeg", "git checkout at OUT_DIR's parent"],
+        "summary": "Check out a Godot game, run its own capture command on a GPU with a virtual screen (or on a CPU runtime, headless), bring back OUT_DIR (clips, stills, numbers).",
+        "runtime": ["virtual screen (Xvfb :99), unless screen is false", "Vulkan on the runtime GPU (software on a CPU runtime)", "ffmpeg", "git checkout at OUT_DIR's parent"],
     },
     "model-run": {
         "summary": "Run one of this kit's model recipes (music, sound effects) on a Colab GPU with the job's plan, bring back originals, previews and a receipt.",
@@ -49,6 +51,10 @@ RESERVED_TYPES = {
 }
 WHERE = ("here", "colab")
 GPUS = ("L4", "T4", "A100")
+# What a godot-capture job may ask for: a GPU, or "CPU" for a runtime with no
+# accelerator. CPU runtimes cost a small fraction of a GPU's units per hour, so
+# CPU-only work (headless sims, benches, soaks) belongs there.
+RUNTIMES = GPUS + ("CPU",)
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,63}$")
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 REF_RE = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
@@ -104,8 +110,19 @@ def validate(job, allow_repos=None, allow_refs=None):
     if where not in WHERE:
         errors.append(f"where must be one of {', '.join(WHERE)}")
     gpu = job.get("gpu", "L4")
-    if gpu not in GPUS:
-        errors.append(f"gpu must be one of {', '.join(GPUS)}")
+    if gpu not in RUNTIMES:
+        errors.append(f"gpu must be one of {', '.join(RUNTIMES)}")
+    for key in ("high_mem", "screen"):
+        if key in job and not isinstance(job[key], bool):
+            errors.append(f"{key} must be true or false")
+    # Optional spending ceiling, as for model runs (enforced on Colab only).
+    if "max_units" in job:
+        _number(job, "max_units", 0.01, MAX_UNITS, errors)
+    if "max_rate" in job:
+        if "max_units" not in job:
+            errors.append("max_rate needs max_units")
+        else:
+            _number(job, "max_rate", 0.01, 50, errors)
     minutes = job.get("max_minutes")
     if not isinstance(minutes, (int, float)) or isinstance(minutes, bool) or not 1 <= minutes <= MAX_MINUTES:
         errors.append(f"max_minutes must be a number from 1 to {MAX_MINUTES}")
@@ -164,6 +181,8 @@ def _validate_model_run(job):
     rate = job.get("max_rate")
     if rate is not None:
         _number(job, "max_rate", 0.1, 50, errors)
+    if "high_mem" in job and not isinstance(job["high_mem"], bool):
+        errors.append("high_mem must be true or false")
     name = job.get("recipe")
     known = recipes()
     if name not in known:
@@ -243,6 +262,29 @@ def parse_queue(text):
     return jobs, stop
 
 
+def wants_screen(job):
+    """Whether the runtime starts a virtual screen: on a GPU unless the job
+    says screen false; on a CPU runtime only when the job says screen true."""
+    if job.get("type") == "model-run":
+        return False
+    return job.get("screen", job.get("gpu", "L4") != "CPU")
+
+
+def colab_new(job, default_gpu="L4"):
+    """The colab CLI call that makes this job's runtime."""
+    gpu = job.get("gpu", default_gpu)
+    words = ["colab new"] + ([] if gpu == "CPU" else [f"--gpu {gpu}"])
+    if job.get("high_mem"):
+        words.append("--high-mem")
+    return " ".join(words)
+
+
+def _rate_rule(job):
+    if "max_rate" in job:
+        return f"refuse an unknown rate or one above {job['max_rate']} units/hour"
+    return "refuse an unknown rate"
+
+
 def plan(job, where=None):
     """The exact steps a runner takes for this job, for review before a go."""
     errors = validate(job)
@@ -258,7 +300,7 @@ def plan(job, where=None):
         if recipe.get("gated"):
             steps.append(f"service host: resolve short-lived download links for {recipe['model']['repo']} with the host's Hugging Face login (the token never leaves the host)")
         steps += [
-            f"service host: colab new --gpu {gpu}; read the hourly rate; refuse above {job.get('max_rate', 'no')} units/hour; cap the runtime at {job['max_minutes']} min + 20 or {job['max_units']} units, whichever comes first",
+            f"service host: {colab_new(job, gpu)}; read the hourly rate; refuse above {job.get('max_rate', 'no')} units/hour; cap the runtime at {job['max_minutes']} min + 20 or {job['max_units']} units, whichever comes first",
             "runtime: setup: " + recipe.get("setup_summary", "the recipe's setup.sh"),
             "runtime: run: " + recipe.get("run_summary", "the recipe's run.sh"),
             "service host: copy OUT_DIR back, check every file against the runtime's SHA-256 list, stop the runtime, push results",
@@ -267,10 +309,17 @@ def plan(job, where=None):
     if where == "colab":
         steps += [
             f"service host: git fetch {job['repo']} {job['ref']}; git archive that commit (no .git, no credentials)",
-            f"service host: colab new --gpu {job.get('gpu', 'L4')} (waits for a free GPU; the account's limit applies)",
+            f"service host: {colab_new(job)} (waits for a free runtime; the account's limit applies)",
+            (f"service host: read the hourly rate; {_rate_rule(job)}; cap the runtime at {job['max_minutes']} min + 20 or {job['max_units']} units, whichever comes first"
+             if "max_units" in job else f"service host: cap the runtime at {job['max_minutes']} min + 20 (no unit ceiling set)"),
             "service host: copy the archive and the runtime scripts in over colab ssh",
-            "runtime: install xvfb, ffmpeg and Vulkan loader; start Xvfb :99; pick the NVIDIA Vulkan driver",
         ]
+        if not wants_screen(job):
+            steps.append("runtime: no screen; record the CPU, memory and any GPU")
+        elif job.get("gpu", "L4") == "CPU":
+            steps.append("runtime: install xvfb, ffmpeg and Vulkan loader; start Xvfb :99; no GPU, so the software driver (lavapipe) draws")
+        else:
+            steps.append("runtime: install xvfb, ffmpeg and Vulkan loader; start Xvfb :99; pick the NVIDIA Vulkan driver")
     else:
         steps += [
             f"here: use the checkout of {job['repo']} at {job['ref']} given with --project",

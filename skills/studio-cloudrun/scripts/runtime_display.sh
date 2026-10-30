@@ -15,10 +15,11 @@ set -u
 JOB=${JOB_ROOT:-/content/job}
 ENV=$JOB/env.txt
 if [ "${1:-}" = --no-screen ]; then
-	# Model runs: no screen; just record the GPU.
+	# Model runs and headless jobs (CPU runtimes): no screen; just record the
+	# CPU, memory and GPU, if any.
 	{ nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>/dev/null || echo "no nvidia-smi"
-	  echo "nproc $(nproc)"; free -g | sed -n 2p
-	  if nvidia-smi > /dev/null 2>&1; then echo "gpu=nvidia (no screen)"; else echo "gpu=none (no NVIDIA driver answered)"; fi
+	  echo "nproc $(nproc)"; lscpu 2>/dev/null | grep -E "Model name" | head -1; free -g | sed -n 2p
+	  if nvidia-smi > /dev/null 2>&1; then echo "gpu=nvidia (no screen)"; else echo "gpu=none (CPU runtime or no NVIDIA driver answered)"; fi
 	} > "$ENV"
 	cat "$ENV"; exit 0
 fi

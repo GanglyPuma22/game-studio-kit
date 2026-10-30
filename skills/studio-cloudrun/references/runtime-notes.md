@@ -23,3 +23,10 @@ What is known about the places a cloud run draws, from Salvage's Colab runs (Oct
 - The ssh link through `colab ssh --proxy-mode` can drop mid-start (an A100 start hung 2.5 min, then `Broken pipe`, Oct 2026). Every start-up step in colab_job.sh is safe to repeat and gets three tries; the job start checks runner.pid so a retry never starts it twice.
 - Python model stacks on Colab (audio tests, Oct 2026): the default kernel was Python 3.13 and `venv` bootstrap failed; `uv venv --python 3.12` worked. Set `MPLBACKEND=Agg` (Colab's inline backend is missing inside a uv env). Diffusers' Stable Audio scheduler needs `torchsde`. Check imports before downloading weights.
 - Connection drops happen (websocket, ssh, HTTP 429 right after start-up); retry the first ssh a few times, and rerun a job once when its log shows an infrastructure error.
+
+## Colab CPU runtime (`"gpu": "CPU"`)
+
+- `colab new` with no `--gpu`/`--tpu` gives a CPU-only runtime (CLI 0.7.4); `--high-mem` asks for High-RAM, which comes with more cores. Added Oct 2026 after headless Godot benches had been taking L4s (about 1.9 units an hour) for work that never touched the GPU.
+- No NVIDIA driver: the runner skips the virtual screen by default (`env.txt` says `gpu=none`), so the job must run headless. With `"screen": true` Xvfb starts and lavapipe draws, slowly.
+- Rate, cores and RAM: measure before relying on them, and re-check: they depend on the plan and change. Set `max_rate` just above the measured CPU rate so a job can never spend at a GPU's rate by mistake.
+
