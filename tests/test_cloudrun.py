@@ -119,6 +119,32 @@ class CloudrunJobTests(unittest.TestCase):
         here = cloudrun.plan(job(), "here")["steps"]
         self.assertFalse(any("colab" in s for s in here))
 
+    def test_cpu_runtime_is_headless_and_has_no_gpu_flag(self):
+        cpu = job(gpu="CPU", high_mem=True, max_units=0.5, max_rate=0.5)
+        self.assertEqual(cloudrun.validate(cpu), [])
+        steps = cloudrun.plan(cpu)["steps"]
+        self.assertTrue(any("colab new --high-mem" in s for s in steps), steps)
+        self.assertFalse(any("--gpu" in s for s in steps))
+        self.assertTrue(any("no screen" in s for s in steps))
+        self.assertTrue(any("0.5 units" in s for s in steps))
+        self.assertFalse(cloudrun.wants_screen(cpu))
+        self.assertTrue(cloudrun.wants_screen(job(gpu="CPU", screen=True)))
+        self.assertTrue(cloudrun.wants_screen(job()))
+        self.assertFalse(cloudrun.wants_screen(job(screen=False)))
+        self.assertTrue(any("lavapipe" in s for s in cloudrun.plan(job(gpu="CPU", screen=True))["steps"]))
+
+    def test_cpu_options_are_checked(self):
+        for over, message in (({"high_mem": "yes"}, "high_mem"), ({"screen": 1}, "screen"),
+                              ({"max_rate": 1}, "max_rate needs max_units"), ({"max_units": 50}, "max_units")):
+            with self.subTest(over=over):
+                self.assertTrue(any(message in e for e in cloudrun.validate(job(**over))))
+
+    def test_model_runs_never_take_a_cpu_runtime(self):
+        plan = json.loads((cloudrun.RECIPES_DIR / "stable-audio-open-sfx" / "plan.example.json").read_text())
+        mj = {"schema": 1, "id": "audio-test", "type": "model-run", "recipe": "stable-audio-open-sfx",
+              "plan": plan, "max_minutes": 20, "max_units": 1, "gpu": "CPU"}
+        self.assertTrue(any("runs on" in e for e in cloudrun.validate(mj)))
+
     def test_plan_refuses_an_invalid_job(self):
         with self.assertRaises(StudioError):
             cloudrun.plan(job(id="x"))

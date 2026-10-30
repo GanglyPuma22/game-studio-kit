@@ -15,6 +15,7 @@ Inputs: the game repository and branch, the game's own setup and capture command
 |---|---|---|---|
 | `here` | This machine, with `xvfb-run` and whatever Vulkan driver it has. In a cloud agent box that is lavapipe, a CPU driver. | A handful of short clips or stills, any time. A small Godot game drew about 2 frames a second at 1280x720 (Forward+, 4 cores). | Free; no approval. |
 | `colab` | A Colab GPU runtime (L4 by default) started by the queue service on the always-on host. | Many clips, full resolution, long runs, anything a CPU driver would take hours over. | Spends Colab compute units; the service starts only on the person's typed go. |
+| `colab` with `"gpu": "CPU"` | A Colab runtime with no GPU (`high_mem` for the High-RAM one, which has more cores), headless by default. | Work that never draws on a GPU: headless sims, balance benches, soaks, test suites. | A small fraction of a GPU's units an hour; slower, fewer cores. Pick it whenever the job needs no GPU: cost over speed for overnight work. |
 
 Neither route gives trustworthy frame timings. A software driver is slow by nature, and on Colab the virtual screen fails to present, which stalls each frame while still drawing it correctly. Read the [runtime notes](references/runtime-notes.md) before using either for performance numbers.
 
@@ -41,6 +42,7 @@ A job is one JSON file ([template](references/job-format.md)):
 - `setup` and `command` run from the repository root on the runtime, each one line of shell. `OUT_DIR`, `JOB_ID` and `GODOT` (when the job pins an engine download under `godot`) are set by the runner; the job's own `env` adds the rest.
 - Git decides the build: the runner packs exactly the commit `ref` names. Push first, then queue.
 - No credentials ever go to a runtime, and `env` refuses names that look like secrets. A command that needs a private download has to get it some other way.
+- **Pick the cheapest runtime that fits.** A job that runs Godot `--headless` (bots, sims, benches) needs no GPU and no screen: set `"gpu": "CPU"` (plus `"high_mem": true` for more cores) and a `max_units` ceiling with a low `max_rate`, so it refuses to run at a GPU's rate. A GPU only when the job draws (clips, stills) or runs a model.
 - Check it before anything runs: `python <KIT>/scripts/studio.py cloudrun validate --job job.json` and `... cloudrun plan --job job.json` (prints every step the runner will take).
 
 `studio cloudrun types` lists the job types and the model recipes. Salvage's Colab batches are listed as reserved: they stay on Salvage's own queue.
