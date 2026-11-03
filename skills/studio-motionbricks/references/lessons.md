@@ -1,5 +1,23 @@
 # MotionBricks lessons (newest first)
 
+## 2026-11-03, four parallel batches on a giant box rig (punch, bite, two ability kits)
+- **Generations ease in and out.** Over a 0.18-0.3 s game phase that reads as a late start or a hold. Trim each segment to where the limb moves, and ease the recovery's sampling (for example u^0.7).
+- **Retime with keys.** Retime piecewise with (phase u, source frame) keys so game events land on exact frames, such as a stomp's touchdown at u = 1.
+- **Close gaps with a decaying residual,** not a lerp onto the clip. While a phase can hit, the game's hand or head wins exactly; the clip owns the wind-up, recovery and trunk.
+- **Aimed attacks need relative blending.** The game aims anywhere (a punch down at a grounded target), so an absolute clip hand, palm or elbow pole never matches. Take the residual from the real reach end, let the fist only roll about the forearm, and push the elbow pole sideways off the reach line.
+- **A very short game recovery (0.1 s):** play the drawn settle on the free arm past the gameplay phase, fading out.
+- **Low targets can't come from a standing clip.** Weight the clip by the aim height known at wind-up (live head height pops), and fade every rig change the clip makes by the same weight.
+- **Bulky bodies.** SOMA hangs its hands by slim hips. Offset clip hands to the rig's rest width, clamp elbows outward, and cap how far back the arms go.
+- **Author key-pose hands in the chest frame.** Hands authored in the body frame missed by about a quarter of the arm once the chest bent.
+- **Twist sign** differed between the pose authoring and the bake. Check it on stills.
+- **Wrists.** Copying the clip's full hand turn broke the rig's hand limits. Use a roll-only or eased wrist turn relative to the forearm, and ease it in and out so it doesn't snap at the clip's ends.
+- **Feet drift.** MotionBricks lets planted feet slide. Remove support-foot drift, hold a stomping foot's x/z until lift-off, and freeze it where it lands. Feed the lifted foot to the rig's planting and leave the planted one to it.
+- **A held arm that is not holding.** A bite marked an arm as held, so the game owned the hand and the hips drove the pelvis into it. Mark it free.
+- **Clients lack host-only flags.** Time clips from synced timers only.
+- **Score before rendering.** A no-render checker pass takes about a minute; render only the final takes. Pick the compare camera per move.
+- **Parallel agents on one rig file.** Give each batch its own fenced, commented block (conflicts were all "keep both"), its own scratch folder, and check that each worktree starts on the intended branch.
+- **Not covered yet:** quadrupeds (SOMA is human), locomotion, and a low crouching bite.
+
 ## 2026-11-03, first production use (a giant grab on a box rig; a humanoid hard landing)
 Each item cost real time once.
 
