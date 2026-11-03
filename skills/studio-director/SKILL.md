@@ -49,6 +49,7 @@ preserve unique run logs and classify completed output before reporting status.
 | Free textures, materials, HDRIs, base meshes or modular kits from public libraries, with licence tracking | [studio-assets](../studio-assets/SKILL.md) |
 | Scripted clips, stills or captures drawn with nobody at the machine: here in a cloud box, or on a Colab GPU through the shared queue | [studio-cloudrun](../studio-cloudrun/SKILL.md) |
 | Sound effects or music from open models on a Colab GPU (model-run recipes) | [studio-audio](../studio-audio/SKILL.md) Colab models route, run by [studio-cloudrun](../studio-cloudrun/SKILL.md) |
+| Trailer or story cinematic made with video-generation models (blockout, look stills, renders, edit) | [studio-cinematic](../studio-cinematic/SKILL.md); paid renders through [studio-video-gen](../studio-video-gen/SKILL.md) |
 | Native appearance/input/motion/mix acceptance | [studio-review](../studio-review/SKILL.md) |
 | A whole character end to end (concept and voice approved by the owner, then model, QA, animation, voice lines, effects, sounds, integration and one review page without further stops) | [character pipeline](references/character-pipeline.md) with a [character run record](../../templates/character-run.json) |
 | Overnight, unattended or production-contract run | [overnight-run](references/overnight-run.md) |
