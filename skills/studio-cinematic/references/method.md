@@ -39,7 +39,7 @@ The looser the structure, the more the model draws on real film footage it has l
 | Giants drawn too small | Perspective in the layout | State true scale in words every time ("six times a warden's height, whatever the layout suggests") |
 | Output looks like the game | Prompt said "game cinematic", or clay pixels leaking | A distinct look still; pillars; "ignore the layout's colours and blocky shapes" |
 | Characters merged or swapped | Untagged references, similar colours | Name every image's role; one distinct colour per character |
-| Provider safety block before generation (0 credits) | Usually a reference image that reads as restraint or harm, not the text | Swap that image for a neutral one (turnaround instead of a painted grab); one diagnostic retry, then ask the person |
+| Provider safety block before generation (0 credits) | A reference image that reads as restraint or harm (measured: a still of a giant hand holding a woman); softer text does not help | Never pass a still of a character holding or restraining a person; use a neutral look still and let the text describe the action. One diagnostic retry, then ask the person |
 | Voices differ between chunks | Model-generated audio | Audio off; voices, effects and music in the edit |
 | Added cuts or characters | Model's habit | "Add no cuts beyond the layout's"; list who is in the shot |
 

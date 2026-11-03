@@ -2,6 +2,11 @@
 
 Each entry: date, what was tried, cost, result, what changed in the method. Add to this as tests land; promote a lesson into [method](method.md) only once the person has picked it.
 
+## 2026-11-03 05:10 — grab as pillars passed; music plan
+- Grab chunk as pillars: passed on the 3rd try (Seedance 2.5 video-to-video reference mode, 6 s, 270 credits, 229 s render). The two blocks before it (`INPUT_PREPROCESSING.SAFETY.THIRD_PARTY`, 0 credits) came from a reference image: a painted look still of a giant hand holding a woman. Softening the text did nothing; swapping that still for a neutral look still fixed it. Rule: never pass a still of a giant holding or restraining a person as a reference. The prompt can still describe the action.
+- Person approved back-to-back dialogue lines between the two leads.
+- Music: generated (ElevenLabs first, Fish Audio possible) or free commercial-use tracks with each licence checked and recorded; no hand composing. Music comes after picture lock, with hit points synced to the cut.
+
 ## 2026-11-03 — moderation, audio, tethered action
 - Seedance's provider moderation (`INPUT_PREPROCESSING.SAFETY.THIRD_PARTY`, 0 credits charged) blocked a grab shot twice. Softening the text didn't help; the likely trigger is a reference image (a painted giant hand gripping a woman). Keep restraint-like images out of the references, and give each block at most one diagnostic retry.
 - Render clips with audio off. Build every voice, effect and the music in the edit, so voices stay consistent across chunks; reuse the game's recorded lines where they fit.

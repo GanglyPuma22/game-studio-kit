@@ -25,7 +25,7 @@ A video model with a reference video is a **photocopier for timing and pose**. I
 | 6. Model test | One short shot on two or three models, same inputs | Person picks the model and the method |
 | 7. Shot plan | Per shot: grade (pillars / clay / first-frame / free), director's brief, chunk | Costed with `studio-video-gen estimate` |
 | 8. Render | Chunks of 4-9 s, each a jobs entry | Person's typed go with a cap, per run |
-| 9. Edit | Cut, own voices and sound, end card | Person approves the cut; nothing is published without a go |
+| 9. Edit | Picture lock, then voices, effects and music (generated or licence-checked free tracks, hits synced to the cut), end card | Person approves the cut; nothing is published without a go |
 
 Change the method only on evidence: run the cheapest test that answers the question (one 6 s shot), show the person a side-by-side, let them pick.
 
