@@ -2,6 +2,12 @@
 
 Each entry: date, what was tried, cost, result, what changed in the method. Add to this as tests land; promote a lesson into [method](method.md) only once the person has picked it.
 
+## 2026-11-03 06:00 — per-chunk look stills, full cast refs, boards first
+- Grab v2 passed moderation (Seedance 2.5, 270 credits, 214 s, plus a $0.047 still) with a closed-fist brief: trapped to the shoulders, straining, "held firm, menacing, not hurting her". The text was never the problem; the restraint image was.
+- A borrowed look still drags its setting into the clip: the grab rendered under the charge shot's bridge. Now each chunk gets its own look still, painted from its own layout frame with nobody held, cropped to 2.5:1 or narrower (the image model returned 3:1, which Seedance rejects). The prompt adds "The setting, buildings and landmarks come from video 1."
+- Every character visible in a chunk needs reference images, even for half a second: a lead seen only in the last 0.8 s came out as a generic man.
+- From an outside script critique: make a timed board or animatic with scratch audio before any paid render, and check comprehension (can a newcomer say why each beat happens?). Block contact points, line endpoints and release frames as proxies wherever contact matters; pillars alone can't carry them. Budget in generated seconds (chunks overlap and have a 4 s minimum), not film runtime.
+
 ## 2026-11-03 05:10 — grab as pillars passed; music plan
 - Grab chunk as pillars: passed on the 3rd try (Seedance 2.5 video-to-video reference mode, 6 s, 270 credits, 229 s render). The two blocks before it (`INPUT_PREPROCESSING.SAFETY.THIRD_PARTY`, 0 credits) came from a reference image: a painted look still of a giant hand holding a woman. Softening the text did nothing; swapping that still for a neutral look still fixed it. Rule: never pass a still of a giant holding or restraining a person as a reference. The prompt can still describe the action.
 - Person approved back-to-back dialogue lines between the two leads.

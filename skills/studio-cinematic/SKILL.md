@@ -18,12 +18,13 @@ A video model with a reference video is a **photocopier for timing and pose**. I
 | Step | Output | Gate |
 |---|---|---|
 | 1. Script | Beats, length target, what each beat shows of the game | Person approves; script changes are cheapest here |
+| 1b. Board / animatic | Timed boards with scratch audio | Comprehension check: a newcomer can say why each beat happens. Before any paid render |
 | 2. Engine blockout | A rendered previs from the real map and characters (or primitives), one flat colour per character, cut on beats, at final speed | Person watches it; [QA gate](references/reference-video.md#qa-gate) |
 | 3. Pillar twin | The same blockout with every character as a plain coloured pillar of true height: the **camera-only** reference | Same camera, cuts and timing as step 2 |
 | 4. Identity pack | Per character: approved concept art + a three-quarter turnaround of the game model | Concepts are the owner's approved ones |
 | 5. Look round | A few key frames per candidate look, painted from clay frames plus the identity pack | Person picks a look **on stills**, before any video spend |
 | 6. Model test | One short shot on two or three models, same inputs | Person picks the model and the method |
-| 7. Shot plan | Per shot: grade (pillars / clay / first-frame / free), director's brief, chunk | Costed with `studio-video-gen estimate` |
+| 7. Shot plan | Per shot: grade (pillars / clay / first-frame / free), director's brief, chunk, a look still per chunk, identity pack for everyone visible | Costed in generated seconds (chunks overlap, 4 s minimum) with `studio-video-gen estimate` |
 | 8. Render | Chunks of 4-9 s, each a jobs entry | Person's typed go with a cap, per run |
 | 9. Edit | Picture lock, then voices, effects and music (generated or licence-checked free tracks, hits synced to the cut), end card | Person approves the cut; nothing is published without a go |
 

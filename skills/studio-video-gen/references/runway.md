@@ -12,6 +12,7 @@ Pricing page: https://docs.dev.runwayml.com/guides/pricing/ . Re-check before ea
 | `gen4_image` | `text_to_image` | reference images | about 8 per image | Look stills. |
 
 Practical notes:
+- Seedance rejects reference images wider than about 2.5:1; crop look stills before submitting.
 - Inline media as data URIs works up to about 5 MB per file; nothing has to be hosted.
 - Jobs run in parallel; submit all, then poll every 15 s. A 6 s Seedance job took a few minutes.
 - A rejected request costs nothing; an accepted one is charged whatever you think of the result.

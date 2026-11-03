@@ -5,7 +5,7 @@ A generation job has four inputs. Give each exactly one job, and say so in the p
 | Input | Its only job | Never use it for |
 |---|---|---|
 | Reference video (pillars or clay) | Camera path, lens feel, cuts and their timing, where each character is, scale | Look, identity. Body motion only when the shot is graded clay |
-| Look still (picked in the look round) | Light, lens, texture, grade | Composition or identity |
+| Look still (picked look, painted per chunk from that chunk's own layout frame) | Light, lens, texture, grade | Composition, setting or identity. A still borrowed from another shot drags its setting in |
 | Identity pack (concept + three-quarter turnaround per character) | Who each character is: silhouette, palette, costume, props | Look (say "render in the target look, not the references' drawing style") |
 | Text (director's brief) | What happens: the action, its energy, what must never happen | Repeating what the video already fixes |
 
@@ -13,7 +13,7 @@ A generation job has four inputs. Give each exactly one job, and say so in the p
 
 | Grade | Reference clip | The model does | Use when |
 |---|---|---|---|
-| **pillars** (default) | Camera-only twin: plain coloured pillars of true height | Performs all bodies from the brief inside the copied camera | Almost always. Runs, fights, swings, grabs whose animation is not perfect |
+| **pillars** (default) | Camera-only twin: plain coloured pillars of true height, plus small proxies for contact points, line endpoints and release frames where contact matters | Performs all bodies from the brief inside the copied camera | Almost always. Runs, fights, swings, grabs whose animation is not perfect |
 | **clay** | Articulated blockout, one flat colour per character | Re-surfaces the posed bodies | An exact pose or contact is the point and the clay's motion has passed QA |
 | **first-frame** | A painted still as frame 1 (plus optionally pillars for camera) | Performs from that composition | A composition must be exact (a scale shot, a close-up) |
 | **free** | None (identity pack + look still + brief) | Everything | A blink-length impact or a shot the blockout can't stage |
@@ -38,6 +38,8 @@ The looser the structure, the more the model draws on real film footage it has l
 | Odd limb (inverted elbow, body "sucked" into a hand) | The source animation itself | Pillars + brief; report the animation bug to its owner |
 | Giants drawn too small | Perspective in the layout | State true scale in words every time ("six times a warden's height, whatever the layout suggests") |
 | Output looks like the game | Prompt said "game cinematic", or clay pixels leaking | A distinct look still; pillars; "ignore the layout's colours and blocky shapes" |
+| Setting from another shot appears | Look still borrowed from a different chunk | Paint a still per chunk from its layout frame; "the setting, buildings and landmarks come from video 1" |
+| A character renders as a generic person | No reference images for someone on screen briefly | Attach the identity pack for everyone visible in the chunk, however briefly |
 | Characters merged or swapped | Untagged references, similar colours | Name every image's role; one distinct colour per character |
 | Provider safety block before generation (0 credits) | A reference image that reads as restraint or harm (measured: a still of a giant hand holding a woman); softer text does not help | Never pass a still of a character holding or restraining a person; use a neutral look still and let the text describe the action. One diagnostic retry, then ask the person |
 | Voices differ between chunks | Model-generated audio | Audio off; voices, effects and music in the edit |
