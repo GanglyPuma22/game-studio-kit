@@ -13,6 +13,9 @@ Render for a machine reader: **unambiguous, not beautiful.**
 - When an engine character uses its real animation, check that animation frame by frame first. If it is wrong, grade the shot pillars instead.
 - Render at a fixed frame rate (e.g. 30 fps, offline, not a screen capture), 1280x720, H.264, no overlays or labels. Keep each clip under 5 MB for inline upload.
 
+- **Frame key action large.** Small, fast figures in wide frames don't read after generation. Frame cuts, grabs and hits so the hero fills about a quarter to a third of frame height.
+- **Check line clearance in 3D.** Where grapple lines or other tethers appear, check in the blockout that each line clears every body, in 3D and on screen. Generation copies clipping faithfully.
+
 ## The two twins
 
 - **Clay:** articulated models in one flat saturated colour each, consistent through the film, on a mid-grey world, one sun with shadows.
@@ -33,5 +36,7 @@ Before any paid run on a clip:
 - [ ] Contacts pinned in clay shots (scrub at half speed); feet above ground
 - [ ] One colour per character; subject in frame and moving on frame 1
 - [ ] Constant fps, honest scale, contact shadows visible
+- [ ] Hero fills about 1/4 to 1/3 of frame height on every key action
+- [ ] Tethers clear every body in 3D and on screen
 - [ ] Ends trimmed; clip under the inline size limit
 - [ ] Every shot graded (pillars / clay / first-frame / free) with a reason, and a brief for every non-clay shot

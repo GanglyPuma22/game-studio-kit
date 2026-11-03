@@ -2,6 +2,11 @@
 
 Each entry: date, what was tried, cost, result, what changed in the method. Add to this as tests land; promote a lesson into [method](method.md) only once the person has picked it.
 
+## 2026-11-03 17:20 — first real chunk; framing and line clearance
+- First real film chunk rendered: 6 s, 270 credits, Seedance 2.5 reference mode, stylized 3D feature look (which beat live-action on character adherence).
+- Seedance reference mode keeps the layout's set and blocking very well, but small fast figures in wide frames don't read. Frame key action (cuts, grabs) so the hero fills about a quarter to a third of frame height.
+- Run a geometry check in the blockout that grapple lines clear the giant's body in 3D and on screen; generation copies clipping faithfully.
+
 ## 2026-11-03 07:40 — image tools, look B rejected on video
 - Person's rule: stills through the host's built-in image tool (subscription, no per-image cost); a paid image API only when a specific model is needed; the video provider for video only.
 - That tool takes at most 5 reference images per job: use one paired reference per character (concept and game-model sheet side by side).
