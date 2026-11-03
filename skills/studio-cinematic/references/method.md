@@ -36,7 +36,7 @@ The looser the structure, the more the model draws on real film footage it has l
 | A freeze or slow-down mid-action | A hold in the reference | Cut the hold from the blockout; "never a pause" in the rules |
 | Feet sliding or sunk into the ground | Blockout used a run clip at the wrong rate or the origin is off | Pillars for that shot, or fix contacts first |
 | Odd limb (inverted elbow, body "sucked" into a hand) | The source animation itself | Pillars + brief; report the animation bug to its owner |
-| Giants drawn too small | Perspective in the layout | State true scale in words every time ("six times a warden's height, whatever the layout suggests") |
+| Giants drawn too small | Perspective in the layout; image models also shrink big characters in lineups and wide frames (about 2x instead of 6x) | State true scale in words every time, in every still and clip ("six times a warden's height, whatever the layout suggests") |
 | Output looks like the game | Prompt said "game cinematic", or clay pixels leaking | A distinct look still; pillars; "ignore the layout's colours and blocky shapes" |
 | Setting from another shot appears | Look still borrowed from a different chunk | Paint a still per chunk from its layout frame; "the setting, buildings and landmarks come from video 1" |
 | A character renders as a generic person | No reference images for someone on screen briefly | Attach the identity pack for everyone visible in the chunk, however briefly |

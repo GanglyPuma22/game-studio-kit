@@ -2,6 +2,14 @@
 
 Each entry: date, what was tried, cost, result, what changed in the method. Add to this as tests land; promote a lesson into [method](method.md) only once the person has picked it.
 
+## 2026-11-03 07:40 — image tools, look B rejected on video
+- Person's rule: stills through the host's built-in image tool (subscription, no per-image cost); a paid image API only when a specific model is needed; the video provider for video only.
+- That tool takes at most 5 reference images per job: use one paired reference per character (concept and game-model sheet side by side).
+- On the same 12 prompts the built-in tool (no model name reported) was far more polished and on-model than Gemini Nano Banana via OpenRouter ($0.615), but its four "different" directions converged on one glossy stylized-3D look. Expect one house style per generator.
+- Both generators shrank giants in lineups and wide frames (about 2x warden height instead of 6x): state scale hard in every still.
+- Look B (live-action film) rejected after a video test: real-looking people and character drift. Person wants an animated look with close concept adherence. Judge looks on video tests, not stills alone.
+- A runner acted on a go after a correction had arrived: $0.615 spent on the wrong run. Re-check for newer instructions right before every paid call.
+
 ## 2026-11-03 06:00 — per-chunk look stills, full cast refs, boards first
 - Grab v2 passed moderation (Seedance 2.5, 270 credits, 214 s, plus a $0.047 still) with a closed-fist brief: trapped to the shoulders, straining, "held firm, menacing, not hurting her". The text was never the problem; the restraint image was.
 - A borrowed look still drags its setting into the clip: the grab rendered under the charge shot's bridge. Now each chunk gets its own look still, painted from its own layout frame with nobody held, cropped to 2.5:1 or narrower (the image model returned 3:1, which Seedance rejects). The prompt adds "The setting, buildings and landmarks come from video 1."
@@ -37,7 +45,7 @@ Each entry: date, what was tried, cost, result, what changed in the method. Add 
 
 ## 2026-11-02/03 — look round (OpenRouter image model, $0.81)
 - Four looks painted from clay key frames plus concept + turnaround per character: all kept the characters recognizable. Giants came out too small: state scale.
-- Person picked a live-action film look over painterly, stop-motion and gritty, and asked for a look clearly different from the game's own.
+- Person picked a live-action film look over painterly, stop-motion and gritty, and asked for a look clearly different from the game's own. (Later rejected on video; see 07:40.)
 
 ## 2026-11-02 — first model tests (Runway and OpenRouter)
 - Prompts asking for a "stylized 3D, mobile-game cinematic" look got the game's look back. The person disliked it.
