@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "game-studio-kit",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "skills": [
     {
       "name": "studio-director",
@@ -66,6 +66,10 @@
     {
       "name": "studio-cloudrun",
       "path": "skills/studio-cloudrun/SKILL.md"
+    },
+    {
+      "name": "studio-motionbricks",
+      "path": "skills/studio-motionbricks/SKILL.md"
     }
   ],
   "resources": [
@@ -214,7 +218,15 @@
     "templates/character-run.json",
     "skills/studio-director/references/character-pipeline.md",
     "studio_tools/model_qa/evidence.py",
-    "studio_tools/model_qa/surface.py"
+    "studio_tools/model_qa/surface.py",
+    "skills/studio-motionbricks/references/method.md",
+    "skills/studio-motionbricks/references/lessons.md",
+    "skills/studio-motionbricks/scripts/mb_cpu.py",
+    "skills/studio-motionbricks/scripts/soma_pose.py",
+    "skills/studio-motionbricks/scripts/rig_map.py",
+    "skills/studio-motionbricks/scripts/render.py",
+    "skills/studio-motionbricks/scripts/retime.py",
+    "skills/studio-motionbricks/scripts/dump_skeleton.gd"
   ],
   "commands": [
     "check-package",
