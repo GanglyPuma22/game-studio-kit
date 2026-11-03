@@ -88,7 +88,7 @@ def main():
         z = np.load(sys.argv[2]); out = sys.argv[3]; keys = sys.argv[4:]
         PAR = np.load(os.path.join(os.path.dirname(sys.argv[2]), "parents.npy"))
         NAMES = json.load(open(os.path.join(os.path.dirname(sys.argv[2]), "names.json")))
-        fig, axes = plt.subplots(2, len(keys), figsize=(2.6 * len(keys), 5.2))
+        fig, axes = plt.subplots(2, len(keys), figsize=(2.6 * len(keys), 5.2), squeeze=False)
         for c, k in enumerate(keys):
             pos = fk(z[k])
             draw(axes[0, c], pos, "side", z["fwd"], z["right"], _target(z), k + " side")

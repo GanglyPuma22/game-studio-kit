@@ -69,9 +69,9 @@ class RigMap:
         self.w_rest_pos = self.wrest[:, :3]
         self.w_rest_rot = [R.from_quat(q) for q in self.wrest[:, 3:]]
         # Leg length for the hips' travel.
-        self.s_leg = np.linalg.norm(sp[self.si["LeftLeg"]] - sp[self.si["LeftFoot"]])
+        self.s_leg = np.linalg.norm(sp[self.si[PAIRS["leg_l"][0]]] - sp[self.si[PAIRS["foot_l"][0]]])
         wl = self.w_rest_pos
-        self.w_leg = np.linalg.norm(wl[self.wi["thigh_l"]] - wl[self.wi["foot_l"]])
+        self.w_leg = np.linalg.norm(wl[self.wi[PAIRS["leg_l"][1]]] - wl[self.wi[PAIRS["foot_l"][1]]])
         # Rest directions, and the swing from each rig's rest onto the other's.
         self.align_ws, self.align_sw = {}, {}
         for c, (sj, wb, ch) in PAIRS.items():
@@ -104,7 +104,7 @@ class RigMap:
                     loc = pr.inv() * self.w_rest_rot[i]
                 world[i] = (world[p] if p >= 0 else R.identity()) * loc
         hips = sp[self.si["Hips"]] - self.s_rest_pos[self.si["Hips"]]
-        pelvis = self.w_rest_pos[self.wi["pelvis"]] + hips * (self.w_leg / self.s_leg)
+        pelvis = self.w_rest_pos[self.wi[PAIRS["hips"][1]]] + hips * (self.w_leg / self.s_leg)
         return world, pelvis
 
     def game_local(self, world):
@@ -134,6 +134,6 @@ class RigMap:
                 world[i] = (world[p] if p >= 0 else R.identity()) * R.from_quat(self.sref[i, 3:])
             loc = world[i] if p < 0 else world[p].inv() * world[i]
             out[i, 3:] = loc.as_quat()
-        pel = w_frame[self.wi["pelvis"], :3] - self.w_rest_pos[self.wi["pelvis"]]
+        pel = w_frame[self.wi[PAIRS["hips"][1]], :3] - self.w_rest_pos[self.wi[PAIRS["hips"][1]]]
         out[self.si["Hips"], :3] = self.sref[self.si["Hips"], :3] + pel * (self.s_leg / self.w_leg)
         return out

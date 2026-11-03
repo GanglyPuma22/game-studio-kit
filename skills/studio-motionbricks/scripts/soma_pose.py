@@ -58,9 +58,14 @@ class Soma:
         ax = np.cross(a, b)
         s = np.linalg.norm(ax)
         if s < 1e-8:
-            return
-        ang = np.arctan2(s, np.dot(a, b))
-        r = R.from_rotvec(ax / s * ang)
+            if np.dot(a, b) > 0:
+                return
+            # Opposite: a half turn about any axis square to the bone.
+            ax = np.cross(a, [1.0, 0.0, 0.0] if abs(a[0]) < 0.9 else [0.0, 1.0, 0.0])
+            ax /= np.linalg.norm(ax)
+            r = R.from_rotvec(ax * np.pi)
+        else:
+            r = R.from_rotvec(ax / s * np.arctan2(s, np.dot(a, b)))
         self.set_world_rot(pose, name, r * rot[self.j(name)])
 
     def two_bone(self, pose, root, mid, end, target, bend_dir):

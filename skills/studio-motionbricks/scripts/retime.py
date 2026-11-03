@@ -23,7 +23,8 @@ for si, (a, b) in enumerate(zip(edges[:-1], edges[1:])):
             q = R.from_quat([fr[i][jn, 3:], fr[j][jn, 3:]])
             pose[jn, 3:] = Slerp([0, 1], q)([u]).as_quat()[0]
         out.append(pose)
-newlab.setdefault("contact", int([k for k, v in newlab.items() if v.startswith("to P3")][0]))
+if "contact" not in newlab:
+    newlab["contact"] = int([k for k, v in newlab.items() if isinstance(v, str) and v.startswith("to P3")][0])
 out.append(fr[-1])
 np.save(sys.argv[3], np.stack(out)); json.dump(newlab, open(sys.argv[4], "w"))
 print(len(out), "frames", newlab)
