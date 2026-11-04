@@ -60,10 +60,9 @@ mkdir -p -m 700 "$WORK/locks"
 # runtime exists, so a refused duplicate never touches the other run's runtime.
 exec 8> "$WORK/locks/job-$ID.lock"
 flock -n 8 || { echo "[cloudrun $(date -u +%T)] job $ID is already running on this host ($WORK/status/$ID.json): refusing a second copy" >&2; exit 7; }
-if [ "$SESSION" != "studio-$ID" ]; then
-	exec 9> "$WORK/locks/session-$SESSION.lock"
-	flock -n 9 || { echo "[cloudrun $(date -u +%T)] Colab session $SESSION is already in use on this host: refusing" >&2; exit 7; }
-fi
+# Always, also for the default name: another job may name this session explicitly.
+exec 9> "$WORK/locks/session-$SESSION.lock"
+flock -n 9 || { echo "[cloudrun $(date -u +%T)] Colab session $SESSION is already in use on this host: refusing" >&2; exit 7; }
 RES=$(mktemp -d "$WORK/results/$ID-$(date -u +%Y%m%dT%H%M%SZ)-XXXX")   # fresh per run, even for a reused id
 say() { echo "[cloudrun $(date -u +%T)] $*" | tee -a "$RES/driver.log"; }
 STATUS=$RES/status.json; LIVE=$WORK/status/$ID.json
@@ -329,7 +328,7 @@ FILE_MB=10; [ "$TYPE" = model-run ] && FILE_MB=95
 LEFTOUT=0
 if [ -n "${RESULTS_REPO:-}" ]; then
 	P=$(mktemp -d); mkdir -p "$P/$ID"
-	(cd "$RES" && find . -type f ! -name repo.tar ! -name ssh.cfg -size -${FILE_MB}M -print0 | tar --null -T - -cf -) | tar -xf - -C "$P/$ID"
+	(cd "$RES" && find . -type f ! -name repo.tar ! -name ssh.cfg ! -name status.json -size -${FILE_MB}M -print0 | tar --null -T - -cf -) | tar -xf - -C "$P/$ID"
 	(cd "$RES" && find . -type f ! -name repo.tar -size +$((FILE_MB - 1))M -print) > "$P/$ID/LEFT-OUT-over-${FILE_MB}MB.txt"
 	LEFTOUT=$(grep -c . "$P/$ID/LEFT-OUT-over-${FILE_MB}MB.txt" || true)
 	[ "$LEFTOUT" -gt 0 ] && say "$LEFTOUT file(s) over $FILE_MB MB stay in $RES only (listed in LEFT-OUT-over-${FILE_MB}MB.txt)"

@@ -19,7 +19,8 @@ echo starting > "$JOB/stage"
 GPUMON=""
 if nvidia-smi > /dev/null 2>&1; then
 	( while :; do
-		echo "$(date +%s),$(nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader,nounits 2> /dev/null | head -1 | tr -d ' ')"
+		Q=$(nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader,nounits 2> /dev/null | head -1 | tr -d ' ')
+		[ -n "$Q" ] && echo "$(date +%s),$Q"
 		sleep "${STUDIO_GPU_SAMPLE_S:-10}"
 	done >> "$JOB/gpu.csv" ) &
 	GPUMON=$!

@@ -19,7 +19,8 @@ echo "log=$(tail -c 4000 "$LOG" 2> /dev/null | tr '\r' '\n' | one)"
 if [ -s "$JOB/gpu.csv" ]; then
 	# Samples from the last 70 s: the highest use, and the latest memory.
 	NOW=$(date +%s)
-	awk -F, -v now="$NOW" '$1 >= now - 70 { u = $2 + 0; if (u > m) m = u; n++; mem = $3 + 0 }
+	# Only rows with a numeric GPU %: a failed query is no evidence of an idle GPU.
+	awk -F, -v now="$NOW" '$1 >= now - 70 && $2 ~ /^[0-9]+$/ { u = $2 + 0; if (u > m) m = u; n++; mem = $3 + 0 }
 		END { if (n) { printf "gpu_util_max=%d\ngpu_mem_mb=%d\ngpu_samples=%d\n", m, mem, n } }' "$JOB/gpu.csv"
 fi
 exit 0

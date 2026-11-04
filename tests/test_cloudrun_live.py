@@ -213,6 +213,33 @@ class ColabJobEndToEndTests(unittest.TestCase):
         self.assertIn("already running", r.stderr)
         self.assertEqual([c for c in self.calls() if c], [])
 
+    def test_the_default_session_name_is_locked_too(self):
+        (self.work / "locks").mkdir(parents=True)
+        with open(self.work / "locks" / "session-studio-live-test.lock", "w") as held:
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            r = self.run_job("true")
+        self.assertEqual(r.returncode, 7, r.stdout + r.stderr)
+        self.assertEqual([c for c in self.calls() if c], [])
+
+    def test_the_results_branch_never_carries_a_stale_status(self):
+        results = self.tmp / "git" / "Owner" / "results.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(results)], check=True)
+        r = self.run_job('echo ok > "$OUT_DIR/a.txt"', env=self.env(RESULTS_REPO="Owner/results", STATUS_PUSH_MIN="5"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        files = subprocess.run(["git", "-C", str(results), "ls-tree", "-r", "--name-only", "studio-results/live-test"],
+                               capture_output=True, text=True, check=True).stdout
+        self.assertNotIn("status.json", files)
+        live = subprocess.run(["git", "-C", str(results), "show", "studio-status/live-test:STATUS.json"],
+                              capture_output=True, text=True, check=True).stdout
+        self.assertEqual(json.loads(live)["state"], "done")
+
+    def test_failed_gpu_queries_never_count_as_idle(self):
+        write_exe(self.bin / "nvidia-smi", FAKE_NVIDIA)
+        r = self.run_job("sleep 8", gpu="L4", screen=False, gpu_idle_minutes=0.05,
+                         env=self.env(FAKE_GPU_UTIL="[N/A]"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIsNone(self.status()["gpu_util"])
+
     def test_an_existing_session_name_is_refused(self):
         (self.fake / "other").write_text("studio-live-test L4 running\n")
         r = self.run_job("true")

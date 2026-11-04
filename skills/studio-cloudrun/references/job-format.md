@@ -43,7 +43,7 @@ One JSON object per job. `python <KIT>/scripts/studio.py cloudrun validate --job
 
 ## Results
 
-`runner.json`: `{"id", "setup_exit", "run_exit", "minutes", "gpu"}` (`gpu=none ...` on a CPU runtime). `BUILD.txt` (Colab only): repository, ref, commit, GPU and the `gpu=` line. `env.txt`: what the runtime had. `setup.log`, `run.log`, `progress.txt`, `job-progress.txt` (the job's own progress lines), `gpu.csv` (GPU %, MiB every 10 s, on a GPU), `status.json` (the last live status). Everything else is the job's own `OUT_DIR`.
+`runner.json`: `{"id", "setup_exit", "run_exit", "minutes", "gpu"}` (`gpu=none ...` on a CPU runtime). `BUILD.txt` (Colab only): repository, ref, commit, GPU and the `gpu=` line. `env.txt`: what the runtime had. `setup.log`, `run.log`, `progress.txt`, `job-progress.txt` (the job's own progress lines), `gpu.csv` (GPU %, MiB every 10 s, on a GPU), `status.json` (the last live status; in the local results folder only, the results branch leaves it out because `studio-status/<id>` carries the final one). Everything else is the job's own `OUT_DIR`.
 
 ## Live status
 
