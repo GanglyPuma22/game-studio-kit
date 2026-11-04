@@ -3,6 +3,7 @@
   "kind": "music",
   "gpu": "A100",
   "gpus": ["A100"],
+  "gpu_idle_minutes": 10,
   "text_field": "caption",
   "limits": {"seconds": [10, 240], "max_outputs": 12},
   "gated": false,

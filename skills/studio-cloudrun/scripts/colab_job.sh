@@ -13,6 +13,15 @@
 # copies OUT_DIR back and stops the runtime on exit, on error and at the cap.
 # Results: $WORK/results/<id>-<UTC time>-XXXX/ (runner.json first), and, when
 # RESULTS_REPO is set, a fresh one-commit branch studio-results/<id> there.
+# Live status: $WORK/status/<id>.json, updated every minute (stage, step, ETA,
+# GPU use, units spent so far); read it with `live_status.py show` or
+# `service.sh status`. With RESULTS_REPO set it is also pushed every
+# STATUS_PUSH_MIN minutes (default 5, 0 = off) to branch studio-status/<id>.
+# Guards: one run per job id and per session name on this host (a lock), a
+# loud stop when the runtime has no running job (exit 5), and an early stop
+# when a GPU job shows 0 % GPU for gpu_idle_minutes (default 5; exit 6).
+# Exit codes: 0 done, 1 failed, 2 invalid job, 3 results not delivered,
+# 4 results do not match, 5 runtime lost or no job on it, 6 GPU idle, 7 already running.
 set -euo pipefail
 JOBFILE=$(realpath "${1:?usage: colab_job.sh JOB.json}")
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -43,9 +52,51 @@ NEW=(--gpu "$GPU"); [ "$GPU" = CPU ] && NEW=()
 [ "$(J 'print(1 if d.get("high_mem") else 0)')" = 1 ] && NEW+=(--high-mem)
 SCREEN=$(J 'print(0 if d["type"]=="model-run" else int(d.get("screen", d.get("gpu","L4")!="CPU")))')
 SESSION=${COLAB_SESSION:-studio-$ID}
-mkdir -p "$WORK/results" "$WORK/repos"
+# GPU idle limit in minutes (0 = off): the job's, else the recipe's, else GPU_IDLE_MIN, else 5. Never on CPU runtimes.
+IDLE=$(J "import os;sys.path.insert(0,'$KIT');from studio_tools import cloudrun as c;print(c.idle_minutes(d,float(os.environ.get('GPU_IDLE_MIN',c.GPU_IDLE_MINUTES))))")
+mkdir -p "$WORK/results" "$WORK/repos" "$WORK/status"
+mkdir -p -m 700 "$WORK/locks"
+# One run per job id and per Colab session name on this host. Taken before any
+# runtime exists, so a refused duplicate never touches the other run's runtime.
+exec 8> "$WORK/locks/job-$ID.lock"
+flock -n 8 || { echo "[cloudrun $(date -u +%T)] job $ID is already running on this host ($WORK/status/$ID.json): refusing a second copy" >&2; exit 7; }
+if [ "$SESSION" != "studio-$ID" ]; then
+	exec 9> "$WORK/locks/session-$SESSION.lock"
+	flock -n 9 || { echo "[cloudrun $(date -u +%T)] Colab session $SESSION is already in use on this host: refusing" >&2; exit 7; }
+fi
 RES=$(mktemp -d "$WORK/results/$ID-$(date -u +%Y%m%dT%H%M%SZ)-XXXX")   # fresh per run, even for a reused id
 say() { echo "[cloudrun $(date -u +%T)] $*" | tee -a "$RES/driver.log"; }
+STATUS=$RES/status.json; LIVE=$WORK/status/$ID.json
+st() { python3 "$HERE/live_status.py" set --status "$STATUS" --mirror "$LIVE" "$@" || true; }
+# The live status on branch studio-status/<id> of RESULTS_REPO, for agents
+# that cannot reach this host. Never fails the run.
+push_live() {
+	[ -n "${RESULTS_REPO:-}" ] && [ "${STATUS_PUSH_MIN:-5}" -gt 0 ] || return 0
+	local P; P=$(mktemp -d)
+	cp "$STATUS" "$P/STATUS.json" 2> /dev/null; tail -n 60 "$RES/driver.log" > "$P/driver-tail.log" 2> /dev/null
+	python3 "$HERE/live_status.py" line --status "$STATUS" > "$P/STATUS.txt" 2> /dev/null
+	( cd "$P" && git init -q && git checkout -q -b "studio-status/$ID" && git add -A \
+		&& git -c user.name=cloudrun -c user.email=cloudrun@localhost commit -qm "live status $ID $(date -u +%FT%TZ)" \
+		&& timeout 120 git push -q -f "$GH$RESULTS_REPO.git" "studio-status/$ID" ) > /dev/null 2>&1 \
+		|| echo "[cloudrun $(date -u +%T)] live status push failed" >> "$RES/driver.log"
+	rm -rf "$P"; return 0
+}
+# On every way out: the runtime stopped once one exists (STOP_RUNTIME), the
+# status marked failed unless the run was delivered, the last status pushed.
+FINAL=failed; STOP_RUNTIME=0; WATCHDOG=""
+on_exit() {
+	# The watchdog and its sleep (a plain kill would leave the sleep behind).
+	if [ -n "$WATCHDOG" ]; then pkill -P "$WATCHDOG" 2> /dev/null || true; kill "$WATCHDOG" 2> /dev/null || true; fi
+	if [ "$STOP_RUNTIME" = 1 ]; then
+		say "stopping runtime"; "${COLAB[@]}" stop -s "$SESSION" || true
+	fi
+	rm -f "$RES/repo.tar"
+	[ "$FINAL" = done ] || st state=failed
+	push_live
+}
+trap on_exit EXIT
+st id="$ID" session="$SESSION" gpu="$GPU" res="$RES" state=running stage=packing started="$(date -u +%FT%TZ)" \
+	max_units="$MAXUNITS" gpu_idle_limit_min="$IDLE"
 COLAB_BIN=${COLAB_BIN:-$(command -v colab || true)}
 [ -n "$COLAB_BIN" ] || { say "colab CLI not found: stop"; exit 1; }
 COLAB=("$COLAB_BIN" "--auth=${COLAB_AUTH:-oauth2}")
@@ -74,8 +125,12 @@ if [ "$TYPE" = model-run ]; then
 else
 	MIRROR=$WORK/repos/${REPO//\//__}.git
 	[ -d "$MIRROR" ] || git clone -q --bare "$GH$REPO.git" "$MIRROR"
-	git -C "$MIRROR" fetch -q origin "+refs/heads/*:refs/heads/*" 2> /dev/null || git -C "$MIRROR" fetch -q origin
-	COMMIT=$(git -C "$MIRROR" rev-parse --verify -q "$REF^{commit}") || { say "ref $REF not found in $REPO: stop"; exit 1; }
+	# Branches land under refs/remotes/origin/, which a worktree's checked-out
+	# branch never blocks (a plain refs/heads/* fetch then refused every update).
+	git -C "$MIRROR" fetch -q --prune origin "+refs/heads/*:refs/remotes/origin/*" \
+		|| say "fetch of $REPO failed; using what the mirror already has"
+	COMMIT=$(git -C "$MIRROR" rev-parse --verify -q "refs/remotes/origin/$REF^{commit}" \
+		|| git -C "$MIRROR" rev-parse --verify -q "$REF^{commit}") || { say "ref $REF not found in $REPO: stop"; exit 1; }
 	git -C "$MIRROR" archive --format=tar "$COMMIT" > "$RES/repo.tar"
 fi
 say "job $ID: $REPO $REF @ $COMMIT ($(( $(stat -c %s "$RES/repo.tar") / 1048576 )) MB), $GPU${NEW[*]:+ (colab new ${NEW[*]})}, screen $SCREEN, cap $MAXMIN min${MAXUNITS:+, ceiling $MAXUNITS units}"
@@ -102,17 +157,30 @@ print(m.group(1) if m else "")'; }
 # The other sessions on the account, without this one: compared before and
 # after allocation to tell whether the rate difference is this session's alone.
 others() { timeout 60 "${COLAB[@]}" sessions < /dev/null 2> /dev/null | grep -v -F -- "$SESSION"; return "${PIPESTATUS[0]}"; }
+# 0: a Colab session with exactly this name exists; 1: none; 2: the list failed.
+has_session() {
+	local list; list=$(timeout 60 "${COLAB[@]}" sessions < /dev/null 2> /dev/null) || return 2
+	awk -v s="$SESSION" '{ for (i = 1; i <= NF; i++) if ($i == s) f = 1 } END { exit !f }' <<< "$list"
+}
+# A second launch under the same name (another host, or a crashed run) would
+# share, and later stop, that runtime: refuse instead.
+if has_session; then
+	say "a Colab session named $SESSION already exists (another run, or a stale one: check \`colab sessions\`, stop it with \`colab stop -s $SESSION\`): refusing"
+	st state=failed stage=refused exit=7 note="session $SESSION already exists"; exit 7
+fi
 WAIT=${GPU_WAIT_MIN:-240}
+st stage=waiting-gpu
 for try in $(seq $(( WAIT / 5 + 1 ))); do
 	# Sampled right before each try, so the window is seconds, not the wait.
 	RATE0=$(timeout 60 "${COLAB[@]}" usage < /dev/null 2> /dev/null | rate || true)
 	OTHERS0=$(others) && OK0=1 || OK0=0
 	"${COLAB[@]}" new "${NEW[@]}" -s "$SESSION" && break
-	[ "$try" -gt $(( WAIT / 5 )) ] && { say "no $GPU after $WAIT min: stop"; exit 1; }
-	say "no free $GPU yet (try $try), waiting 5 min"; sleep 300
+	[ "$try" -gt $(( WAIT / 5 )) ] && { say "no $GPU after $WAIT min: stop"; st state=failed exit=1 note="no free $GPU after $WAIT min"; exit 1; }
+	say "no free $GPU yet (try $try), waiting 5 min"; st note="no free $GPU yet (try $try)"; sleep 300
 done
 T0=$(date +%s)
-trap '"${COLAB[@]}" stop -s "$SESSION" > /dev/null 2>&1 || true' EXIT
+STOP_RUNTIME=1
+st stage=starting runtime_started_s="$T0" note=""
 CAP=$(( (MAXMIN + 20) * 60 ))
 USAGE=$("${COLAB[@]}" usage 2> /dev/null || true)
 echo "$USAGE" | head -5 >> "$RES/driver.log"
@@ -134,6 +202,7 @@ try:
     print(f'{d:.3f}' if same and d > 0 else a)
 except ValueError:
     print(a)" "${RATE1:-}" "${RATE0:-}" "$SAME")
+st rate="$OWN" cap_min=$(( CAP / 60 ))
 say "rate: account ${RATE1:-unknown} units/hour with this session (before it: ${RATE0:-unknown}; other sessions $([ "$SAME" = 1 ] && echo unchanged || echo 'changed or unknown')); ceilings use ${OWN:-unknown} units/hour"
 if [ -n "$MAXUNITS" ]; then
 	# A model run spends only with a known rate, under its ceiling, and no longer than its units allow.
@@ -142,20 +211,20 @@ if [ -n "$MAXUNITS" ]; then
 		say "rate $OWN is over the job's max_rate $MAXRATE: stop"; exit 1
 	fi
 	UCAP=$(python3 -c "import sys;print(int(float(sys.argv[1])/float(sys.argv[2])*3600))" "$MAXUNITS" "$OWN")
-	[ "$UCAP" -lt "$CAP" ] && { CAP=$UCAP; say "cap: $CAP s from the $MAXUNITS unit ceiling"; }
+	[ "$UCAP" -lt "$CAP" ] && { CAP=$UCAP; say "cap: $CAP s from the $MAXUNITS unit ceiling"; st cap_min=$(( CAP / 60 )); }
 fi
 # Watchdog over the whole runtime's life (start-up, copies, the job, results):
 # at the cap it stops the runtime, which ends any ssh call still hanging.
 ( sleep "$CAP"; echo "[cloudrun $(date -u +%T)] watchdog: $CAP s since the runtime started, stopping it" >> "$RES/driver.log"
-  "${COLAB[@]}" stop -s "$SESSION" > /dev/null 2>&1 ) &
+  "${COLAB[@]}" stop -s "$SESSION" > /dev/null 2>&1 ) > /dev/null 2>&1 < /dev/null &
 WATCHDOG=$!
-trap 'kill "$WATCHDOG" 2> /dev/null; say "stopping runtime"; "${COLAB[@]}" stop -s "$SESSION" || true; rm -f "$RES/repo.tar"' EXIT
 "${COLAB[@]}" usage 2> /dev/null | head -3 >> "$RES/driver.log" || true
 for try in 1 2 3 4 5; do
 	ssh runtime 'mkdir -p /content/job/repo /content/job/out' && break
 	[ "$try" = 5 ] && { say "ssh to the runtime failed 5 times: stop"; exit 1; }
 	say "ssh not ready (try $try)"; sleep $((15 * try))
 done
+st stage=copying
 # Each start-up step is safe to repeat, so a dropped connection gets two more
 # tries instead of ending a paid run (an A100 start once hung 2.5 min, then broke).
 put() { # put REMOTE_COMMAND [LOCAL_FILE for stdin]
@@ -177,33 +246,61 @@ if [ "${GATED:-0}" = 1 ]; then
 fi
 echo "$COMMIT" > "$RES/commit.txt"
 put 'cat > /content/job/commit.txt' "$RES/commit.txt"
-for f in runtime_display.sh runtime_job.sh; do put "cat > /content/job/$f" "$HERE/$f"; done
+for f in runtime_display.sh runtime_job.sh runtime_probe.sh; do put "cat > /content/job/$f" "$HERE/$f"; done
 say "copied in after $(( $(date +%s) - T0 )) s"
 
 # --- 2. screen, then the job (detached; polled)
 SCREEN_ARG=""; [ "$SCREEN" = 0 ] && SCREEN_ARG=--no-screen
+st stage=preparing
 ssh runtime "bash /content/job/runtime_display.sh $SCREEN_ARG" >> "$RES/driver.log" 2>&1 \
 	|| ssh runtime "bash /content/job/runtime_display.sh $SCREEN_ARG" >> "$RES/driver.log" 2>&1 \
 	|| { say "runtime preparation failed: stop"; exit 1; }
 # Start the job once: a retry after a dropped connection sees runner.pid and
 # only confirms the start.
 put 'cd /content/job && if [ ! -s runner.pid ]; then setsid nohup bash runtime_job.sh > runner.log 2>&1 < /dev/null & sleep 3; fi; [ -s runner.pid ]'
+# Every minute: one probe of the runtime, the live status updated from it,
+# and a loud stop when the runtime has no running job or a GPU job idles.
+kill_job() { ssh runtime 'P=$(cat /content/job/runner.pid 2>/dev/null); [ -n "$P" ] && { kill -TERM -- -$P 2>/dev/null; sleep 3; kill -KILL -- -$P 2>/dev/null; }; true' || true; }
+FORCE_RC=""; LAST_PUSH=$(date +%s)
 while :; do
-	sleep 60
-	P=$(ssh runtime 'tail -1 /content/job/progress.txt 2>/dev/null; [ -f /content/job/finished ] && echo RUNNER-FINISHED' || true)
-	echo "  $P" >> "$RES/driver.log"
-	case "$P" in *RUNNER-FINISHED) break ;; esac
+	sleep "${POLL_S:-60}"
+	set +e
+	ssh runtime 'if [ -f /content/job/job.json ]; then bash /content/job/runtime_probe.sh; else echo job=0; fi' > "$RES/probe.txt" 2> /dev/null
+	SRC=$?
+	if [ "$SRC" -ne 0 ] || ! grep -q '^job=' "$RES/probe.txt"; then
+		has_session; HS=$?
+		{ echo ssh=fail; [ "$HS" = 1 ] && echo session=gone; } > "$RES/probe.txt"
+	fi
+	set -e
+	ACT=$(python3 "$HERE/live_status.py" tick --status "$STATUS" --mirror "$LIVE" --probe "$RES/probe.txt" \
+		--gpu-idle-min "$IDLE" --ssh-lost-min "${SSH_LOST_MIN:-5}" 2>> "$RES/driver.log" || echo ok)
+	echo "  $(python3 "$HERE/live_status.py" line --status "$STATUS" 2> /dev/null)" >> "$RES/driver.log"
+	case "$ACT" in
+		finished) break ;;
+		lost\ *) say "RUNTIME LOST: ${ACT#lost }. Stopping; nothing more will come from this runtime."
+			st state=failed stage=lost exit=5 note="${ACT#lost }"; FORCE_RC=5; break ;;
+		idle\ *) say "GPU IDLE: ${ACT#idle }. Stopping the job, then fetching partial results."
+			st stage=stopping note="${ACT#idle }"; kill_job; FORCE_RC=6; break ;;
+	esac
 	if [ $(( $(date +%s) - T0 )) -gt "$CAP" ]; then
 		say "time cap reached: stopping the job, then fetching partial results"
-		ssh runtime 'P=$(cat /content/job/runner.pid 2>/dev/null); [ -n "$P" ] && { kill -TERM -- -$P 2>/dev/null; sleep 3; kill -KILL -- -$P 2>/dev/null; }; true' || true
+		st note="time cap reached"; kill_job
 		break
 	fi
+	if [ "${STATUS_PUSH_MIN:-5}" -gt 0 ] && [ $(( $(date +%s) - LAST_PUSH )) -ge $(( ${STATUS_PUSH_MIN:-5} * 60 )) ]; then
+		push_live; LAST_PUSH=$(date +%s)
+	fi
 done
+if [ "$FORCE_RC" = 5 ]; then
+	say "job $ID: exit 5 (runtime lost); partial files, if any, stay on the runtime until it stops; driver.log in $RES"
+	exit 5
+fi
+st stage=results
 
 # --- 3. results (size-capped)
 # A file list with SHA-256 made on the runtime, checked here after the copy:
 # a run counts only when what arrived matches what the runtime wrote.
-ssh runtime "cd /content/job && cp progress.txt runner.log out/ 2>/dev/null; (cd out && find . -type f ! -name MANIFEST.sha256 -print0 | sort -z | xargs -0 -r sha256sum > MANIFEST.sha256); du -sm out | cut -f1" > "$RES/out-mb.txt" || true
+ssh runtime "cd /content/job && cp progress.txt runner.log job-progress.txt gpu.csv out/ 2>/dev/null; (cd out && find . -type f ! -name MANIFEST.sha256 -print0 | sort -z | xargs -0 -r sha256sum > MANIFEST.sha256); du -sm out | cut -f1" > "$RES/out-mb.txt" || true
 MB=$(cat "$RES/out-mb.txt" 2>/dev/null || echo 0)
 if [ "${MB:-0}" -gt "$CAPMB" ]; then
 	say "OUT_DIR is $MB MB, over the job's $CAPMB MB: bringing back files under 10 MB only"
@@ -242,6 +339,7 @@ if [ -n "${RESULTS_REPO:-}" ]; then
 	rm -rf "$P"
 fi
 RC=$(python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(0 if d.get('setup_exit')==0 and d.get('run_exit')==0 else 1)" "$RES/runner.json" 2>/dev/null || echo 1)
+[ -n "$FORCE_RC" ] && RC=$FORCE_RC
 # Results nobody can reach are a failed job: the queue stops and says so.
 [ "$RC" = 0 ] && [ "$VERIFIED" = 0 ] && RC=4
 [ "$RC" = 0 ] && [ "$PUSHED" = 0 ] && RC=3
@@ -250,4 +348,6 @@ if [ "$TYPE" = model-run ] && [ "$RC" = 0 ] && { [ "${LEFTOUT:-0}" -gt 0 ] || [ 
 	say "model outputs not all delivered (size limits): exit 3"; RC=3
 fi
 say "job $ID: exit $RC; results in $RES"
+[ "$RC" = 0 ] && FINAL=done
+st state="$FINAL" stage=done exit="$RC"
 exit "$RC"

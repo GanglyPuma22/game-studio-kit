@@ -276,9 +276,11 @@ def parser():
     # job is the shell scripts' work (skills/studio-cloudrun/scripts).
     c = command("cloudrun")
     c.description = "Check a cloud run job or queue file and print the plan a runner would follow"
-    c.add_argument("operation", choices=["types", "validate", "plan", "queue"])
+    c.add_argument("operation", choices=["types", "validate", "plan", "queue", "status"])
     c.add_argument("--job", help="Job JSON file (validate, plan)")
     c.add_argument("--queue", help="Queue text file (queue)")
+    c.add_argument("--work", help="status: the service host's work folder (default $CLOUDRUN_WORK or ~/studio-cloudrun)")
+    c.add_argument("--id", action="append", default=[], help="status: only this job id (repeatable)")
     c.add_argument("--where", choices=["here", "colab"], help="plan: override the job's where")
     c.add_argument("--allow-repo", action="append", default=[], help="validate: allowed owner/name (trailing * matches a prefix)")
     c.add_argument("--allow-ref", action="append", default=[], help="validate: allowed branch (trailing * matches a prefix)")
@@ -430,6 +432,8 @@ def _cloudrun(a):
     if a.operation == "types":
         return {"types": cloudrun.JOB_TYPES, "reserved": cloudrun.RESERVED_TYPES,
                 "recipes": {k: {x: v.get(x) for x in ("summary", "kind", "gpu", "gated", "tested")} for k, v in cloudrun.recipes().items()}}
+    if a.operation == "status":
+        return cloudrun.live_status(a.work, a.id)
     if a.operation == "queue":
         if not a.queue:
             raise StudioError("cloudrun queue needs --queue")
