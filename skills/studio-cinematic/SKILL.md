@@ -32,7 +32,8 @@ Change the method only on evidence: run the cheapest test that answers the quest
 
 ## Defaults (see the [playbook](references/playbook.md))
 
-- **Layout:** clay with live lines plus the v2 rules for chunks with several characters and cuts; camera-only markers (smoother motion, better giant detail) where one character holds the frame. Markers alone swapped identities after cuts. Keep a clay and a markers twin of every shot. The markers + v2 rules A/B is pending.
+- **Layout:** camera-only markers with the v2 rules is the default (it beat clay v2: identity held, giant detail kept, smoother motion, no stray strands). Clay only for exact-pose shots. Keep a clay and a markers twin of every shot.
+- **Thin props** (cables): draw them in the layout, give the prop its own reference sheet, route each line by start and end in the brief with negatives; otherwise the model invents the familiar trope.
 - **v2 rules in every brief:** one character per shot after a cut, framed large; name who is and isn't in the shot; the same signature traits sentence per character; distinct proxy colours; exact limb counts; lines only while attached and the shooter is on screen, with the release as its own beat.
 - **No cut within 0.75 s of a chunk edge**; Seedance drops them.
 - **Use pillars, not the clay, where the source animation is flawed.** The model copies it.

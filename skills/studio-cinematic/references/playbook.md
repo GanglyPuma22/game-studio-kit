@@ -18,9 +18,10 @@ What one 50-60 s game trailer taught (Nov 2026, Seedance 2.5 through Runway, sti
 |---|---|---|
 | **Camera-only markers** (pillars) | Smoother motion; holds positions and final framing; keeps giant detail | Swapped identities after cuts (one warden became the other) |
 | **Clay** (posed figures) | Better landings and flight | Stiffer motion; simplifies the giants |
-| **Clay + live lines + v2 rules** | Fixed identity on a chunk that had swapped (chunk 6 v2) | |
+| **Clay + live lines + v2 rules** | Fixed identity on a chunk that had swapped (chunk 6 v2) | Stiffer than markers |
+| **Markers + v2 rules** | Beat clay v2 on the same chunk: identity held, giant detail kept, smoother motion, no stray strands | |
 
-Recommended now: clay with live lines and the v2 rules for chunks with several characters and cuts; markers where one character holds the frame. A markers + v2 rules A/B is pending; update this table when it lands. Keep both twins of every shot either way.
+Recommended: **camera-only markers with the v2 rules** as the default; clay only for shots where an exact pose is the point. Keep both twins of every shot.
 
 ## v2 rules (put in every brief)
 
@@ -30,6 +31,15 @@ Recommended now: clay with live lines and the v2 rules for chunks with several c
 - **Distinct proxy colours** in the layout (no two characters in near colours; we moved the Vaulter from white to orange).
 - **Exact limb counts** ("giants have exactly two arms and two hands").
 - **Lines exist only while attached and while the shooter is on screen**: each runs from the shooter's launcher to one anchor; the release is its own beat; no line is ever left strung between two places.
+
+## Thin props (cables, lines)
+
+If the layout shows no line, the model invents the familiar trope (for grapple lines: web lines shooting from the wrists). Three layers fix it:
+1. Draw the line in the layout, only while attached.
+2. Give the device and cable a dedicated prop reference sheet in its own image slot, with a role line: "use only for the device and cable".
+3. Route each line in the brief by its start and end, with explicit negatives.
+
+Audit the shared rule text too: ours said "wrist launcher" by mistake and reinforced the trope. Fallback: render without lines and composite them in the edit.
 
 ## Cuts and chunks
 

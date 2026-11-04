@@ -13,7 +13,7 @@ A generation job has four inputs. Give each exactly one job, and say so in the p
 
 | Grade | Reference clip | The model does | Use when |
 |---|---|---|---|
-| **pillars** (markers) | Camera-only twin: plain coloured pillars of true height, plus small proxies for contact points, line endpoints and release frames where contact matters | Performs all bodies from the brief inside the copied camera | Almost always. Runs, fights, swings, grabs whose animation is not perfect |
+| **pillars** (markers, default with the v2 rules) | Camera-only twin: plain coloured pillars of true height, plus small proxies for contact points, line endpoints and release frames where contact matters | Performs all bodies from the brief inside the copied camera | Almost always. Runs, fights, swings, grabs whose animation is not perfect |
 | **clay** | Articulated blockout, one flat colour per character | Re-surfaces the posed bodies | An exact pose or contact is the point and the clay's motion has passed QA |
 | **first-frame** | A painted still as frame 1 (plus optionally pillars for camera) | Performs from that composition | A composition must be exact (a scale shot, a close-up) |
 | **free** | None (identity pack + look still + brief) | Everything | A blink-length impact or a shot the blockout can't stage |

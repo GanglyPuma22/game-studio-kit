@@ -2,8 +2,12 @@
 
 Each entry: date, what was tried, cost, result, what changed in the method. Add to this as tests land; promote a lesson into [method](method.md) only once the person has picked it.
 
+## 2026-11-04 08:25 — markers v2 wins; thin props
+- Camera-only markers with the v2 rules beat clay v2 on chunk 6: identity held, giant detail kept, smoother motion, no stray strands. Markers are the default again; clay for exact-pose shots.
+- Grapple cables: with no line in the layout the model invented web lines from the wrists. Fix in three layers: draw the line in the layout; a dedicated prop reference sheet in its own image slot ("use only for the device and cable"); route each line by start and end in the brief with explicit negatives. Our shared rule text said "wrist launcher" by mistake and reinforced the trope: audit shared text. Fallback: render without lines and composite them in the edit.
+
 ## 2026-11-04 — full refresh after the v5 chunks
-- Layout A/B on chunk 6: camera-only markers gave smoother motion, held positions and the final framing and kept giant detail, but swapped the two wardens' identities after cuts. Clay gave better landings and flight, stiffer motion, simpler giants. Clay with live lines plus the v2 rules fixed identity (chunk 6 v2). Markers + v2 rules A/B pending.
+- Layout A/B on chunk 6: camera-only markers gave smoother motion, held positions and the final framing and kept giant detail, but swapped the two wardens' identities after cuts. Clay gave better landings and flight, stiffer motion, simpler giants. Clay with live lines plus the v2 rules fixed identity (chunk 6 v2). Markers + v2 rules: see 08:25.
 - v2 rules: one character per shot after a cut, framed large; the brief names who is and isn't in each shot; signature traits per character; distinct proxy colours (Vaulter moved to orange); exact limb counts; lines exist only while attached and the shooter is on screen, release is its own beat.
 - Seedance dropped cuts near clip edges: no cut within 0.75 s of a chunk start or end, enforced in the chunk encoder.
 - Blockout: disable physics interpolation (stale frame at cuts); verify on-screen size by the math.
