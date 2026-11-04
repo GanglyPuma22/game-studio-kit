@@ -30,6 +30,7 @@ import time
 from pathlib import Path
 
 STALE_S = 180  # a running status not updated for this long means the host side stopped updating it
+IDLE_GAP_S = 150  # readings further apart than this (polls are 15-60 s) break the idle clock
 STEP_RE = re.compile(r"(\d+)\s*(?:/|of)\s*(\d+)")
 
 
@@ -124,6 +125,7 @@ def tick(status, probe, now, gpu_idle_min=5.0, ssh_lost_min=5.0):
     status["updated"], status["updated_s"] = iso(now), int(now)
     _derive(status, now)
     if probe.get("ssh") == "fail":
+        _idle_reset(status)  # an unobserved minute is never counted as idle
         status["ssh_fail"] = status.get("ssh_fail", 0) + 1
         since = status.setdefault("ssh_fail_since_s", int(now))
         if probe.get("session") == "gone":
@@ -151,6 +153,7 @@ def tick(status, probe, now, gpu_idle_min=5.0, ssh_lost_min=5.0):
         status["note"] = "job finished on the runtime"
         return "finished"
     if probe.get("pid_alive") == "0":
+        _idle_reset(status)
         status["not_running"] = status.get("not_running", 0) + 1
         if status["not_running"] >= 2:
             status["note"] = "the job's process is gone and it never wrote its finished mark"
@@ -159,18 +162,31 @@ def tick(status, probe, now, gpu_idle_min=5.0, ssh_lost_min=5.0):
     status["not_running"] = 0
     # Idle GPU: only for GPU jobs, only once the job's own command runs, and
     # only when the runtime actually reported GPU samples.
+    # The idle clock runs only over unbroken zero readings: a gap between
+    # readings (a missed poll, a probe without samples) starts it over.
     if status.get("gpu") not in (None, "CPU") and gpu_idle_min and stage == "run" and util is not None:
         if util == 0:
-            since = status.setdefault("gpu_idle_since_s", int(now))
+            last = status.get("gpu_idle_last_s")
+            if last is None or now - last > IDLE_GAP_S:
+                status["gpu_idle_since_s"] = int(now)
+            status["gpu_idle_last_s"] = int(now)
+            since = status["gpu_idle_since_s"]
             status["gpu_idle_min"] = round((now - since) / 60, 1)
             if now - since >= gpu_idle_min * 60:
                 status["note"] = f"GPU at 0 % for {status['gpu_idle_min']} min"
                 return f"idle the GPU showed 0 % for {status['gpu_idle_min']} min while the job ran (limit {gpu_idle_min:g} min): it is not using the GPU it pays for"
         else:
-            status.pop("gpu_idle_since_s", None)
-            status["gpu_idle_min"] = 0
+            _idle_reset(status)
+    else:
+        _idle_reset(status)
     status["note"] = ""
     return "ok"
+
+
+def _idle_reset(status):
+    status.pop("gpu_idle_since_s", None)
+    status.pop("gpu_idle_last_s", None)
+    status["gpu_idle_min"] = 0
 
 
 def line(status, now=None):

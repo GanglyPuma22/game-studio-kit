@@ -28,6 +28,13 @@ fi
 # The host waits for this file, written on every way out (never for a log line).
 trap '[ -n "$GPUMON" ] && kill "$GPUMON" 2> /dev/null; echo done > "$JOB/stage"; touch "$JOB/finished"' EXIT
 log() { echo "$(date -u +%T) $*" | tee -a "$JOB/progress.txt"; }
+# One step (setup or command) under timeout, which makes its own process group:
+# that group goes on record in cmd.pid, so the host's stop can reach it.
+step() { # step SECONDS COMMAND LOG
+	timeout -k 30 "$1" bash -c "$2" > "$3" 2>&1 &
+	local pid=$!; echo "$pid" > "$JOB/cmd.pid"
+	wait "$pid"; local rc=$?; : > "$JOB/cmd.pid"; return "$rc"
+}
 J() { python3 -c "import json,sys;d=json.load(open('$JOB/job.json'));$1"; }
 ID=$(J 'print(d["id"])')
 MAXMIN=$(J 'print(int(d["max_minutes"]))')
@@ -58,7 +65,7 @@ SRC=0
 if [ -n "$SETUP" ]; then
 	echo setup > "$JOB/stage"
 	log "setup: $SETUP"
-	timeout -k 30 $((MAXMIN * 60)) bash -c "$SETUP" > "$OUT/setup.log" 2>&1; SRC=$?
+	step $((MAXMIN * 60)) "$SETUP" "$OUT/setup.log"; SRC=$?
 	log "setup exit $SRC"
 fi
 # timeout (not --foreground) signals the whole process group, so a
@@ -68,7 +75,7 @@ if [ "$SRC" = 0 ]; then
 	LEFT=$(( MAXMIN * 60 - ($(date +%s) - T0) )); [ "$LEFT" -lt 60 ] && LEFT=60
 	echo run > "$JOB/stage"
 	log "run: $CMD"
-	timeout -k 30 "$LEFT" bash -c "$CMD" > "$OUT/run.log" 2>&1; RC=$?
+	step "$LEFT" "$CMD" "$OUT/run.log"; RC=$?
 	log "run exit $RC"
 fi
 GPU=$(grep -m1 '^gpu=' "$JOB/env.txt" 2>/dev/null || echo "gpu=unknown (no runtime_display.sh)")

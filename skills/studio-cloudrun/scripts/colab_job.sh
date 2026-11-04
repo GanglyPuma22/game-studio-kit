@@ -126,10 +126,17 @@ else
 	[ -d "$MIRROR" ] || git clone -q --bare "$GH$REPO.git" "$MIRROR"
 	# Branches land under refs/remotes/origin/, which a worktree's checked-out
 	# branch never blocks (a plain refs/heads/* fetch then refused every update).
-	git -C "$MIRROR" fetch -q --prune origin "+refs/heads/*:refs/remotes/origin/*" \
+	git -C "$MIRROR" fetch -q --prune origin "+refs/heads/*:refs/remotes/origin/*" "+refs/tags/*:refs/tags/*" \
 		|| say "fetch of $REPO failed; using what the mirror already has"
-	COMMIT=$(git -C "$MIRROR" rev-parse --verify -q "refs/remotes/origin/$REF^{commit}" \
-		|| git -C "$MIRROR" rev-parse --verify -q "$REF^{commit}") || { say "ref $REF not found in $REPO: stop"; exit 1; }
+	git -C "$MIRROR" remote set-head origin -a > /dev/null 2>&1 || true   # HEAD: the origin's default branch
+	# Only refreshed names resolve: a branch (main, refs/heads/main, HEAD) through
+	# refs/remotes/origin/, a tag through refs/tags/, else a commit id. The
+	# mirror's own clone-time branches are never used: they no longer move.
+	B=${REF#refs/heads/}; T=refs/tags/${REF#refs/tags/}
+	if COMMIT=$(git -C "$MIRROR" rev-parse --verify -q "refs/remotes/origin/$B^{commit}"); then :
+	elif COMMIT=$(git -C "$MIRROR" rev-parse --verify -q "$T^{commit}"); then :
+	elif [[ "$REF" =~ ^[0-9a-f]{7,40}$ ]] && COMMIT=$(git -C "$MIRROR" rev-parse --verify -q "$REF^{commit}"); then :
+	else say "ref $REF not found in $REPO: stop"; exit 1; fi
 	git -C "$MIRROR" archive --format=tar "$COMMIT" > "$RES/repo.tar"
 fi
 say "job $ID: $REPO $REF @ $COMMIT ($(( $(stat -c %s "$RES/repo.tar") / 1048576 )) MB), $GPU${NEW[*]:+ (colab new ${NEW[*]})}, screen $SCREEN, cap $MAXMIN min${MAXUNITS:+, ceiling $MAXUNITS units}"
@@ -260,7 +267,13 @@ ssh runtime "bash /content/job/runtime_display.sh $SCREEN_ARG" >> "$RES/driver.l
 put 'cd /content/job && if [ ! -s runner.pid ]; then setsid nohup bash runtime_job.sh > runner.log 2>&1 < /dev/null & sleep 3; fi; [ -s runner.pid ]'
 # Every minute: one probe of the runtime, the live status updated from it,
 # and a loud stop when the runtime has no running job or a GPU job idles.
-kill_job() { ssh runtime 'P=$(cat /content/job/runner.pid 2>/dev/null); [ -n "$P" ] && { kill -TERM -- -$P 2>/dev/null; sleep 3; kill -KILL -- -$P 2>/dev/null; }; true' || true; }
+# Stop the job: TERM to the command's own process group (timeout makes one) and
+# the runner's, wait up to 30 s for both to end, then KILL what is left, so no
+# file is still being written when the results are hashed and copied.
+kill_job() { ssh runtime 'cd /content/job; G=""; for f in cmd.pid runner.pid; do P=$(cat $f 2>/dev/null); [ -n "$P" ] && G="$G $P"; done
+	for P in $G; do kill -TERM -- -$P 2>/dev/null; done
+	for i in $(seq 30); do A=0; for P in $G; do kill -0 -- -$P 2>/dev/null && A=1; done; [ $A = 0 ] && break; sleep 1; done
+	for P in $G; do kill -KILL -- -$P 2>/dev/null; done; true' || true; }
 FORCE_RC=""; LAST_PUSH=$(date +%s)
 while :; do
 	sleep "${POLL_S:-60}"

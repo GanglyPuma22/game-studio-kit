@@ -13,6 +13,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -75,13 +76,14 @@ class LiveStatusLogicTests(unittest.TestCase):
     def test_gpu_idle_stops_only_gpu_jobs_in_their_run_stage(self):
         probe = {"job": "1", "pid_alive": "1", "finished": "0", "stage": "run", "gpu_util_max": "0"}
         s = {"gpu": "L4"}
-        self.assertEqual(ls.tick(s, probe, 0.0, gpu_idle_min=5), "ok")
-        self.assertEqual(ls.tick(s, probe, 240.0, gpu_idle_min=5), "ok")
+        for t in range(0, 300, 60):
+            self.assertEqual(ls.tick(s, probe, float(t), gpu_idle_min=5), "ok", t)
         self.assertTrue(ls.tick(s, probe, 300.0, gpu_idle_min=5).startswith("idle "))
         busy = {"gpu": "L4"}
         ls.tick(busy, probe, 0.0)
-        ls.tick(busy, {**probe, "gpu_util_max": "3"}, 200.0)
-        self.assertEqual(ls.tick(busy, probe, 400.0), "ok")  # the clock restarted at 400
+        ls.tick(busy, {**probe, "gpu_util_max": "3"}, 60.0)
+        for t in range(120, 420, 60):
+            self.assertEqual(ls.tick(busy, probe, float(t)), "ok", t)  # the clock restarted at 120
         for status, p in (({"gpu": "CPU"}, probe), ({"gpu": "L4"}, {**probe, "stage": "setup"}),
                           ({"gpu": "L4"}, {k: v for k, v in probe.items() if k != "gpu_util_max"})):
             ls.tick(status, p, 0.0)
@@ -89,6 +91,19 @@ class LiveStatusLogicTests(unittest.TestCase):
         off = {"gpu": "L4"}
         ls.tick(off, probe, 0.0, gpu_idle_min=0)
         self.assertEqual(ls.tick(off, probe, 3600.0, gpu_idle_min=0), "ok")
+
+    def test_unobserved_minutes_never_count_as_idle(self):
+        probe = {"job": "1", "pid_alive": "1", "finished": "0", "stage": "run", "gpu_util_max": "0"}
+        for gap in ({"ssh": "fail"}, {k: v for k, v in probe.items() if k != "gpu_util_max"}):
+            s = {"gpu": "L4"}
+            ls.tick(s, probe, 0.0)
+            for t in (60.0, 120.0, 180.0, 240.0):
+                ls.tick(s, gap, t, ssh_lost_min=99)
+            self.assertEqual(ls.tick(s, probe, 300.0), "ok", gap)
+            self.assertEqual(s["gpu_idle_min"], 0)
+        s = {"gpu": "L4"}
+        ls.tick(s, probe, 0.0)
+        self.assertEqual(ls.tick(s, probe, 300.0), "ok")  # two readings 5 min apart are not 5 idle minutes
 
     def test_a_runtime_with_no_job_or_no_answer_is_lost(self):
         self.assertTrue(ls.tick({}, {"job": "0"}, 0.0).startswith("lost "))
@@ -204,6 +219,17 @@ class ColabJobEndToEndTests(unittest.TestCase):
                               capture_output=True, text=True)
         self.assertIn("live-test | done", show.stdout)
 
+    def test_qualified_branch_names_follow_the_origin(self):
+        self.assertEqual(self.run_job("true").returncode, 0)  # the mirror now exists
+        (self.src / "LATER").write_text("x\n")
+        subprocess.run(self.g + ["add", "-A"], check=True)
+        subprocess.run(self.g + ["commit", "-qm", "later"], check=True)
+        subprocess.run(self.g + ["push", "-q", str(self.origin), "main"], check=True)
+        for ref in ("refs/heads/main", "HEAD", "main"):
+            with self.subTest(ref=ref):
+                r = self.run_job("test -f LATER", ref=ref)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
     def test_a_second_copy_of_a_running_job_is_refused_before_any_runtime(self):
         (self.work / "locks").mkdir(parents=True)
         with open(self.work / "locks" / "job-live-test.lock", "w") as held:
@@ -257,8 +283,13 @@ class ColabJobEndToEndTests(unittest.TestCase):
 
     def test_a_gpu_job_at_zero_gpu_is_stopped_early(self):
         write_exe(self.bin / "nvidia-smi", FAKE_NVIDIA)
-        r = self.run_job("sleep 60", gpu="L4", screen=False, gpu_idle_minutes=0.05)
+        r = self.run_job('while :; do echo x >> "$OUT_DIR/tick"; sleep 0.3; done', gpu="L4", screen=False,
+                         gpu_idle_minutes=0.05)
         self.assertEqual(r.returncode, 6, r.stdout + r.stderr)
+        tick = self.fake / "content" / "job" / "out" / "tick"
+        size = tick.stat().st_size
+        time.sleep(1.5)
+        self.assertEqual(tick.stat().st_size, size, "the command kept running after the stop")
         self.assertIn("GPU IDLE", r.stdout)
         s = self.status()
         self.assertEqual(s["state"], "failed")
