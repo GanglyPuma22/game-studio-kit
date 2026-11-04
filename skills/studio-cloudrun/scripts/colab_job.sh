@@ -214,8 +214,9 @@ if [ -n "$MAXUNITS" ]; then
 	[ "$UCAP" -lt "$CAP" ] && { CAP=$UCAP; say "cap: $CAP s from the $MAXUNITS unit ceiling"; st cap_min=$(( CAP / 60 )); }
 fi
 # Watchdog over the whole runtime's life (start-up, copies, the job, results):
-# at the cap it stops the runtime, which ends any ssh call still hanging.
-( sleep "$CAP"; echo "[cloudrun $(date -u +%T)] watchdog: $CAP s since the runtime started, stopping it" >> "$RES/driver.log"
+# at the cap it stops the runtime, which ends any ssh call still hanging. It
+# lets go of the job locks, so a runner killed outright cannot hold them for hours.
+( exec 8>&- 9>&-; sleep "$CAP"; echo "[cloudrun $(date -u +%T)] watchdog: $CAP s since the runtime started, stopping it" >> "$RES/driver.log"
   "${COLAB[@]}" stop -s "$SESSION" > /dev/null 2>&1 ) > /dev/null 2>&1 < /dev/null &
 WATCHDOG=$!
 "${COLAB[@]}" usage 2> /dev/null | head -3 >> "$RES/driver.log" || true
