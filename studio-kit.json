@@ -223,6 +223,7 @@
     "skills/studio-director/references/character-pipeline.md",
     "studio_tools/model_qa/evidence.py",
     "studio_tools/model_qa/surface.py",
+    "skills/studio-cinematic/references/playbook.md",
     "skills/studio-cinematic/references/method.md",
     "skills/studio-cinematic/references/reference-video.md",
     "skills/studio-cinematic/references/prompts.md",

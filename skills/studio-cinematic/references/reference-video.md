@@ -38,5 +38,8 @@ Before any paid run on a clip:
 - [ ] Constant fps, honest scale, contact shadows visible
 - [ ] Hero fills about 1/4 to 1/3 of frame height on every key action
 - [ ] Tethers clear every body in 3D and on screen
+- [ ] No cut within 0.75 s of a chunk start or end
+- [ ] Physics interpolation off (no stale frame at cuts); on-screen sizes checked by the math
+- [ ] Distinct proxy colours; lines drawn only while attached and the shooter is on screen
 - [ ] Ends trimmed; clip under the inline size limit
 - [ ] Every shot graded (pillars / clay / first-frame / free) with a reason, and a brief for every non-clay shot

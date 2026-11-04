@@ -13,14 +13,17 @@ A generation job has four inputs. Give each exactly one job, and say so in the p
 
 | Grade | Reference clip | The model does | Use when |
 |---|---|---|---|
-| **pillars** (default) | Camera-only twin: plain coloured pillars of true height, plus small proxies for contact points, line endpoints and release frames where contact matters | Performs all bodies from the brief inside the copied camera | Almost always. Runs, fights, swings, grabs whose animation is not perfect |
+| **pillars** (markers) | Camera-only twin: plain coloured pillars of true height, plus small proxies for contact points, line endpoints and release frames where contact matters | Performs all bodies from the brief inside the copied camera | Almost always. Runs, fights, swings, grabs whose animation is not perfect |
 | **clay** | Articulated blockout, one flat colour per character | Re-surfaces the posed bodies | An exact pose or contact is the point and the clay's motion has passed QA |
 | **first-frame** | A painted still as frame 1 (plus optionally pillars for camera) | Performs from that composition | A composition must be exact (a scale shot, a close-up) |
 | **free** | None (identity pack + look still + brief) | Everything | A blink-length impact or a shot the blockout can't stage |
 
 A chunk can mix grades per shot: the prompt states each time range and its grade.
 
-## Why pillars won (measured on one 6 s charge shot)
+## Why pillars beat strict clay on one shot (measured on a 6 s charge shot)
+
+Later, on multi-character chunks with cuts, markers swapped identities; clay with live lines and the v2 rules fixed it. See the [playbook](playbook.md#layout-mode-what-video-1-shows).
+
 
 - **Strict clay:** best camera, but the output copied a 1 s pause in the run, the stiff gait and the game look.
 - **Free (no video):** fluid bodies, but the camera was the model's and the composition drifted.
@@ -40,6 +43,10 @@ The looser the structure, the more the model draws on real film footage it has l
 | Output looks like the game | Prompt said "game cinematic", or clay pixels leaking | A distinct look still; pillars; "ignore the layout's colours and blocky shapes" |
 | Setting from another shot appears | Look still borrowed from a different chunk | Paint a still per chunk from its layout frame; "the setting, buildings and landmarks come from video 1" |
 | A character renders as a generic person | No reference images for someone on screen briefly | Attach the identity pack for everyone visible in the chunk, however briefly |
+| Identities swap after a cut | Markers layout, several characters, near colours | v2 rules: one character per shot after a cut, "this shot shows only X", signature traits, distinct proxy colours; clay with live lines |
+| A cut is missing | Cut within 0.75 s of the chunk edge | Re-window the chunks (encoder check) |
+| A stray line hangs between two places | Line drawn after release or with the shooter off screen | Lines only while attached and shooter on screen; release as its own beat. Aleph can't paint it out |
+| Stale frame at a cut | Engine physics interpolation in the blockout | Disable interpolation for previs renders |
 | Characters merged or swapped | Untagged references, similar colours | Name every image's role; one distinct colour per character |
 | Provider safety block before generation (0 credits) | A reference image that reads as restraint or harm (measured: a still of a giant hand holding a woman); softer text does not help | Never pass a still of a character holding or restraining a person; use a neutral look still and let the text describe the action. One diagnostic retry, then ask the person |
 | Voices differ between chunks | Model-generated audio | Audio off; voices, effects and music in the edit |

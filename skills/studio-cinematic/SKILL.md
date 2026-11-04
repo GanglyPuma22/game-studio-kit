@@ -30,21 +30,21 @@ A video model with a reference video is a **photocopier for timing and pose**. I
 
 Change the method only on evidence: run the cheapest test that answers the question (one 6 s shot), show the person a side-by-side, let them pick.
 
-## Defaults that won (see the log)
+## Defaults (see the [playbook](references/playbook.md))
 
-- **Camera-only pillars + director's brief** is the default for every shot. The pillars clip fixes camera, placement, scale and cut timing; the brief describes the action; the identity pack carries who each character is. The model performs the bodies with real weight.
-- Use the **full clay** only where an exact pose or contact is the point, and only after the clay's motion passes the QA gate. A flawed source animation is a reason to use pillars, not to hope.
-- Keep both twins of every shot so a chunk can switch method without a re-block.
-- **Shortlist looks on stills** (cheap), then **decide on a video test**. A live-action look won on stills and was rejected on video: people looked real and characters drifted from their concepts. For a game with designed characters, an animated look with close concept adherence is the safer default; a stylized 3D feature look beat live-action on character adherence.
-- Prompts that say "game cinematic" get the game's own render back; describe the target look itself.
-- **Stills on a subscription tool first.** Use the host's built-in image tool (no per-image cost) for look rounds and per-chunk stills; a paid image API only when a specific model is needed. The video provider is for video. Each generator has one house style: four "different" directions from one tool converge, so compare tools when the look is open.
-- **One paired reference per character** (concept and game-model sheet side by side in one image) when a tool caps reference images (one took at most 5).
-- Seedance 2.5 (via Runway) beat Kling 4 and Aleph 2 on the same inputs; Kling first-frame was a usable second.
+- **Layout:** clay with live lines plus the v2 rules for chunks with several characters and cuts; camera-only markers (smoother motion, better giant detail) where one character holds the frame. Markers alone swapped identities after cuts. Keep a clay and a markers twin of every shot. The markers + v2 rules A/B is pending.
+- **v2 rules in every brief:** one character per shot after a cut, framed large; name who is and isn't in the shot; the same signature traits sentence per character; distinct proxy colours; exact limb counts; lines only while attached and the shooter is on screen, with the release as its own beat.
+- **No cut within 0.75 s of a chunk edge**; Seedance drops them.
+- **Use pillars, not the clay, where the source animation is flawed.** The model copies it.
+- **Looks:** one still per chunk from its own layout frame, made on the host's subscription image tool, with paired references per character, cropped to 2.4:1. Shortlist on stills, decide on a video test. A stylized 3D feature look beat live-action on character adherence. Never put a restraint image in the references.
+- **Model:** Seedance 2.5 (via Runway) beat Kling 4 and Aleph 2; Aleph only patches a single shot between cuts.
+- **Vet every clip** with the [checklist](references/playbook.md#vetting-checklist-every-returned-clip) before it goes in the cut. **Re-render only the chunks a change touches.**
+- Prompts describe the target look; "game cinematic" gets the game's own render back. Keep the inspiring show's terms out of prompts.
 
 ## Spend
 
 Every paid call goes through [studio-video-gen](../studio-video-gen/SKILL.md) with the person's own go message quoted. Right before each paid call, re-read the person's thread for anything newer than the go: a correction that arrives after a go overrides it. Ask for a go per run with its estimate and cap ("go grab test, cap $3"). A plan doc keeps a cost ladder: stills, one-shot test, model test, film, retakes. Log every run.
 
-References: [method](references/method.md), [reference video spec](references/reference-video.md), [prompt anatomy](references/prompts.md), [lessons log](references/lessons.md).
+References: [playbook](references/playbook.md), [method](references/method.md), [reference video spec](references/reference-video.md), [prompt anatomy](references/prompts.md), [lessons log](references/lessons.md).
 
 Return: the current cut or test clip with a side-by-side when comparing, the shot plan, spend so far against the cap, and one question for the person.

@@ -2,6 +2,18 @@
 
 Each entry: date, what was tried, cost, result, what changed in the method. Add to this as tests land; promote a lesson into [method](method.md) only once the person has picked it.
 
+## 2026-11-04 — full refresh after the v5 chunks
+- Layout A/B on chunk 6: camera-only markers gave smoother motion, held positions and the final framing and kept giant detail, but swapped the two wardens' identities after cuts. Clay gave better landings and flight, stiffer motion, simpler giants. Clay with live lines plus the v2 rules fixed identity (chunk 6 v2). Markers + v2 rules A/B pending.
+- v2 rules: one character per shot after a cut, framed large; the brief names who is and isn't in each shot; signature traits per character; distinct proxy colours (Vaulter moved to orange); exact limb counts; lines exist only while attached and the shooter is on screen, release is its own beat.
+- Seedance dropped cuts near clip edges: no cut within 0.75 s of a chunk start or end, enforced in the chunk encoder.
+- Blockout: disable physics interpolation (stale frame at cuts); verify on-screen size by the math.
+- Aleph per-shot patch between hard cuts (2 s minimum, 28 credits/s) restyles well but cannot remove thin moving strands: fix them upstream.
+- Vetting checklist: track each character at 6-8 fps, every line has a shooter, anchor and release, extra limbs or merges, scale, then a blind second pass by another model.
+- Lip sync plan: lock lines, quote words and timings in the brief, Seedance audio-on test, then speech-to-speech into the game voice.
+- Partial re-renders: regenerate only the chunks a change touches and splice; snapshot sim state at chunk starts.
+- IP: keep the source show's terms out of prompts; show only the project's own gear design.
+- Look stills crop to 2.4:1.
+
 ## 2026-11-03 17:20 — first real chunk; framing and line clearance
 - First real film chunk rendered: 6 s, 270 credits, Seedance 2.5 reference mode, stylized 3D feature look (which beat live-action on character adherence).
 - Seedance reference mode keeps the layout's set and blocking very well, but small fast figures in wide frames don't read. Frame key action (cuts, grabs) so the hero fills about a quarter to a third of frame height.
