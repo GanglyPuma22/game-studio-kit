@@ -15,7 +15,7 @@ Practical notes:
 - Seedance rejects reference images wider than about 2.5:1; crop look stills to 2.4:1.
 - Seedance drops cuts within about 0.75 s of a clip's start or end.
 - With `audio: true` Seedance generates speech; use it only for a lip-sync test, then replace the voice with speech-to-speech.
-- Inline media as data URIs works up to about 5 MB per file; nothing has to be hosted.
+- Inline media as data URIs works up to about 5 MB per file; nothing has to be hosted. Send stills as JPEG: PNG references pushed one request to about 9 MB and got HTTP 413.
 - Jobs run in parallel; submit all, then poll every 15 s. A 6 s Seedance job took a few minutes.
 - A rejected request costs nothing; an accepted one is charged whatever you think of the result.
 - Credits already accepted in this run may not show in the balance yet, so the runner reserves them.

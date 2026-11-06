@@ -45,7 +45,12 @@ The looser the structure, the more the model draws on real film footage it has l
 | A character renders as a generic person | No reference images for someone on screen briefly | Attach the identity pack for everyone visible in the chunk, however briefly |
 | Identities swap after a cut | Markers layout, several characters, near colours | v2 rules: one character per shot after a cut, "this shot shows only X", signature traits, distinct proxy colours; clay with live lines |
 | A cut is missing | Cut within 0.75 s of the chunk edge | Re-window the chunks (encoder check) |
-| A stray line hangs between two places | Line drawn after release or with the shooter off screen | Lines only while attached and shooter on screen; release as its own beat. Aleph can't paint it out |
+| A stray line hangs between two places | Line drawn after release or with the shooter off screen | Lines only while attached and shooter on screen; stage the release on a cut. Remove leftovers with the free [cleanup](cleanup.md); Aleph can't paint them out |
+| A line carries through a cut into the next shot | The model keeps a hooked line across cuts | Accept it through a landing if it looks physical; otherwise remove it with [cleanup](cleanup.md) using clean frames later in the shot |
+| An extra hand or arm appears at a grab | Contact beat with limbs left unpinned | Brief names which hand acts, where the other limbs are, and "no other hand appears"; re-render (can't be cleaned) |
+| A character climbs or stands on nothing | A helper plane in the layout read as set | Hide helper geometry in the layout |
+| Straight planks or rails bend after cleanup | Per-pixel optical flow alignment in the fill | Rigid shift-only patches with a flow fallback ([cleanup](cleanup.md#3-warps)) |
+| A faint ghost after cleanup | No clean frame in the shot (line rides a moving character over detail) | Re-render with a cut on the release |
 | Stale frame at a cut | Engine physics interpolation in the blockout | Disable interpolation for previs renders |
 | Characters merged or swapped | Untagged references, similar colours | Name every image's role; one distinct colour per character |
 | Provider safety block before generation (0 credits) | A reference image that reads as restraint or harm (measured: a still of a giant hand holding a woman); softer text does not help | Never pass a still of a character holding or restraining a person; use a neutral look still and let the text describe the action. One diagnostic retry, then ask the person |

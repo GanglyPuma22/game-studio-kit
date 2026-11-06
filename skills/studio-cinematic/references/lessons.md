@@ -2,6 +2,24 @@
 
 Each entry: date, what was tried, cost, result, what changed in the method. Add to this as tests land; promote a lesson into [method](method.md) only once the person has picked it.
 
+## 2026-11-06 — stray-line cleanup approved; warps; pinned hands; order of work
+- Free local cleanup is the approved way to remove stray lines: hand-keyed masks per shot plus a fill that copies the real background from nearby frames of the same shot (median, never across a cut). On a motion-blurred bank shot 78-94% of hidden pixels came from real frames; the old neighbour-average fill had smeared busy texture. Detail: [cleanup](cleanup.md).
+- The person found two leftovers on a still. Both were mask misses, not fill errors: a line end that bowed away from the straight fit, and the soft blurred edge of the line at the frame edge. Rule: fit curves, cover the blur, zoom-check line ends and edges on every patched frame, rescan the shot after each fix.
+- Tested on two more kinds of stray. A line left on after a cut over a slow camera came out clean from frames later in the shot. A dark line riding a giant's hand over plain snow (moving camera, no clean frame) came out better with the neighbour average, because the nearby-frame fill found under 50% real pixels.
+- Limit: a line that moves with a character over detailed scenery for the whole shot left a faint ghost (0.5 s, visible at 0.5x). The person chose a re-render that cuts on the release instead.
+- Warps: the person caught straight planks bent behind a removed line. Per-pixel optical flow alignment caused it; one global camera move per frame fixed the planks but left a stepped band on a moving giant's face. Small rigid patches (shift only) with a flow fallback for moving bodies fixed both.
+- A second hand appeared from nowhere during a grab, 3 s in. The re-render brief now pins it: only the right hand grabs, the left arm stays down at its side, no other hand appears. Extra limbs can't be cleaned; pin limbs at every contact beat.
+- ProPainter (video inpainting) is licensed for non-commercial use only: check every model's licence before running it on a commercial trailer.
+- Order of work (person): qualify a few complicated chunks first while the method is still an experiment, then render in film order so finished segments build up; each chunk fully qualified before it counts. Every paid run gets a dry run and a typed go capped at the dry-run price.
+
+## 2026-11-05 — cables: stop drawing them, cut on release
+- Drawn cables (paint out the model's, draw a thin one from the hip) fixed the attachment point but not the poses (a fist left raised around nothing), smudged blurred frames, and looked worse to the person. Rejected: keep the model's own cables.
+- Work with the model: name the hip as the attachment point, allow one hand to steady the cable, and stage every release on a cut. Of 8 releases in the film, 2 already sat on a cut, 3 were within 0.5 s (nudged), 3 needed a new short landing shot.
+- Test (270 credits): cuts, identity and the hip cable all held, but the model carried the cable straight through the new cut into the landing. The person accepted cables staying hooked on through a landing; only strays get removed.
+- An image-edit model (Krea, a few free frames) removed a cable from a hand cleanly but redrew it from the shoulder, moved the arms and missed a stray: single-frame touch-ups only, not shots.
+- A layout helper plane read as set: a character climbed it like ice. Hide helper geometry.
+- Large PNG references hit HTTP 413 on the provider (about 9 MB request): send stills as JPEG.
+
 ## 2026-11-04 08:25 — markers v2 wins; thin props
 - Camera-only markers with the v2 rules beat clay v2 on chunk 6: identity held, giant detail kept, smoother motion, no stray strands. Markers are the default again; clay for exact-pose shots.
 - Grapple cables: with no line in the layout the model invented web lines from the wrists. Fix in three layers: draw the line in the layout; a dedicated prop reference sheet in its own image slot ("use only for the device and cable"); route each line by start and end in the brief with explicit negatives. Our shared rule text said "wrist launcher" by mistake and reinforced the trope: audit shared text. Fallback: render without lines and composite them in the edit.
