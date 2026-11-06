@@ -37,7 +37,7 @@ Before using any video-inpainting model, **check its licence for commercial use*
 
 ### 2. Fill (what goes behind the line)
 
-Never borrow pixels across a cut. Borrow only from frames where the line is masked or absent, so the line is never copied back in.
+Never borrow pixels across a cut. A donor frame often has the same stray in it: exclude each donor's own masked pixels from the median and from patch matching (reject a patch whose source overlaps the donor's mask). Where no valid sample remains for a pixel, use the next fill down the table (flow fallback, then neighbour average), and list those frames for a manual look.
 
 | Case | Fill | Why |
 |---|---|---|
@@ -69,4 +69,4 @@ A line that moves with a moving character over detailed scenery for the whole sh
 
 ## Tooling
 
-Keep the method spec-driven: one small spec per shot (hand keys, colour, frame range, cuts) and generic scripts for masks, fills and the before/after. The first project's implementation (OpenCV, a few hundred lines) lives in the Skybreak repo under `tools/cine/strays/` (on its cinematic branch); port it rather than starting over.
+Keep the method spec-driven: one small spec per shot (hand keys, colour, frame range, cuts) and generic scripts for masks, fills and the before/after. The recipe above is enough to build it with OpenCV and NumPy in a few hundred lines. For provenance only: the first project's version lives in the Skybreak repo under `tools/cine/strays/`; reuse it if you have access, otherwise build from this page.
