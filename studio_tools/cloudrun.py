@@ -61,6 +61,35 @@ REF_RE = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 MAX_MINUTES = 240
 MAX_RESULTS_MB = 500
+# A GPU job whose GPU reads 0 % this long while its command runs is stopped
+# early: it is paying GPU rates for CPU work (Blender rendering on the CPU,
+# a model that never reached CUDA). Jobs and recipes may set their own.
+GPU_IDLE_MINUTES = 5
+
+
+def _live_status_module():
+    import importlib.util
+
+    path = Path(__file__).resolve().parent.parent / "skills" / "studio-cloudrun" / "scripts" / "live_status.py"
+    spec = importlib.util.spec_from_file_location("studio_cloudrun_live_status", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def live_status(work=None, ids=()):
+    """Every job's live status on this service host, newest first, each with
+    the one-line summary `service.sh status` prints."""
+    import os
+
+    ls = _live_status_module()
+    folder = Path(work or os.environ.get("CLOUDRUN_WORK") or Path.home() / "studio-cloudrun") / "status"
+    files = [folder / f"{i}.json" for i in ids] if ids else sorted(folder.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    jobs = []
+    for f in files:
+        s = ls.load(f)
+        jobs.append({"id": f.stem, "line": ls.line(s) if s else "no status", "status": {k: v for k, v in s.items() if not k.startswith("_")}})
+    return {"folder": str(folder), "jobs": jobs}
 
 
 def load_job(path):
@@ -115,6 +144,7 @@ def validate(job, allow_repos=None, allow_refs=None):
     for key in ("high_mem", "screen"):
         if key in job and not isinstance(job[key], bool):
             errors.append(f"{key} must be true or false")
+    _idle(job, errors)
     # Optional spending ceiling, as for model runs (enforced on Colab only).
     if "max_units" in job:
         _number(job, "max_units", 0.01, MAX_UNITS, errors)
@@ -140,8 +170,8 @@ def validate(job, allow_repos=None, allow_refs=None):
         not re.match(r"^[A-Z][A-Z0-9_]{0,63}$", str(k)) or not isinstance(v, str) or "\n" in v for k, v in env.items()
     ):
         errors.append("env must map UPPER_CASE names to one-line strings")
-    elif any(k in ("OUT_DIR", "GODOT", "JOB_ID", "STUDIO_COMMIT", "DISPLAY") for k in env):
-        errors.append("env must not set OUT_DIR, GODOT, JOB_ID or DISPLAY (the runner sets them)")
+    elif any(k in ("OUT_DIR", "GODOT", "JOB_ID", "STUDIO_COMMIT", "STUDIO_PROGRESS", "DISPLAY") for k in env):
+        errors.append("env must not set OUT_DIR, GODOT, JOB_ID, STUDIO_COMMIT, STUDIO_PROGRESS or DISPLAY (the runner sets them)")
     for k in ("token", "secret", "password", "key"):
         if any(k in str(name).lower() for name in env):
             errors.append("env must not carry credentials; runtimes get none")
@@ -158,6 +188,22 @@ def recipes():
             if f.is_file():
                 found[d.name] = json.loads(f.read_text(encoding="utf-8"))
     return found
+
+
+def _idle(job, errors):
+    """gpu_idle_minutes: stop a GPU job early after this long at 0 % GPU (0 = never)."""
+    if "gpu_idle_minutes" in job:
+        _number(job, "gpu_idle_minutes", 0, MAX_MINUTES, errors)
+
+
+def idle_minutes(job, default=GPU_IDLE_MINUTES):
+    """The GPU idle limit the runner applies: none on a CPU runtime; else the
+    job's, else its recipe's, else the default."""
+    recipe = recipes().get(job.get("recipe"), {}) if job.get("type") == "model-run" else {}
+    gpu = job.get("gpu", recipe.get("gpu", "L4"))
+    if gpu == "CPU":
+        return 0
+    return job.get("gpu_idle_minutes", recipe.get("gpu_idle_minutes", default))
 
 
 def _number(job, key, low, high, errors, default=None):
@@ -183,6 +229,7 @@ def _validate_model_run(job):
         _number(job, "max_rate", 0.1, 50, errors)
     if "high_mem" in job and not isinstance(job["high_mem"], bool):
         errors.append("high_mem must be true or false")
+    _idle(job, errors)
     name = job.get("recipe")
     known = recipes()
     if name not in known:
@@ -285,6 +332,13 @@ def _rate_rule(job):
     return "refuse an unknown rate"
 
 
+def _watch_step(job):
+    idle = idle_minutes(job)
+    guard = f"stop early if the GPU reads 0 % for {idle:g} min while the job runs" if idle else "no GPU idle stop"
+    return ("service host: every minute, update the live status (stage, step, ETA, GPU use, units spent; "
+            f"`live_status.py show`); fail loudly if the runtime has no running job; {guard}")
+
+
 def plan(job, where=None):
     """The exact steps a runner takes for this job, for review before a go."""
     errors = validate(job)
@@ -303,6 +357,7 @@ def plan(job, where=None):
             f"service host: {colab_new(job, gpu)}; read the hourly rate; refuse above {job.get('max_rate', 'no')} units/hour; cap the runtime at {job['max_minutes']} min + 20 or {job['max_units']} units, whichever comes first",
             "runtime: setup: " + recipe.get("setup_summary", "the recipe's setup.sh"),
             "runtime: run: " + recipe.get("run_summary", "the recipe's run.sh"),
+            _watch_step(job),
             "service host: copy OUT_DIR back, check every file against the runtime's SHA-256 list, stop the runtime, push results",
         ]
         return {"id": job["id"], "type": job["type"], "where": "colab", "steps": steps}
@@ -329,9 +384,10 @@ def plan(job, where=None):
         steps.append(f"{'runtime' if where == 'colab' else 'here'}: download Godot from {job['godot']['url']} and check SHA-256 {job['godot']['sha256'][:12]}...")
     if job.get("setup"):
         steps.append(f"{'runtime' if where == 'colab' else 'here'}: setup: {job['setup']}")
-    steps.append(f"{'runtime' if where == 'colab' else 'here'}: run: {job['command']}  (OUT_DIR, GODOT, JOB_ID set; cap {job['max_minutes']} min)")
+    steps.append(f"{'runtime' if where == 'colab' else 'here'}: run: {job['command']}  (OUT_DIR, GODOT, JOB_ID, STUDIO_PROGRESS set; cap {job['max_minutes']} min)")
     if where == "colab":
         steps += [
+            _watch_step(job),
             f"service host: copy OUT_DIR back (files over 10 MB and anything past {job.get('results_max_mb', 200)} MB left out and listed)",
             "service host: stop the runtime (also on error and at the time cap); push results to the results branch",
         ]
