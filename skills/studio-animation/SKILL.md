@@ -21,4 +21,6 @@ Know what a GLB clip can carry before a review asks for it. glTF animation carri
 
 Reimport the GLB into a fresh Blender process and inspect skin, bones, clips, duration and dimensions. In Godot, explicitly set the loop policy and idle→response→idle transition/blend. Observe at least two loops and a response via ordinary input. Pose-change assertions are useful technical evidence but cannot establish appealing motion or contact.
 
+For a move read from an AI video of the character itself (no retargeting), use [studio-anim-from-video](../studio-anim-from-video/SKILL.md).
+
 Identify face/lip-sync, retargeting or root-motion integration as separate scoped requirements when needed; do not add a full talking-character system by default. Hand clip/event metadata to [Godot](../studio-godot/SKILL.md) and timed cues to [audio](../studio-audio/SKILL.md), then use [review](../studio-review/SKILL.md).

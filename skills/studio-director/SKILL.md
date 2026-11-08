@@ -41,6 +41,7 @@ preserve unique run logs and classify completed output before reporting status.
 | Generated asset candidate or provider preprocessing | Follow the user's selected provider and verified operation: [studio-tripo](../studio-tripo/SKILL.md) or optional [studio-meshy](../studio-meshy/SKILL.md); local Blender first for trivial repairs. Tripo has a workflow skill only, no `studio tripo` command |
 | Heightfield, authored terrain, Gaea | [studio-terrain](../studio-terrain/SKILL.md) |
 | Nonhumanoid rig, clips, transitions | [studio-animation](../studio-animation/SKILL.md) |
+| Creature or giant move from an AI video of that character (video2rig) | [studio-anim-from-video](../studio-anim-from-video/SKILL.md) |
 | Effects, ambience, foley, voice, music | [studio-audio](../studio-audio/SKILL.md) |
 | Import, runtime composition and bounded wiring | [studio-godot](../studio-godot/SKILL.md) |
 | Several launches known before the first one starts | `studio batch --plan <file>` instead of repeated `launch` calls, unless a run's arguments depend on the previous run's verdict |
