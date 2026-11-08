@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "game-studio-kit",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "skills": [
     {
       "name": "studio-director",
@@ -34,6 +34,10 @@
     {
       "name": "studio-animation",
       "path": "skills/studio-animation/SKILL.md"
+    },
+    {
+      "name": "studio-anim-from-video",
+      "path": "skills/studio-anim-from-video/SKILL.md"
     },
     {
       "name": "studio-audio",
@@ -209,6 +213,9 @@
     "skills/studio-animation/scripts/block_anim/motion_check.gd",
     "skills/studio-animation/scripts/block_anim/skin_blocks.gd",
     "skills/studio-animation/scripts/block_anim/selftest.gd",
+    "skills/studio-anim-from-video/references/checks.md",
+    "skills/studio-anim-from-video/references/lessons.md",
+    "skills/studio-anim-from-video/references/anymove.md",
     "templates/block-rig.json",
     "studio_tools/character_run.py",
     "templates/character-run.json",
