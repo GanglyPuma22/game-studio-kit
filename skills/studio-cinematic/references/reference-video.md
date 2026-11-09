@@ -6,8 +6,8 @@ Render for a machine reader: **unambiguous, not beautiful.**
 
 - Block from the engine's real map and characters when they exist; scale is then honest for free. Keep the movement-relevant geometry, nothing more.
 - Pace at final energy and real speeds (for example a sprint at 7.2-7.4 m/s, falls near 1.6 g). A slow previs is a slow film.
-- Cut on every beat; action shots 0.6-3 s. Action carries across each cut, already moving on frame 1.
-- Every camera move is eased and starts on the shot's first frame. Shake only on named impacts.
+- Hold each action beat in one shot (1.5 s minimum, except impacts under 1 s); see [editing](editing.md). Action carries across each cut, already moving on frame 1.
+- Every moving camera is flown by a simulated rig within real limits, not drawn ([camera rigs](camera-rigs.md)), and starts on the shot's first frame. Shake only on named impacts.
 - Turns lead with the head; anticipation before a move (crouch before a leap), a settle after (compress on landing).
 - No dead air: trim holds, and trim both ends of the film. Output length follows the reference and dead air is billed.
 - When an engine character uses its real animation, check that animation frame by frame first. If it is wrong, grade the shot pillars instead.
@@ -42,4 +42,6 @@ Before any paid run on a clip:
 - [ ] Physics interpolation off (no stale frame at cuts); on-screen sizes checked by the math
 - [ ] Distinct proxy colours; lines drawn only while attached and the shooter is on screen
 - [ ] Ends trimmed; clip under the inline size limit
-- [ ] Every shot graded (pillars / clay / first-frame / free) with a reason, and a brief for every non-clay shot
+- [ ] Every moving camera flown by its rig, its least flying time within the story time; the subject held at its framing size through the move
+- [ ] Close cameras never inside a wall, roof or giant (camera guard); foreground never cuts across the subject on a long move
+- [ ] No run of cuts under 1.5 s apart that one move could replace; subject at the same frame spot across each fast cut
