@@ -22,7 +22,7 @@ Every generation is **one camera setup, 3-5 s, with exactly one action** that ru
 | Style master (one approved frame) | Look, in every shot |
 | Prompt | Camera, who (one fixed line per character, from the sheet), the one action as a verb phrase, the fixed style line. No sentence may contradict the frames |
 | Clay layout with characters | Staging and the paint source: timing, start and end frames. Not sent to the model by default (it copies the clay's stiff animation) |
-| Camera-only guide (grey set, characters as blobs, cut to the shot) | The camera, for shots whose flown move carries the shot ([camera rigs](camera-rigs.md#before-the-paid-renders)). Agreed Nov 9, A/B pending in the [lessons log](lessons.md). Locked shots send frames only |
+| Camera-only guide (grey set, characters as blobs, cut to the shot) | The camera, for shots whose flown move carries the shot ([camera rigs](camera-rigs.md#before-the-paid-renders)). Kling 4 + guide is the default (frames only failed on a flown move, [lessons log](lessons.md)). Airborne blobs must read as airborne. Locked shots send frames only |
 
 Untimed middle frames are out: the provider APIs take a list with no timestamps, so the model jumps to a painted middle frame early or late and parks on it.
 

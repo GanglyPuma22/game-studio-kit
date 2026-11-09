@@ -45,9 +45,9 @@ Keep a flag that switches the flown cameras on (`--rigs` on the first film), so 
 
 ## Before the paid renders
 
-A flown camera is only worth something if the video model gets it. Painted first and last frames alone don't describe a flown path: the model invents its own move between them. Method the person agreed on the first film (Nov 9), with a one-shot A/B still to confirm it:
-- **Camera-heavy shots** (flown reveals, chases, crane moves): the painted first and last frames plus a **camera-only guide** cut to the shot: the grey set with the characters as simple blobs. The camera comes from the flight; the model still performs the bodies, so stiff clay animation doesn't leak in.
+A flown camera is only worth something if the video model gets it. Painted first and last frames alone don't describe a flown path: the model invents its own move between them. Method on the first film (agreed Nov 9, confirmed by an A/B on a flown 4 s move: frames only failed, Kling 4 + blob guide followed the path):
+- **Camera-heavy shots** (flown reveals, chases, crane moves): the painted first and last frames plus a **camera-only guide** cut to the shot: the grey set with the characters as simple blobs. Kling 4 + guide is the default. The camera comes from the flight; the model still performs the bodies, so stiff clay animation doesn't leak in. A blob reads as whatever it looks like: a pillar near the ground became a man running on the ground. Make airborne characters read as airborne (cable visible, off the ground, "always in the air" in the prompt).
 - **Locked or near-still shots** (close-ups, contact in a fist): frames only.
 - **The clay with characters** stays reference only: timing, start and end frames, the paint source.
 - **Long moves** split at their anchors into back-to-back pieces whose last and first frames match.
-See the [lessons log](lessons.md) for the A/B result before relying on it.
+Details in the [lessons log](lessons.md).
