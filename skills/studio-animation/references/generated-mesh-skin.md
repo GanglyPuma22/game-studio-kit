@@ -130,6 +130,67 @@ character posed in the engine from gameplay state.
 - **Cap angular speed per joint** and ease every pole and aim between
   moves, so no joint flips in one frame.
 
+## Joint and contact limits
+
+A pose solved fresh each frame from gameplay targets has no memory, so any
+jump in a target is a pop on screen. Treat the body as a machine's arm is
+treated: every joint and every end has a range and a top speed, and the
+solver's answer is clamped to them every frame. Each of these was a defect
+a reviewer found by eye before it existed:
+
+| Limit | Rule | What it stopped |
+| --- | --- | --- |
+| Limb speed | Upper and lower segment directions turn no faster than a cap against their parent (about 1100 deg/s; 1.8x in a thrown punch) | A limb crossing the body in one frame at a phase change |
+| Hinge roll | An elbow or knee hinge rolls about its upper segment no faster than about 540 deg/s | Elbow and knee flips near a straight limb or a changed pole |
+| Wrist and ankle speed | The end block turns against its limb no faster than about 1400 deg/s | A palm turning a quarter turn when its job changed |
+| Root speed | The hips move against the character's own position no faster than a cap | One frame of hips a metre low at a catch, folding the feet into the ground |
+| Joint range | The shoulder swings back no more than about 50 degrees from down the side | An elbow held level behind the back in a wind-up |
+| Self clearance | Elbow and mid-forearm keep a radius from the trunk; the elbow swings out round the shoulder-to-hand line, the hand stays | A forearm through the hips in a low punch |
+| Solid floor | After the solve, neither end of a sole is under the ground; the ankle rises and the knee takes it up | Feet standing on their toes in the floor when the hips drop |
+| Own side | A foot in the air stays on its side of the body | Shins crossing in a step out of a turn |
+
+Rules for applying them:
+
+- **A held contact is exempt, a new one is not.** A paw that has stood
+  planted for a moment is not speed limited (the contact comes first). One
+  that was put down this frame still is, or the arm snaps to it.
+- **Limits are in the parent's frame**, so a turning body does not use them up.
+- **Reach for a contact only when it is in reach.** Coming down from a
+  jump, keep the limbs stretched ahead until the ground is within a limb's
+  length. Aiming at it from high up swings them under the body and out again.
+- **When the game moves the whole character** (a death topple that turns
+  the root), solve the floor in the turned frame: "up" is the world's up
+  brought into the character's frame, not the character's own Y.
+- **Scale by the character's own lengths** (leg length, arm length), never
+  by a bare size factor: offsets tuned in "sizes" were half what was meant
+  on this model.
+- **A climb faster than a foot can step is a scramble.** Drive the feet
+  from the height gained (drawn up, knees out, soles on the face, kicking
+  in turn) instead of stepping to holds the body has already passed.
+
+## The gate before the viewer
+
+The user should never be the one to find a flip. Split the checker's
+findings in two:
+
+- **Blockers** stop a take being sent at all: torn seams, a hit point
+  missed at the hit, limbs through each other or the trunk, joint speed,
+  hinge roll speed, and a foot deep in the floor. These are the findings a
+  viewer sees at once.
+- **Notes** are measured and ratcheted against a baseline (they may not get
+  worse): stretch, fold counts, small slides and sinks.
+
+Never send a take with a blocker "marked as failing". Twice on the pilot a
+flagged flip was sent with a note attached and came back as the user's
+first comment; the note did not save the round. If a blocker cannot be
+fixed, hold that move and say so in one line. When the baseline is re-taken
+after an improvement, list what moved into it.
+
+Calibrate each blocker on moves the user has already approved: a limit that
+fails an approved move is too tight, and one that passes a move the user
+rejected is missing or too loose. Add a check for every defect the user
+finds that the checker did not.
+
 ## Limits
 
 - **Linear blend skinning smears at extremes.** Arms straight overhead on
@@ -158,5 +219,7 @@ character posed in the engine from gameplay state.
 - [ ] One planted-pose render per hand, foot and head
 - [ ] Old body behind a switch; same recordings before and after
 - [ ] Stretch, tears, folds, contacts and joint speed compared
+- [ ] Joint, speed, clearance and floor limits on; held contacts exempt
+- [ ] No blocker on any take sent; held moves named
 - [ ] Contact sheets from a camera per acting limb
 - [ ] User looked in the viewer before the game
