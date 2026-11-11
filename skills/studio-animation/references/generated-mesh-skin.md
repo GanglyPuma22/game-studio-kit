@@ -148,6 +148,7 @@ a reviewer found by eye before it existed:
 | Self clearance | Elbow and mid-forearm keep a radius from the trunk; the elbow swings out round the shoulder-to-hand line, the hand stays | A forearm through the hips in a low punch |
 | Solid floor | After the solve, neither end of a sole is under the ground; the ankle rises and the knee takes it up | Feet standing on their toes in the floor when the hips drop |
 | Own side | A foot in the air stays on its side of the body | Shins crossing in a step out of a turn |
+| Foot heading | A flat foot points where the hips point (a little toe-out), never where the knee pole points | Toes splayed 70 degrees on top of a climb, hocks crossed behind while the shins stayed apart |
 
 Rules for applying them:
 
@@ -174,8 +175,9 @@ The user should never be the one to find a flip. Split the checker's
 findings in two:
 
 - **Blockers** stop a take being sent at all: torn seams, a hit point
-  missed at the hit, limbs through each other or the trunk, joint speed,
-  hinge roll speed, and a foot deep in the floor. These are the findings a
+  missed at the hit, limbs through each other or the trunk, a flat foot
+  turned far from the hips' heading, joint speed, hinge roll speed, and a
+  foot deep in the floor. These are the findings a
   viewer sees at once.
 - **Notes** are measured and ratcheted against a baseline (they may not get
   worse): stretch, fold counts, small slides and sinks.
@@ -190,6 +192,12 @@ Calibrate each blocker on moves the user has already approved: a limit that
 fails an approved move is too tight, and one that passes a move the user
 rejected is missing or too loose. Add a check for every defect the user
 finds that the checker did not.
+
+Set the note limits the same way. Limits copied from another body (the
+pilot started with a two-legged giant's) left 17 of 19 moves "known
+failing" after the user had approved most of them, and the list stopped
+meaning anything. Set from the approved moves, 13 passed outright and the
+6 left were each a real defect worth fixing.
 
 ## Limits
 
