@@ -7,6 +7,10 @@ description: Direct a game trailer or story cinematic made with video-generation
 
 > **Status: draft, v2 (Nov 9 2026).** Written during one 60-85 s trailer and updated as it goes. v2 adds [flown camera rigs](references/camera-rigs.md), [editing rules](references/editing.md) and the [shot recipe](references/shot-recipe.md), which replaced chunked renders. The [lessons log](references/lessons.md) records what was measured, with dates. Treat anything there older than a few months as a hypothesis to re-test, because these models change fast. The [playbook](references/playbook.md) and [method](references/method.md) hold the earlier chunk-era findings; where they disagree with v2, v2 wins.
 
+## Adapter for the generic film kit
+
+The method is engine- and product-agnostic and lives in [film-kit](../../film-kit/README.md): [film-director](../../film-kit/skills/film-director/SKILL.md) (purpose, pipeline, gates, lessons), [film-camera](../../film-kit/skills/film-camera/SKILL.md) (flown rigs, camera guard, editing) and [film-shots](../../film-kit/skills/film-shots/SKILL.md) (shot recipe, inputs, vetting). Read those for the how. This skill adds what is specific to a game studio: the Godot blockout, a [GDScript port of the rig](scripts/camera_rigs/camera_rig.gd) for flying cameras inside the engine, game-trailer story lessons, and spend through [studio-video-gen](../studio-video-gen/SKILL.md). Where the two disagree, the film kit is newer.
+
 Inputs: the person's story idea and what the film must sell (for a game trailer, usually how playing feels), approved character concepts, the engine scene or map, a spend cap, and who must approve paid runs.
 
 ## The core law

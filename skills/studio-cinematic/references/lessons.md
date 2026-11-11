@@ -2,6 +2,12 @@
 
 Each entry: date, what was tried, cost, result, what changed in the method. Add to this as tests land; promote a lesson into [method](method.md) only once the person has picked it.
 
+## 2026-11-10/11 — frame review, key moments, canonical designs
+- Kling 4 for every shot; it takes first and last frames only, so each key moment (the giant's first stomp) is a join frame between two pieces.
+- A frame review page with circle marks and notes per frame caught a weapon pointing backwards (now its business end is marked in the blob guide), position mismatches and a layout bug before any spend.
+- A giant's film design no longer matched its new game model; that un-approves every shot showing it. Character design follows the game; the art style may differ (the film is a hype short, not a gameplay demo).
+- The method is now also in the generic [film kit](../../../film-kit/README.md), which any agent can use; this log keeps the game-specific detail.
+
 ## 2026-11-09 — guide A/B on a flown move: the blob guide is needed
 - Test: a flown 4 s FPV move (the merged shots 7-9). Every take had the same painted first and last frames, character sheets and style frame.
   - Kling 4, frames only ($0.63): FAIL. It ignored the start frame, reached the end frame by 1.9 s, then held still. Two frames can't carry a moving camera.
