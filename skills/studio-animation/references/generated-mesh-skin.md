@@ -149,6 +149,9 @@ a reviewer found by eye before it existed:
 | Solid floor | After the solve, neither end of a sole is under the ground; the ankle rises and the knee takes it up | Feet standing on their toes in the floor when the hips drop |
 | Own side | A foot in the air stays on its side of the body | Shins crossing in a step out of a turn |
 | Foot heading | A flat foot points where the hips point (a little toe-out), never where the knee pole points | Toes splayed 70 degrees on top of a climb, hocks crossed behind while the shins stayed apart |
+| Limb against limb | Wrist, palm and mid-claw points keep a radius from the thigh and shin of the last frame; push outward, re-solve, and turn the paw about the wrist if the claws still reach in. Off during a strike and a held contact | Forearms and claws inside the haunches on top of a climb |
+| Head out of the way | On a wall the head looks up the wall, not at it | Claws through the face on each reach |
+| Dead body | Knees keep facing the body's front; the whole body is lifted so its lowest point is on the floor | Legs rolled 170 degrees at the hips to "clear" the ground, head 1.8 m under it |
 
 Rules for applying them:
 
@@ -175,9 +178,10 @@ The user should never be the one to find a flip. Split the checker's
 findings in two:
 
 - **Blockers** stop a take being sent at all: torn seams, a hit point
-  missed at the hit, limbs through each other or the trunk, a flat foot
-  turned far from the hips' heading, joint speed, hinge roll speed, and a
-  foot deep in the floor. These are the findings a
+  missed at the hit, limbs through each other or the trunk, skin of one
+  part inside another, any skin but a foot under the floor, a joint past
+  its range, a flat foot turned far from the hips' heading, joint speed,
+  hinge roll speed, and a foot deep in the floor. These are the findings a
   viewer sees at once.
 - **Notes** are measured and ratcheted against a baseline (they may not get
   worse): stretch, fold counts, small slides and sinks.
@@ -198,6 +202,56 @@ pilot started with a two-legged giant's) left 17 of 19 moves "known
 failing" after the user had approved most of them, and the list stopped
 meaning anything. Set from the approved moves, 13 passed outright and the
 6 left were each a real defect worth fixing.
+
+### Checks that see the mesh, not the skeleton
+
+Capsules between joints are thinner than the body. On the pilot a haunch
+was 1.5 m front to back with a 0.5 m capsule, and claws and a head reach
+far past theirs, so limbs sat inside each other for whole moves and the
+capsule check passed. The user found three such defects in one look. What
+closed the gap:
+
+- **Mesh overlap.** On the posed skin, test each part's vertices against
+  the surface of the rest of the body (generalised winding number; cluster
+  the far triangles, prefilter candidates by distance and by being behind
+  the nearest normal). Subtract what already overlaps at rest. Deeper than
+  about 1 % of body height for 6 frames or more is a blocker; shorter is a
+  note, because a fast strike brushes past itself.
+- **Joint range.** Swing and roll of every limb joint from rest, with a
+  limit per joint. Speed checks pass a pose that is wrong but still.
+- **Dead and fallen frames count.** Skipping them hid the worst pose in
+  the set.
+- **Everything against the floor**, not only the feet.
+
+A checker that only measures what has gone wrong before will miss the next
+kind of defect. When the user finds one by eye, first write the check that
+fails on that recording, then fix the move.
+
+### The loop and when to stop
+
+An agent runs record, check, fix one cause, record again, and the user sees
+a move only after it passes. Without a stop rule the loop thrashes: the
+pilot spent about 20 rounds on one clearance problem, trading one move's
+pass for another's fail. Stop and report when:
+
+- one move has had 5 rounds without a pass,
+- 2 rounds in a row did not improve the blocked number, or
+- a fix for one move breaks a move that had passed.
+
+The report gives the blocked number per round, what was tried, and the
+options: re-pose, change the move's design, or ask the user to accept it.
+After the last fix, run the whole move list again, then look at a contact
+sheet of each changed move before sending.
+
+### Leniency
+
+Loosen a limit for one move with a written reason, never for the whole
+character to get a failing move through. A brief overlap in a strike is a
+note; a body lying dead is exempt from standing-feet checks but not from
+the floor or joint range; a defect of the mesh is counted once on the body
+and fixed there; a grab that must enter the held thing exempts that pair
+for that move. Raising a limit because the agent could not fix the move is
+not leniency: that is the stop rule, and the choice is the user's.
 
 ## Limits
 
@@ -228,6 +282,8 @@ meaning anything. Set from the approved moves, 13 passed outright and the
 - [ ] Old body behind a switch; same recordings before and after
 - [ ] Stretch, tears, folds, contacts and joint speed compared
 - [ ] Joint, speed, clearance and floor limits on; held contacts exempt
+- [ ] Mesh overlap, joint range and whole-body floor checks on, dead frames included
 - [ ] No blocker on any take sent; held moves named
+- [ ] Loop stopped and reported at 5 rounds or 2 without progress
 - [ ] Contact sheets from a camera per acting limb
 - [ ] User looked in the viewer before the game
