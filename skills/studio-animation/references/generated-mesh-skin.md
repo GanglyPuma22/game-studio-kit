@@ -151,6 +151,9 @@ a reviewer found by eye before it existed:
 | Foot heading | A flat foot points where the hips point (a little toe-out), never where the knee pole points | Toes splayed 70 degrees on top of a climb, hocks crossed behind while the shins stayed apart |
 | Limb against limb | Wrist, palm and mid-claw points keep a radius from the thigh and shin of the last frame; push outward, re-solve, and turn the paw about the wrist if the claws still reach in. Off during a strike and a held contact | Forearms and claws inside the haunches on top of a climb |
 | Head out of the way | On a wall the head looks up the wall, not at it | Claws through the face on each reach |
+| Head against paws | Braced paws stand out from where the head will dive, not from where it is; wrists and claws keep a radius from the head taken as a line from skull to muzzle | Claws inside the head on a low bite |
+| Hard stop at the floor | Claw tips and the muzzle are stopped at the ground after every speed limit has run | Claws and jaws under the ground when a limited joint arrived late |
+| Look turn | The head may turn less toward its target the further it is drawn back over the chest | A neck folded through the shoulders in a recoil |
 | Dead body | Knees keep facing the body's front; the whole body is lifted so its lowest point is on the floor | Legs rolled 170 degrees at the hips to "clear" the ground, head 1.8 m under it |
 
 Rules for applying them:
@@ -171,6 +174,79 @@ Rules for applying them:
 - **A climb faster than a foot can step is a scramble.** Drive the feet
   from the height gained (drawn up, knees out, soles on the face, kicking
   in turn) instead of stepping to holds the body has already passed.
+
+## Fix patterns that held
+
+Nineteen moves were brought to pass on the pilot. These are the patterns
+behind the fixes that stayed in, and the ones that wasted rounds.
+
+**Measure from the real thing.**
+
+- **Use the block's own origin and axes.** Claw tips were first placed
+  from the end of the forearm; the palm block's origin was elsewhere and
+  every clearance was off by a hand's width. Read the frame the mesh is
+  bound to.
+- **Test every tip, not the middle line.** A paw's centre line cleared the
+  head while the outer claw was inside it. Give each claw a middle and a
+  tip point.
+- **A long part is a line, not a ball.** A head with a long muzzle needs a
+  segment from skull to muzzle with a radius. One sphere either misses the
+  muzzle or pushes everything away from the neck.
+- **Mirror in the part's frame.** Write the points once for one side and
+  flip the side axis for the other; two hand-typed lists drift apart.
+
+**Order of operations.**
+
+- **Clearance after the speed limits for a thrown limb.** A speed limit
+  takes the shortest turn, and for a thrown arm the shortest turn is
+  through the thigh. Push the elbow and mid-forearm clear after the limits
+  have run. For a limb that is not striking, clear first and limit after,
+  so the push itself cannot pop.
+- **Hard stops last.** The floor stop for claws, muzzle and soles runs
+  after everything else and is not speed limited. A late joint is better
+  than a part under the ground.
+- **Apply as much of a corrective turn as fits.** Turning a paw away from
+  the head drove its claws into the floor. Apply the turn in steps and keep
+  the largest step that leaves every tip over the ground, instead of all
+  or nothing.
+- **Delay what collides.** A bite's nose-down started on the first active
+  frame and met the paws coming up to brace. Starting it a tenth of the
+  phase later cleared both without changing the hit.
+
+**Where things stand.**
+
+- **Planted parts are held in world space.** When the root steps, a foot
+  placed in the body's frame slides with it.
+- **Brace relative to where the head is going.** Paws placed beside the
+  head's current place are under it when it dives.
+- **Hands on a ledge sit wider than the knees**, and the knees come
+  forward before the body is over the lip. With hands at knee width the
+  knees came up through the forearms.
+- **Each foot keeps its own side, by a margin that is tuned and written
+  down.** On the pilot the margin had a narrow working window: a little
+  less put the shins together in one move, a little more dragged a foot
+  sideways in the climbs. Record such a window with both failures next to
+  the number, or the next agent widens it and breaks the other move.
+- **Airborne feet and landing ankles get their own floors.** A wider
+  own-side margin while flying, and an ankle held above the landing spot
+  until the foot is flat.
+- **A hinge shares its opening by pose.** With the head tucked to the
+  chest the lower jaw has nowhere to go; give the upper jaw the gape then.
+
+**What did not work.**
+
+- **Moving a chain's goal does not change how its links sit to each
+  other.** Shifting the head goal forward moved the whole trunk with it;
+  skull-to-chest distance comes from the neck bends. Change the bend, not
+  the goal.
+- **Swaying the root to dodge a limb** had no effect where the root shift
+  was already smoothed and clamped. Check that a lever moves anything
+  before tuning it.
+- **A guard for one move is live in every move.** A toe guard that fixed a
+  take-off in one jump snapped the shin in another jump. Run the whole
+  list after each fix, and gate a guard on the phase that needs it.
+- **Start a move from a quarter turn, too.** Crossings that never show
+  from a straight start appeared when a sprint began out of a turn.
 
 ## The gate before the viewer
 
@@ -215,13 +291,46 @@ closed the gap:
   the surface of the rest of the body (generalised winding number; cluster
   the far triangles, prefilter candidates by distance and by being behind
   the nearest normal). Subtract what already overlaps at rest. Deeper than
-  about 1 % of body height for 6 frames or more is a blocker; shorter is a
-  note, because a fast strike brushes past itself.
+  about 1 % of body height (0.12 m on the pilot) is a blocker however
+  brief. The pilot first let overlaps under 6 frames through as notes, on
+  the idea that a fast strike brushes past itself; the user ended that,
+  because anyone who pauses sees it and the rig has room to avoid it.
+- **A likely cause on each skin fault.** Stretch, tear or fold already
+  present at rest is the model or the bind; at a joint bent under about
+  50 degrees it is the weights; near the joint's range it is the pose.
+  This tells the agent which tool to open.
 - **Joint range.** Swing and roll of every limb joint from rest, with a
   limit per joint. Speed checks pass a pose that is wrong but still.
 - **Dead and fallen frames count.** Skipping them hid the worst pose in
   the set.
 - **Everything against the floor**, not only the feet.
+
+### Both ticks, sampled after the draw
+
+Two faults in the recorder hid real defects and drew false ones on the
+pilot. Both are in the recording, not the checks, so every check inherits
+them.
+
+- **Record after the frame is drawn.** Sampled at the start of the frame,
+  the body had already moved for that tick and the rig had not yet posed on
+  it: the pose was one tick behind the root. A fast landing showed feet
+  half a metre in the floor that were never there, and real sinks were
+  hidden the same way.
+- **Record both ticks.** A game at 60 ticks recorded at 30 keeps every
+  second tick. A one-tick fault on the other tick is never seen, and the
+  player sees it. Record once on even ticks and once on odd, and call a
+  move clean only when both pass. On the pilot 15 of 19 moves looked clean
+  on one tick and 8 were clean on both.
+- **Read limits again on the other tick.** A limit calibrated from
+  approved moves on one tick can sit just under the other tick's value for
+  the same move. Set it from the higher of the two.
+- **Never filter the checker's output to read it.** A filter written to
+  hide notes also hid blocker lines with the same word in them. Read the
+  whole output, or filter on the severity field only.
+
+The check catalogue, blocker classes and default thresholds are being
+standardised in a `move-check.md` reference beside this file; where it
+exists it wins over the numbers here.
 
 A checker that only measures what has gone wrong before will miss the next
 kind of defect. When the user finds one by eye, first write the check that
@@ -238,6 +347,10 @@ pass for another's fail. Stop and report when:
 - 2 rounds in a row did not improve the blocked number, or
 - a fix for one move breaks a move that had passed.
 
+Revert a fix that did not pass before trying the next one, so the report
+describes one change at a time and the tree holds only fixes that worked.
+Write each dead end down where the next agent will read it.
+
 The report gives the blocked number per round, what was tried, and the
 options: re-pose, change the move's design, or ask the user to accept it.
 After the last fix, run the whole move list again, then look at a contact
@@ -246,12 +359,14 @@ sheet of each changed move before sending.
 ### Leniency
 
 Loosen a limit for one move with a written reason, never for the whole
-character to get a failing move through. A brief overlap in a strike is a
-note; a body lying dead is exempt from standing-feet checks but not from
+character to get a failing move through. An overlap in a strike blocks like
+any other; a body lying dead is exempt from standing-feet checks but not from
 the floor or joint range; a defect of the mesh is counted once on the body
 and fixed there; a grab that must enter the held thing exempts that pair
 for that move. Raising a limit because the agent could not fix the move is
-not leniency: that is the stop rule, and the choice is the user's.
+not leniency: that is the stop rule, and the choice is the user's. When the
+user accepts a number, store it for that move with their reason and the
+date, and show them the move in the viewer rather than describing it.
 
 ## Limits
 
@@ -283,6 +398,9 @@ not leniency: that is the stop rule, and the choice is the user's.
 - [ ] Stretch, tears, folds, contacts and joint speed compared
 - [ ] Joint, speed, clearance and floor limits on; held contacts exempt
 - [ ] Mesh overlap, joint range and whole-body floor checks on, dead frames included
+- [ ] Recorded after the draw, on both ticks; clean means both pass
+- [ ] Clearance points taken from each block's own frame, every tip tested
+- [ ] Tuned windows and dead ends written next to the number
 - [ ] No blocker on any take sent; held moves named
 - [ ] Loop stopped and reported at 5 rounds or 2 without progress
 - [ ] Contact sheets from a camera per acting limb
