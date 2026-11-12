@@ -1,5 +1,7 @@
 # Playbook: works, doesn't work, recommended
 
+> **Chunk era (Nov 2-6 2026).** These findings come from 4-9 s multi-shot chunks with a reference video on Seedance 2.5. Since Nov 8 the paid unit is one shot with painted first and last frames ([shot recipe](shot-recipe.md)), cameras are flown ([camera rigs](camera-rigs.md)) and cuts are fewer ([editing](editing.md)). Still current from this page: thin props, hands and limbs at contact, cleanup, the vetting checklist, moderation, lip sync and IP hygiene. Superseded: markers as the default layout, Seedance as the default model, chunk windows.
+
 What one 60-75 s game trailer taught (Nov 2026, Seedance 2.5 through Runway, stills from a subscription image tool). Each line is backed by a test in the [lessons log](lessons.md). "Pending" means the A/B hasn't finished.
 
 ## Look stills

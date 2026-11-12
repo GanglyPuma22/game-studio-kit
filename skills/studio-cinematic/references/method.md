@@ -1,5 +1,7 @@
 # Method: what each input is allowed to say
 
+> **Chunk era (Nov 2-6 2026).** The input table and failure modes still hold. For the current inputs (painted first and last frames as the control, character sheets, the clay pass as staging only) see the [shot recipe](shot-recipe.md#what-each-input-does-now).
+
 A generation job has four inputs. Give each exactly one job, and say so in the prompt.
 
 | Input | Its only job | Never use it for |

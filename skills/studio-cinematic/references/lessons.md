@@ -2,6 +2,43 @@
 
 Each entry: date, what was tried, cost, result, what changed in the method. Add to this as tests land; promote a lesson into [method](method.md) only once the person has picked it.
 
+## 2026-11-10/11 — frame review, key moments, canonical designs
+- Kling 4 for every shot; it takes first and last frames only, so each key moment (the giant's first stomp) is a join frame between two pieces.
+- A frame review page with circle marks and notes per frame caught a weapon pointing backwards (now its business end is marked in the blob guide), position mismatches and a layout bug before any spend.
+- A giant's film design no longer matched its new game model; that un-approves every shot showing it. Character design follows the game; the art style may differ (the film is a hype short, not a gameplay demo).
+- The method is now also in the generic [film kit](../../../film-kit/README.md), which any agent can use; this log keeps the game-specific detail.
+
+## 2026-11-09 — guide A/B on a flown move: the blob guide is needed
+- Test: a flown 4 s FPV move (the merged shots 7-9). Every take had the same painted first and last frames, character sheets and style frame.
+  - Kling 4, frames only ($0.63): FAIL. It ignored the start frame, reached the end frame by 1.9 s, then held still. Two frames can't carry a moving camera.
+  - Kling 4 + camera-only blob guide ($0.75): HALF. It started and ended on the painted frames and followed the guide's path and timing. The fault was ours: a pillar near the ground read as a person standing, so he ran on the ground instead of flying.
+  - Seedance 2.5 reference mode + the same guide, frames passed as @Image1/@Image2 ($2.27): HALF. Same structure and same fault, landing close to both frames and slightly more fluid, at 3x the price.
+- Now the method: camera-heavy shots get the blob guide, with **Kling 4 + guide as the default**. Seedance 2.5 isn't worth 3x for this. Make airborne characters read as airborne in the guide: the cable visible, the blob off the ground, and "always in the air" in the prompt.
+
+## 2026-11-09 — flown cameras, fewer cuts (free)
+- The person asked for camera moves flown like a real film drone instead of drawn curves. A stick-flown simulator with DJI Inspire 3 S-mode limits, a pilot speed plan and a rate-limited gimbal operator ([camera rigs](camera-rigs.md), [script](../scripts/camera_rigs/camera_rig.gd)). Finding: the drawn reveal (82 m, 33 m drop) needs at least 8.2 s for a real drone and about 10 s smoothly; the story gave it 4.2 s. A flown 4.2 s version ended about 35 m wide, and she read too small.
+- The person chose one continuous flight from him on the bridge to her fight, with the film extended: the story holds 4.5 s while she waits on her roof, the flight runs in three legs anchored on him, off her roof and the cut, on one 40 deg prime. It opens on the previous camera's exact frame.
+- Then the whole film: 16 of 23 shots flown by drone, FPV chase, crane/dolly or handheld rigs; three cuts in under 3 s merged into one FPV move; the eruption's five setups cut to fewer; about 37 cuts down to about 28, from eight editing rules drawn from Fury Road, John Wick and The Lion King's virtual production ([editing](editing.md)).
+- First render's faults, all fixed before showing: too much FPV roll (bank gain 0.15), flown cameras drifting off the action (leash: lens within 0.35-2.5 m of the drawn one by rig, aim within 6 deg), close cameras inside walls (camera guard), the end swoop through the giant (clearance at film scale). One FPV shot lost her and stayed drawn.
+- The person: "a noticeable step up" in camera and shot quality; the two rough spots flagged (a roof edge crossing the reveal, a close pass over the giant's spikes) were not noticeable to them.
+- Painted first and last frames can't describe a flown path, so the model would invent its own move. Method the person agreed (07:10Z), then tested the same morning: a camera-only guide (grey set, characters as blobs) plus painted frames for camera-heavy shots (about $0.94 per 5 s against $0.47 for frames only), frames only for locked shots, the clay with characters as reference only, long moves split at their anchors with matched frames. Kling 4 on fal stays the model. A/B result: see the entry above.
+
+## 2026-11-09 — the grab froze from our inputs; the shot recipe
+- A grab shot barely moved. Four input faults: its two frames came from different paint sessions and showed the hand opening (the reverse of a grab); the hand was metres from her in both; the prompt said "it has not touched her yet"; the closing itself sat on a cut, so no generation was asked to show it. The layout had the same flaw, painting copied it, the model copied the paintings.
+- Fix, now the method: one camera, one forward action, 3-5 s per generation; a written spec, a seven-point pre-run check and a shot card per shot ([shot recipe](shot-recipe.md)). The grab retake with the recipe passed; a split swing passed; the slash failed on a leg mismatch between its frames.
+- Shots from a later session came out paler than earlier ones: grade the whole cut at the end rather than chase the look per shot.
+
+## 2026-11-08 — single passes fail on action; shot by shot
+- The person found the clay animation stiff (giant walks, arms). A 24 s camera-only single pass (Kling 4 on fal, $4.51) gave the best look and most on-model cast so far, but a duplicate character, beats out of order, and near-still holds where the untimed middle frames parked.
+- Two independent reviews agreed: look and identity are solved, action isn't, and a better single pass won't solve it. Middle frames have no timestamp on these APIs; no guide carries contact; tests that changed several things at once couldn't be compared.
+- Snatch test, three 3 s shots ($1.41): the in-fist shot passed for the first time (one setup, frames differing only in her arms); the swing held between two actions; the hand shot failed (first and last frames too alike). Rule: the frames differ by exactly one clear action.
+
+## 2026-11-07 — identity from one sheet per character
+- A whole-film take ($12.36) disappointed: one giant's look changed every shot. Its inputs disagreed (concept art blue with a horseshoe-magnet crown, boards blue without it, the prompt "orange, never blue"), and the model picked one source per shot. Fix: one character sheet per character, the prompt's words written from it, the same refs in every shot, no contradicting concept art. Test ($1.72): on-model in all three takes.
+- A sheet showing four bodies produced a second copy of the giant: one body per sheet, and "only one X" in the prompt. A style reference clip had about no effect: drop it. The person rejected a sheet painted away from the game model; sheets take shape from in-game turnarounds and the look from the approved concept.
+- Kling 4 hugs the painted frames; Seedance 2.5 follows the brief but drifts from the frames.
+- Working rules after days of experiments: one model, no experiment names in anything the person sees, one progress page, at most two takes per shot, one budget go for the batch.
+
 ## 2026-11-06 — stray-line cleanup approved; warps; pinned hands; order of work
 - Free local cleanup is the approved way to remove stray lines: hand-keyed masks per shot plus a fill that copies the real background from nearby frames of the same shot (median, never across a cut). On a motion-blurred bank shot 78-94% of hidden pixels came from real frames; the old neighbour-average fill had smeared busy texture. Detail: [cleanup](cleanup.md).
 - The person found two leftovers on a still. Both were mask misses, not fill errors: a line end that bowed away from the straight fit, and the soft blurred edge of the line at the frame edge. Rule: fit curves, cover the blur, zoom-check line ends and edges on every patched frame, rescan the shot after each fix.
