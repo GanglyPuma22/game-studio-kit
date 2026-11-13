@@ -233,6 +233,39 @@ behind the fixes that stayed in, and the ones that wasted rounds.
 - **A hinge shares its opening by pose.** With the head tucked to the
   chest the lower jaw has nowhere to go; give the upper jaw the gape then.
 
+**When a composed move fails where its parts pass.**
+
+- **Look for carried state, not for a pose to fix.** A leap with a catch in
+  the jaws kept failing at the landing while the plain leap and the bite
+  both passed. The cause was one stepping foot: its step was half done at
+  take-off, frozen through the flight, and resumed on landing from where
+  it had started, so the foot shot back behind the body for a tenth of a
+  second. Three rounds of guards on the landing leg treated the symptom.
+  Print the limb's target and its state every tick across the join; a
+  target that jumps on one tick names the state that was not reset.
+- **Anything that places a limb by hand ends what the limb was doing.**
+  Give the stepper one call that sets the position and cancels a step in
+  progress, and use it wherever the rig takes a foot off the ground.
+- **Speeds are read at the game's tick, not the recording's.** Measured on
+  every second tick a one-tick pop is halved or missed. Joint limits set
+  at 30 Hz needed new limits in the rig at 60 Hz: a top turn speed for
+  the skull against the neck and for a leg off the ground, with the hard
+  floor stop after them.
+- **Ease a weight only where it jumps.** Easing the head's "exact" weight
+  everywhere lagged the plain bite off its hit. Easing it only at a catch,
+  where it jumped in one tick, fixed the catch and left the bite alone.
+
+**Keep the change to one character.**
+
+- **A branch cut from a model branch carries its other bodies.** Newer
+  bodies for two other characters came along unnoticed and failed those
+  characters' checks on the way in. Before the pull request, list every
+  asset and shared script that differs from the target and take back what
+  is not this character's.
+- **A shared-code change is every character's change.** A bite reach added
+  in shared code lifted the two-legged characters' feet. Gate it on the
+  kit whose rig poses it until the others are done.
+
 **What did not work.**
 
 - **Moving a chain's goal does not change how its links sit to each
