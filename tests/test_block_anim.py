@@ -24,7 +24,7 @@ class BlockAnimPackageTests(unittest.TestCase):
             path = f"skills/studio-animation/scripts/block_anim/{name}.gd"
             self.assertIn(path, resources)
             self.assertTrue((ROOT / path).is_file(), path)
-        for ref in ("block-motion-rules.md", "runtime-block-rigs.md", "primitive-planning.md"):
+        for ref in ("block-motion-rules.md", "runtime-block-rigs.md", "primitive-planning.md", "generated-mesh-skin.md"):
             self.assertIn(f"skills/studio-animation/references/{ref}", resources)
         self.assertIn("templates/block-rig.json", resources)
 
@@ -32,6 +32,7 @@ class BlockAnimPackageTests(unittest.TestCase):
         skill = (ANIM / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("references/runtime-block-rigs.md", skill)
         self.assertIn("references/block-motion-rules.md", skill)
+        self.assertIn("references/generated-mesh-skin.md", skill)
 
     def test_rig_template_is_consistent(self):
         rig = json.loads((ROOT / "templates" / "block-rig.json").read_text(encoding="utf-8"))
