@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "game-studio-kit",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "skills": [
     {
       "name": "studio-director",
@@ -66,6 +66,14 @@
     {
       "name": "studio-cloudrun",
       "path": "skills/studio-cloudrun/SKILL.md"
+    },
+    {
+      "name": "studio-cinematic",
+      "path": "skills/studio-cinematic/SKILL.md"
+    },
+    {
+      "name": "studio-video-gen",
+      "path": "skills/studio-video-gen/SKILL.md"
     }
   ],
   "resources": [
@@ -215,7 +223,15 @@
     "templates/character-run.json",
     "skills/studio-director/references/character-pipeline.md",
     "studio_tools/model_qa/evidence.py",
-    "studio_tools/model_qa/surface.py"
+    "studio_tools/model_qa/surface.py",
+    "skills/studio-cinematic/references/playbook.md",
+    "skills/studio-cinematic/references/method.md",
+    "skills/studio-cinematic/references/reference-video.md",
+    "skills/studio-cinematic/references/prompts.md",
+    "skills/studio-cinematic/references/lessons.md",
+    "skills/studio-video-gen/references/runway.md",
+    "skills/studio-video-gen/references/openrouter.md",
+    "skills/studio-video-gen/scripts/video_job.py"
   ],
   "commands": [
     "check-package",
