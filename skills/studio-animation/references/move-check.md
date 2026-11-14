@@ -30,6 +30,10 @@ The check is only as good as the recording. A recorder must:
   Record each move twice, once on each tick of the pair. A move carries every problem from either
   recording, keeping the worse value where both have it. A recording with only one tick is a quick
   look, never a pass. In one pilot, 15 of 19 moves were clean on the sampled tick and only 8 on both.
+  Measure speeds (joint-speed, twist-speed) on the two recordings interleaved into the full-rate
+  pose sequence: each recording alone compares poses two ticks apart and misses a joint that flicks
+  out and back in between. This needs a deterministic run; block when the samples do not alternate.
+  Measure overlap on every recorded frame of both, with depth to the surface, not its nearest vertex.
 - **Record a rest sample.** Record the settled character before the move's input. Foot sole
   heights and "already wrong at rest" both come from it. A recording without one is blocked.
 - **Record the gameplay side.** For each strike, record the gameplay hand or mouth and the tick
