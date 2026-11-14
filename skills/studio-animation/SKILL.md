@@ -21,6 +21,8 @@ The original `blender fixture` creates a nonhumanoid harbor bell with `Root`/`Fr
 
 Know what a GLB clip can carry before a review asks for it. glTF animation carries node transforms, skin and morph weights; an animated material value such as emission strength needs `KHR_animation_pointer`, which the target importer may not support, so drive it from a runtime hook (a game-side material parameter) and say so in the clip metadata. A critic should not fail a clip for an effect the format cannot hold. Shoot animation strips from a camera yaw chosen per part (from the moving part's plane), or from two yaws, so thin parts are not edge-on in every frame.
 
+Before anyone reviews a recorded move, run the game's move check on it and iterate until it passes on both ticks. Read [move check](references/move-check.md) for the standard checks, which ones block, how to record, the known-problem ratchet and where the check is enforced (review send, CI gate, written rule).
+
 Reimport the GLB into a fresh Blender process and inspect skin, bones, clips, duration and dimensions. In Godot, explicitly set the loop policy and idle→response→idle transition/blend. Observe at least two loops and a response via ordinary input. Pose-change assertions are useful technical evidence but cannot establish appealing motion or contact.
 
 Identify face/lip-sync, retargeting or root-motion integration as separate scoped requirements when needed; do not add a full talking-character system by default. Hand clip/event metadata to [Godot](../studio-godot/SKILL.md) and timed cues to [audio](../studio-audio/SKILL.md), then use [review](../studio-review/SKILL.md).
