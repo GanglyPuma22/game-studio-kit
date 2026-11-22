@@ -46,3 +46,10 @@ Of the 12 versions after version 13, about 8 were avoidable: they asked a look q
 ## Not yet proven
 
 The seven stages are a proposal from this audit. At the time of writing no character has been through the target sheet or the look bench, and the round budgets are estimates. The first character that runs them should record its real round counts here and correct the budgets.
+
+One part has had a trial. A bench in the pilot's game drew its second body four ways with the game's renderer (the generator's texture, flat paint, flat paint plus a shader mock-up, and a machine-made painted texture on a new layout) and its first body with the same lines on the old and a new layout. It took one session, changed no game code and spent nothing. Two things it showed belong in later runs:
+
+- At fighting distance and beyond, flat paint, shader detail and painted texture were nearly the same picture. They differed only at the closest view. A look question about surface detail is therefore judged on the close still, and a game whose players rarely get close should say so on the target sheet before paying for a painted texture.
+- The layout was the cheap part ([body report card](body-report-card.md)). The cost of a painted texture is the painting and its review, not the unwrap.
+
+It did not test the target sheet, an owner pick, or a production pass matched against its bench page.
