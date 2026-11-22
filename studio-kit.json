@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "game-studio-kit",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "skills": [
     {
       "name": "studio-director",
@@ -74,6 +74,10 @@
     {
       "name": "studio-video-gen",
       "path": "skills/studio-video-gen/SKILL.md"
+    },
+    {
+      "name": "studio-character-design",
+      "path": "skills/studio-character-design/SKILL.md"
     }
   ],
   "resources": [
@@ -222,6 +226,10 @@
     "studio_tools/character_run.py",
     "templates/character-run.json",
     "skills/studio-director/references/character-pipeline.md",
+    "skills/studio-character-design/references/target-sheet.md",
+    "skills/studio-character-design/references/body-report-card.md",
+    "skills/studio-character-design/references/look-bench.md",
+    "skills/studio-character-design/references/pilot-audit.md",
     "studio_tools/model_qa/evidence.py",
     "studio_tools/model_qa/surface.py",
     "skills/studio-cinematic/references/playbook.md",

@@ -51,7 +51,8 @@ preserve unique run logs and classify completed output before reporting status.
 | Sound effects or music from open models on a Colab GPU (model-run recipes) | [studio-audio](../studio-audio/SKILL.md) Colab models route, run by [studio-cloudrun](../studio-cloudrun/SKILL.md) |
 | Trailer or story cinematic made with video-generation models (blockout, look stills, renders, edit) | [studio-cinematic](../studio-cinematic/SKILL.md); paid renders through [studio-video-gen](../studio-video-gen/SKILL.md) |
 | Native appearance/input/motion/mix acceptance | [studio-review](../studio-review/SKILL.md) |
-| A whole character end to end (concept and voice approved by the owner, then model, QA, animation, voice lines, effects, sounds, integration and one review page without further stops) | [character pipeline](references/character-pipeline.md) with a [character run record](../../templates/character-run.json) |
+| A whole character end to end (concept and voice approved by the owner, then model, QA, animation, voice lines, effects, sounds, integration and one review page) | [character pipeline](references/character-pipeline.md) with a [character run record](../../templates/character-run.json) |
+| Making one character look right in few owner rounds: what "final" is, whether a body is good enough to keep, which look to build | [studio-character-design](../studio-character-design/SKILL.md): target sheet, body report card, grey body, look bench, one production pass |
 | Overnight, unattended or production-contract run | [overnight-run](references/overnight-run.md) |
 
 First use: follow [Windows setup](../../docs/setup-windows.md) or [Linux setup](../../docs/setup-linux.md). A functional, original [harbor example](../../examples/harbor-pocket/README.md) works independently of any private game. Return a work card, capability result, candidate pointer and decision ledger that another session can consume without this conversation.

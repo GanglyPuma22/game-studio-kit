@@ -19,7 +19,8 @@
       "notes": null,
       "approved_by": null,
       "approved_at": null,
-      "file": null
+      "file": null,
+      "rounds": 0
     },
     "voice": {
       "status": "open",
@@ -27,17 +28,47 @@
       "notes": null,
       "approved_by": null,
       "approved_at": null,
-      "file": null
+      "file": null,
+      "rounds": 0
+    },
+    "target": {
+      "status": "open",
+      "choice": null,
+      "notes": null,
+      "approved_by": null,
+      "approved_at": null,
+      "file": null,
+      "rounds": 0
+    },
+    "body": {
+      "status": "open",
+      "choice": null,
+      "notes": null,
+      "approved_by": null,
+      "approved_at": null,
+      "file": null,
+      "rounds": 0
+    },
+    "look": {
+      "status": "open",
+      "choice": null,
+      "notes": null,
+      "approved_by": null,
+      "approved_at": null,
+      "file": null,
+      "rounds": 0
     }
   },
   "budgets": [],
   "repair_round_cap": 3,
+  "gate_round_cap": 3,
   "stages": [
     {
       "id": "model",
       "status": "pending",
       "needs": [
-        "gate:concept"
+        "gate:concept",
+        "gate:target"
       ],
       "outputs": [],
       "check": {
@@ -77,6 +108,47 @@
       "status": "pending",
       "needs": [
         "model_qa"
+      ],
+      "outputs": [],
+      "check": {
+        "verdict": "not_run"
+      },
+      "repair_rounds": 0,
+      "paid": []
+    },
+    {
+      "id": "grey_build",
+      "status": "pending",
+      "needs": [
+        "animation"
+      ],
+      "outputs": [],
+      "check": {
+        "verdict": "not_run"
+      },
+      "repair_rounds": 0,
+      "paid": []
+    },
+    {
+      "id": "look_bench",
+      "status": "pending",
+      "needs": [
+        "grey_build",
+        "gate:body"
+      ],
+      "outputs": [],
+      "check": {
+        "verdict": "not_run"
+      },
+      "repair_rounds": 0,
+      "paid": []
+    },
+    {
+      "id": "production",
+      "status": "pending",
+      "needs": [
+        "look_bench",
+        "gate:look"
       ],
       "outputs": [],
       "check": {
@@ -131,6 +203,7 @@
         "model_qa",
         "library",
         "animation",
+        "production",
         "voice_lines",
         "effects",
         "sounds"
@@ -148,7 +221,10 @@
       "needs": [
         "integration",
         "gate:concept",
-        "gate:voice"
+        "gate:voice",
+        "gate:target",
+        "gate:body",
+        "gate:look"
       ],
       "outputs": [],
       "check": {

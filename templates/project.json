@@ -48,6 +48,9 @@
     "voice_approver": null,
     "animation_route": "not_defined",
     "repair_round_cap": 3,
+    "gate_round_cap": 3,
+    "review_distances_m": [],
+    "look_bench": null,
     "runtime_root": null,
     "library": null
   }
