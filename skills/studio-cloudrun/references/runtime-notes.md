@@ -23,6 +23,8 @@ What is known about the places a cloud run draws, from Salvage's Colab runs (Oct
 - The ssh link through `colab ssh --proxy-mode` can drop mid-start (an A100 start hung 2.5 min, then `Broken pipe`, Oct 2026). Every start-up step in colab_job.sh is safe to repeat and gets three tries; the job start checks runner.pid so a retry never starts it twice.
 - Python model stacks on Colab (audio tests, Oct 2026): the default kernel was Python 3.13 and `venv` bootstrap failed; `uv venv --python 3.12` worked. Set `MPLBACKEND=Agg` (Colab's inline backend is missing inside a uv env). Diffusers' Stable Audio scheduler needs `torchsde`. Check imports before downloading weights.
 - Connection drops happen (websocket, ssh, HTTP 429 right after start-up); retry the first ssh a few times, and rerun a job once when its log shows an infrastructure error.
+- Lessons from a long L4 job (Nov 2026, 2.16 units for no result): the old poll read only `progress.txt`, which a job's own steps never wrote, and ignored ssh errors, so it polled a replaced runtime for about 30 minutes; two launches of one job shared a session name and one stopped the other's runtime 30 s in (about 0.8 units lost); Blender's EEVEE rendered on the CPU at 0 % GPU and 0 MiB for 40 minutes, at about 7.6 s a view. The live status, the lost-runtime stop, the idle-GPU stop and the per-job lock come from these. Render training images on a CPU box (or a CPU runtime) and send only GPU work to a GPU.
+- The host's bare mirror of a game repository: a worktree made from it holds its branch checked out, and a `refs/heads/*` fetch then refused every update, so new branches only arrived when fetched by name. The runner now fetches into `refs/remotes/origin/*`.
 
 ## Colab CPU runtime (`"gpu": "CPU"`)
 

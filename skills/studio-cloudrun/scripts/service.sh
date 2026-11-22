@@ -7,7 +7,8 @@
 #   service.sh run     the loop (systemd starts this; see studio-cloudrun.service)
 #   service.sh go      the person's typed go: clears a stop and starts the service
 #   service.sh stop    stop launching; running jobs finish and push results
-#   service.sh status  last lines of the log
+#   service.sh status  each job's live status (stage, step, ETA, GPU use,
+#                      units spent), then the last lines of the log
 #
 # Bounds (a standing go covers only these): jobs listed in queue.txt only;
 # repos in ALLOW_REPOS and refs in ALLOW_REFS only; MAX_PAR queued jobs at
@@ -35,6 +36,7 @@ say() { echo "[service $(date -u +%FT%TZ)] $*" | tee -a "$LOG"; }
 push_status() {
 	local P; P=$(mktemp -d)
 	tail -n 300 "$LOG" > "$P/QUEUE-STATUS.txt"
+	python3 "$HERE/live_status.py" show --work "$WORK" > "$P/LIVE.txt" 2> /dev/null
 	( cd "$P" && git init -q && git checkout -q -b studio-results/queue-status && git add -A \
 		&& git -c user.name=cloudrun -c user.email=cloudrun@localhost commit -qm "queue status $(date -u +%FT%TZ)" \
 		&& git push -q -f "$GH$RESULTS_REPO.git" studio-results/queue-status ) > /dev/null 2>&1 || echo "status push failed" >> "$LOG"
@@ -48,7 +50,11 @@ case "${1:-run}" in
 		systemctl --user start studio-cloudrun.service 2> /dev/null || { nohup bash "$0" run > /dev/null 2>&1 & }
 		exit 0 ;;
 	stop) touch "$WORK/stop"; say "stop asked"; exit 0 ;;
-	status) tail -n 40 "$LOG"; [ -f "$WORK/stopped" ] && echo "stopped: $(cat "$WORK/stopped")"; exit 0 ;;
+	status)
+		echo "== jobs (newest first; live status in $WORK/status/)"
+		python3 "$HERE/live_status.py" show --work "$WORK" | head -n "${STATUS_LINES:-10}"
+		echo "== service log"; tail -n 40 "$LOG" 2> /dev/null
+		[ -f "$WORK/stopped" ] && echo "stopped: $(cat "$WORK/stopped")"; exit 0 ;;
 	run) ;;
 	*) echo "usage: service.sh run|go|stop|status" >&2; exit 2 ;;
 esac

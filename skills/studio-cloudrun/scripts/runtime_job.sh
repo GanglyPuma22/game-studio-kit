@@ -4,15 +4,37 @@
 # Colab runtime (after runtime_display.sh) and, through run_here.sh, on any
 # Linux box. Writes $JOB_ROOT/out (the job's OUT_DIR), progress.txt and
 # out/runner.json (exit codes, minutes, gpu line). Never needs credentials.
-# The job sees OUT_DIR, JOB_ID and STUDIO_COMMIT (full commit id).
+# The job sees OUT_DIR, JOB_ID, STUDIO_COMMIT (full commit id) and
+# STUDIO_PROGRESS: a file the job may append progress lines to, such as
+# "render 140/3000" (an "N/M" or "N of M" gives the host an ETA).
+# For the host's live status it also keeps $JOB_ROOT/stage (setup, run, done)
+# and, when nvidia-smi answers, $JOB_ROOT/gpu.csv (time, GPU %, MiB every 10 s).
 set -u
 JOB=${JOB_ROOT:-/content/job}
 OUT=$JOB/out; mkdir -p "$OUT"
 echo $$ > "$JOB/runner.pid"
-rm -f "$JOB/finished"
+rm -f "$JOB/finished" "$JOB/gpu.csv"
+echo starting > "$JOB/stage"
+# GPU use for the host's idle check: a sample every 10 s while the job lives.
+GPUMON=""
+if nvidia-smi > /dev/null 2>&1; then
+	( while :; do
+		Q=$(nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader,nounits 2> /dev/null | head -1 | tr -d ' ')
+		[ -n "$Q" ] && echo "$(date +%s),$Q"
+		sleep "${STUDIO_GPU_SAMPLE_S:-10}"
+	done >> "$JOB/gpu.csv" ) &
+	GPUMON=$!
+fi
 # The host waits for this file, written on every way out (never for a log line).
-trap 'touch "$JOB/finished"' EXIT
+trap '[ -n "$GPUMON" ] && kill "$GPUMON" 2> /dev/null; echo done > "$JOB/stage"; touch "$JOB/finished"' EXIT
 log() { echo "$(date -u +%T) $*" | tee -a "$JOB/progress.txt"; }
+# One step (setup or command) under timeout, which makes its own process group:
+# that group goes on record in cmd.pid, so the host's stop can reach it.
+step() { # step SECONDS COMMAND LOG
+	timeout -k 30 "$1" bash -c "$2" > "$3" 2>&1 &
+	local pid=$!; echo "$pid" > "$JOB/cmd.pid"
+	wait "$pid"; local rc=$?; : > "$JOB/cmd.pid"; return "$rc"
+}
 J() { python3 -c "import json,sys;d=json.load(open('$JOB/job.json'));$1"; }
 ID=$(J 'print(d["id"])')
 MAXMIN=$(J 'print(int(d["max_minutes"]))')
@@ -21,7 +43,7 @@ CMD=$(J 'print(d["command"])')
 [ -f "$JOB/display.env" ] && . "$JOB/display.env"
 # The job's own environment, then the names the runner owns.
 while IFS= read -r line; do [ -n "$line" ] && export "${line?}"; done < <(J 'print("\n".join(f"{k}={v}" for k,v in d.get("env",{}).items()))')
-export OUT_DIR=$OUT JOB_ID=$ID
+export OUT_DIR=$OUT JOB_ID=$ID STUDIO_PROGRESS=$JOB/job-progress.txt
 # The job's commit (the copy has no .git): STUDIO_COMMIT, for build stamps.
 [ -s "$JOB/commit.txt" ] && STUDIO_COMMIT=$(cat "$JOB/commit.txt")
 export STUDIO_COMMIT=${STUDIO_COMMIT:-}
@@ -41,8 +63,9 @@ fi
 cd "$JOB/repo" || exit 1
 SRC=0
 if [ -n "$SETUP" ]; then
+	echo setup > "$JOB/stage"
 	log "setup: $SETUP"
-	timeout -k 30 $((MAXMIN * 60)) bash -c "$SETUP" > "$OUT/setup.log" 2>&1; SRC=$?
+	step $((MAXMIN * 60)) "$SETUP" "$OUT/setup.log"; SRC=$?
 	log "setup exit $SRC"
 fi
 # timeout (not --foreground) signals the whole process group, so a
@@ -50,8 +73,9 @@ fi
 RC=99
 if [ "$SRC" = 0 ]; then
 	LEFT=$(( MAXMIN * 60 - ($(date +%s) - T0) )); [ "$LEFT" -lt 60 ] && LEFT=60
+	echo run > "$JOB/stage"
 	log "run: $CMD"
-	timeout -k 30 "$LEFT" bash -c "$CMD" > "$OUT/run.log" 2>&1; RC=$?
+	step "$LEFT" "$CMD" "$OUT/run.log"; RC=$?
 	log "run exit $RC"
 fi
 GPU=$(grep -m1 '^gpu=' "$JOB/env.txt" 2>/dev/null || echo "gpu=unknown (no runtime_display.sh)")

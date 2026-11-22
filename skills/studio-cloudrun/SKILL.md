@@ -108,6 +108,20 @@ Rules for the service, set by the person and not by a job:
 - Host settings live in `~/studio-cloudrun/service.env`, never in this kit or a job.
 - Other queues on the same Colab account keep working: a job waits for a free GPU (up to `GPU_WAIT_MIN`, 240) without spending anything.
 
+## Watch a run while it runs
+
+A Colab run is no longer a black box until it ends. Every minute the host updates the job's live status: stage, the job's own step and ETA, GPU use, units spent so far against the ceiling ([fields](references/job-format.md#live-status)).
+
+- **On the host:** `bash <KIT>/skills/studio-cloudrun/scripts/service.sh status`, or `python <KIT>/scripts/studio.py cloudrun status`.
+- **From a cloud thread:** branch `studio-status/<id>` of the results repository (`STATUS.txt` is one line), pushed every 5 minutes; `studio-results/queue-status` carries `LIVE.txt` for queued jobs.
+- **Report progress from the job:** append lines like `render 140/3000` to `$STUDIO_PROGRESS`. Without them the status shows the last line of the job's log.
+
+Guards that stop a run loudly instead of letting it burn units:
+
+- **No job on the runtime.** A runtime that answers without the job (reset or replaced), a Colab session that is gone, a job process that died without finishing, or no answer over ssh for 5 minutes: exit 5 at once, the runtime stopped. Before this, the runner polled a dead replacement runtime for about 30 minutes.
+- **Idle GPU.** A GPU job whose GPU reads 0 % for 5 minutes while its command runs is stopped and its partial results fetched (exit 6). Blender once rendered 3,000 training views on the CPU of a paid L4. Set `gpu_idle_minutes` for a job that legitimately spends longer on the CPU first, or `0` to turn it off.
+- **One run per job.** The host takes a lock per job id and per session name, and refuses a session name Colab already lists (exit 7), before any runtime exists. Two launches of one job once shared a session name, and one stopped the other's L4.
+
 ## What the results do and do not show
 
 `runner.json` says the job ran and how it exited, nothing more. Clips and stills show what a scripted or bot-driven player did; they say nothing about how the game feels in a person's hands ([acceptance](../../references/acceptance.md)). A `gpu=software` line means a CPU driver drew the frames: colours and layout match, but compare effects that depend on GPU features against a GPU run before reporting a rendering defect.
