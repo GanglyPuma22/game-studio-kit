@@ -45,7 +45,7 @@ The target sheet names one of three, because the choice sets what the body must 
 
 - **Flat paint**: one palette colour per part, stored in vertex colours, with the game's shader adding light and lines. Needs no texture layout. Shows nothing smaller than a triangle.
 - **Flat paint plus shader detail**: grain, frost or wear projected by the shader. Needs no layout. Cannot place one particular mark in one particular spot.
-- **Painted texture**: placed detail finer than the mesh. Needs a texture layout that can hold paint, which is a report card row; a generator's or remesher's automatic layout usually fails it and is redone once in Blender before stage 6.
+- **Painted texture**: placed detail finer than the mesh. Needs a texture layout that can hold paint, which is a report card row; a generator's or remesher's automatic layout usually fails it and is redone once before stage 6, a two-minute step ([texture layout](../studio-blender/references/texture-layout.md)).
 
 A harder method is not a reason to refuse it; it is a reason to pay its fixed cost once at stage 4 instead of every look round.
 

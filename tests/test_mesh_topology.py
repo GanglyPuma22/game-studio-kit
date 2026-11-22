@@ -931,10 +931,126 @@ class ReduceGuidanceTests(unittest.TestCase):
         self.assertIn('record["reason"] = "no triangles"', source)
         self.assertIn("if not record[\"triangles\"]:", source)
 
+    def test_inspect_measures_the_layout_the_game_draws(self):
+        source = INSPECT_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("topology.uv_layout", source)
+        self.assertIn('record["uv_layout"] = uv_layout(obj, numpy)', source)
+        self.assertIn("active_render", source)
+
+    def test_the_relayout_template_and_its_procedure_ship_with_the_kit(self):
+        resources = read_json(ROOT / "studio-kit.json")["resources"]
+        self.assertIn("templates/texture-relayout.py", resources)
+        self.assertIn("skills/studio-blender/references/texture-layout.md", resources)
+        template = (ROOT / "templates/texture-relayout.py").read_text(encoding="utf-8")
+        compile(template, "texture-relayout.py", "exec")
+        # The template never writes over the file it was given, and puts the
+        # new layout beside the old one instead of replacing it.
+        self.assertIn("--save must not be the source file", template)
+        self.assertIn("obj.data.uv_layers.new(name=args.layer)", template)
+        procedure = (ROOT / "skills/studio-blender/references/texture-layout.md").read_text(encoding="utf-8")
+        for field in topology.UV_LAYOUT_FIELDS:
+            self.assertIn("`" + field + "`", procedure)
+        self.assertIn("references/texture-layout.md", BLENDER_SKILL.read_text(encoding="utf-8"))
+
     def test_the_packaged_scripts_ship_with_the_kit(self):
         resources = read_json(ROOT / "studio-kit.json")["resources"]
         self.assertIn("studio_tools/blender_scripts/reduce.py", resources)
         self.assertIn("studio_tools/blender_scripts/topology.py", resources)
+
+
+# A unit square in two triangles, sharing the diagonal 0-2.
+QUAD = ([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)], [(0, 1, 2), (0, 2, 3)])
+QUAD_HALF_MAP = [[(0, 0), (0.5, 0), (0.5, 0.5)], [(0, 0), (0.5, 0.5), (0, 0.5)]]
+
+
+class TextureLayout(unittest.TestCase):
+    """`uv_layers` says a layout exists; these say whether it can hold paint."""
+
+    def both(self, vertices, triangles, uvs):
+        plain = topology.uv_layout(vertices, triangles, uvs, numpy=False)
+        if topology.numpy_module() is not None:
+            fast = topology.uv_layout(vertices, triangles, uvs)
+            self.assertEqual(set(plain), set(fast))
+            for key in plain:
+                if isinstance(plain[key], float):
+                    self.assertAlmostEqual(plain[key], fast[key], places=5, msg=key)
+                else:
+                    self.assertEqual(plain[key], fast[key], key)
+        return plain
+
+    def test_a_continuous_layout_is_one_island(self):
+        record = self.both(*QUAD, QUAD_HALF_MAP)
+        self.assertEqual(record["islands"], 1)
+        self.assertEqual(record["small_islands"], 1)
+        self.assertEqual(record["largest_island_share"], 1.0)
+        self.assertAlmostEqual(record["map_used"], 0.25)
+        # one unit of surface on half a unit of map: two units of surface per unit
+        self.assertAlmostEqual(record["surface_per_uv_median"], 2.0)
+        self.assertAlmostEqual(record["surface_per_uv_coarse"], 2.0)
+        self.assertEqual(record["outside_unit_square"], 0)
+        self.assertEqual(record["unmapped_triangles"], 0)
+
+    def test_a_cut_along_a_shared_edge_makes_two_islands(self):
+        apart = [QUAD_HALF_MAP[0], [(0.6, 0), (1.0, 0.4), (0.6, 0.4)]]
+        record = self.both(*QUAD, apart)
+        self.assertEqual(record["islands"], 2)
+        self.assertEqual(record["small_islands"], 2)
+        self.assertEqual(record["largest_island_share"], 0.5)
+
+    def test_a_position_seam_does_not_cut_a_continuous_layout(self):
+        # An exporter splits a vertex for a normal seam; the layout is still whole.
+        vertices = QUAD[0] + [(0, 0, 0), (1, 1, 0)]
+        record = self.both(vertices, [(0, 1, 2), (4, 5, 3)], QUAD_HALF_MAP)
+        self.assertEqual(record["islands"], 1)
+
+    def test_meeting_at_one_end_of_an_edge_is_not_enough(self):
+        # The second triangle keeps corner 0 where it was and moves corner 2.
+        hinge = [QUAD_HALF_MAP[0], [(0, 0), (0.9, 0.9), (0, 0.5)]]
+        self.assertEqual(self.both(*QUAD, hinge)["islands"], 2)
+
+    def test_coarse_reports_the_stretched_part(self):
+        # Second triangle squeezed into a tenth of the map length it deserves.
+        squeezed = [QUAD_HALF_MAP[0], [(0.6, 0.6), (0.65, 0.65), (0.6, 0.65)]]
+        record = self.both(*QUAD, squeezed)
+        self.assertAlmostEqual(record["surface_per_uv_median"], 2.0)
+        self.assertAlmostEqual(record["surface_per_uv_coarse"], 20.0)
+
+    def test_collapsed_and_tiled_coordinates_are_counted_not_averaged_in(self):
+        collapsed = [QUAD_HALF_MAP[0], [(0.2, 0.2), (0.2, 0.2), (0.2, 0.2)]]
+        record = self.both(*QUAD, collapsed)
+        self.assertEqual(record["unmapped_triangles"], 1)
+        self.assertAlmostEqual(record["surface_per_uv_coarse"], 2.0)
+        tiled = [[(0, 0), (2, 0), (2, 2)], [(0, 0), (2, 2), (0, 2)]]
+        self.assertEqual(self.both(*QUAD, tiled)["outside_unit_square"], 2)
+
+    def test_no_triangles_is_unmeasured_not_zero_islands(self):
+        record = self.both([], [], [])
+        self.assertEqual(set(record), set(topology.UV_LAYOUT_FIELDS))
+        self.assertTrue(all(value is None for value in record.values()))
+
+    def test_one_set_of_coordinates_per_triangle_is_required(self):
+        with self.assertRaises(ValueError):
+            topology.uv_layout(*QUAD, QUAD_HALF_MAP[:1], numpy=False)
+
+    def test_both_implementations_agree_on_a_scrambled_layout(self):
+        rng = random.Random(7)
+        side = 6
+        vertices = [(x, y, 0.1 * ((x * y) % 3)) for y in range(side + 1) for x in range(side + 1)]
+        triangles, uvs = [], []
+        for y in range(side):
+            for x in range(side):
+                a, b = y * (side + 1) + x, y * (side + 1) + x + 1
+                c, d = a + side + 1, b + side + 1
+                # every third cell is lifted off the grid layout onto its own spot
+                off = (rng.random() * 0.3, rng.random() * 0.3) if (x + y) % 3 == 0 else (0, 0)
+                def at(px, py, off=off):
+                    return (px / (side * 2) + off[0], py / (side * 2) + off[1])
+                triangles += [(a, b, d), (a, d, c)]
+                uvs += [[at(x, y), at(x + 1, y), at(x + 1, y + 1)],
+                        [at(x, y), at(x + 1, y + 1), at(x, y + 1)]]
+        record = self.both(vertices, triangles, uvs)
+        self.assertGreater(record["islands"], 1)
+        self.assertLess(record["islands"], len(triangles))
 
 
 if __name__ == "__main__":
