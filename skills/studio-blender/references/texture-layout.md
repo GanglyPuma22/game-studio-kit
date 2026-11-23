@@ -1,6 +1,6 @@
 # Texture layout a character can be painted on
 
-Measured in one game (Tetherquake, 2026-11-22) on two generated giants of about 30,000 triangles each. A generator's or remesh service's automatic layout exists, passes every export check and still cannot hold paint: it cuts the body into thousands of scraps, so a line drawn across the chest breaks at each border and most of the map is empty. Laying the body out again is a two-minute machine step. Do it once, before anything is painted, baked or reviewed for looks.
+Measured in one game (Tetherquake, 2026-11-22 and 23) on two generated giants of about 30,000 triangles each; the ice giant's relayout went into the game and its findings are marked below. A generator's or remesh service's automatic layout exists, passes every export check and still cannot hold paint: it cuts the body into thousands of scraps, so a line drawn across the chest breaks at each border and most of the map is empty. Laying the body out again is a two-minute machine step. Do it once, before anything is painted, baked or reviewed for looks.
 
 ## Measure first
 
@@ -41,27 +41,38 @@ python <KIT>/scripts/studio.py blender run --project <GAME> --source source/body
 What it does:
 
 1. Welds each mesh by position on a working copy, so the split vertices an exporter leaves along the old seams do not become new seams. The real mesh keeps its vertices, normals and weights.
-2. Cuts charts by body part, then by the side each face looks toward. The part is the vertex group a triangle mostly follows, or the object when the body is rigid pieces. Normals are smoothed over the surface first, so a pitted plate stays one chart.
-3. Merges a chart smaller than 0.4% of the surface, or under 60 triangles, into the neighbour it shares the longest border with. It never merges onto a neighbour that faces the other way: the two halves of a closed shell would become one chart that cannot lie flat, and the unwrap answers with hundreds of one-triangle islands.
-4. Unwraps along the chart borders (angle based), gives every island the same scale, and packs every chosen object into one map.
+2. Cuts charts by body part, by material, then by the side each face looks toward. The part is the vertex group a triangle mostly follows, or the object when the body is rigid pieces. Normals are smoothed over the surface first, so a pitted plate stays one chart.
+3. Merges a chart smaller than 0.4% of the surface, or under 60 triangles, into the neighbour it shares the longest border with. It never merges onto a neighbour that faces the other way: the two halves of a closed shell would become one chart that cannot lie flat, and the unwrap answers with hundreds of one-triangle islands. It never merges across materials either, and refuses to write a chart that holds two: materials are painted by different rules, and on the ice giant one body quad inside a mane chart showed as a white diamond.
+4. Unwraps along the chart borders, gives every island the same scale, and packs every chosen object into one map. The unwrap is minimum stretch where the Blender has it (4.3 and later) and angle based before; `--unwrap` forces one. Prefer minimum stretch, for the reason under the checks below.
 5. Writes the result to a new layer named `relayout` and makes it the one that renders. The old layer stays, so maps can be carried across.
 6. With `--carry old-map.png --carry-out new-map.png`, bakes an existing colour map from the old layout to the new one.
 
 `--thin NAME` marks an object or vertex group made of thin blades (a mane, a cape, fins). The two sides of a blade are one face apart, so those faces keep their raw normals and their charts may stay small.
 
-The report holds the layout numbers before and after, per object and in total, and how many charts each part took. The first run on the rock giant took 28 seconds with the carry.
+The report holds the layout numbers before and after, per object and in total, how many charts each part took, the unwrap method, and two counts against the map size given by `--size`: `thin_triangles`, narrower than half a texel at their thinnest, and `overlap_texels`, texels that lie under two faces. The first run on the rock giant took 28 seconds with the carry.
 
 Two general tools were tried and are not a replacement: Blender's Smart UV Project left 1,600 to 4,100 islands on the rock giant at any angle limit, and xatlas left 741.
 
 ## Check before painting on it
 
 - Bake a line and a checker through the new layout and look at them at the closest player view, in the game's renderer. The same baked lines drew dashed and broken on the old ice giant layout and continuous on the new one, and identical at fighting distance ([outline readability](outline-readability.md) for the crop method).
+- Read `thin_triangles`. Angle based unwrapping flattens some triangles to nothing, mostly on spikes: 224 on the ice giant (1.3% of its surface), and a line painted next to one filled the whole triangle with ink. Minimum stretch left none there. On the rock giant it left 38 where angle based left 80; the rest are slivers on the surface itself, which no unwrap widens.
+- Read `overlap_texels`. Neither method flips triangles, but a saddle still folds a chart a little: 314 texels on the ice giant with minimum stretch (0.025% of the map), and 353 on the rock giant against 2,820 with angle based. A few hundred scattered texels do not show; a block of them is a chart to cut.
+- A chart stretched over a sharp ridge is cut along the ridge and unwrapped again. Smooth the dividing line first, or a pitted surface shatters into single faces. The template does not do this; the ice giant's own tool does.
 - Read `surface_per_uv_coarse`. If the coarse tenth is much worse than the median, a chart was squeezed; lower `--min-share` or mark the part thin.
 - Overlap: `map_used` should not change when the margin does. A layout packed by this template does not overlap, but a later hand edit can.
+
+## Lines and other data stored in the map
+
+Once charts are large, a map can carry more than colour: a distance to the nearest drawn line, a mask, a height. Two things found on the ice giant:
+
+- Store a distance to a line signed, with a plain distance beside it if the line tapers. Unsigned, linear filtering rounds off the V at the line itself and the line beads.
+- Do not mark the outside of a chart by pushing the value negative past its edge. That padding drew dashes along chart borders. Pad by repeating the nearest value.
 
 ## Carrying it into the game
 
 - An exporter splits vertices along the new seams. That changes the vertex count and order of the runtime mesh, not the triangle surface, the weights or any move. Anything that indexes vertices by number (corrective shapes, per-vertex colour files, a second skin file) is rebuilt from the relaid source, not patched.
+- Runtime code that takes a statistic over skin points shifts too, because the new seams split points in new places: a hinge placed at a percentile of a part's points, a cap sized by a radius over them. On the ice giant hinges moved 2 to 4 cm and one cap radius 8 cm, with identical weights at every point. Pin those values to the body, or compute them per welded place and not per stored point.
 - Engines disagree on which way v runs. A map that comes out dark, garbled or mirrored after a correct bake is a v flip (`v = 1 - v`), not a layout fault.
 - Fill the empty part of a painted map with the nearest paint before it is compressed, or the far mip levels pull the background colour in along every island border.
 - Relay a body once, at the body stage. A relayout after paint exists means carrying every map across and checking every one again.

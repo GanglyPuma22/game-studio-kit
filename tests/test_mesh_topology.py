@@ -947,6 +947,12 @@ class ReduceGuidanceTests(unittest.TestCase):
         # new layout beside the old one instead of replacing it.
         self.assertIn("--save must not be the source file", template)
         self.assertIn("obj.data.uv_layers.new(name=args.layer)", template)
+        # A chart never mixes two materials, and the report counts what an
+        # unwrap flattened and what it folded.
+        self.assertIn("a chart holds two materials; nothing was written", template)
+        for field in ("thin_triangles", "overlap_texels"):
+            self.assertIn('"' + field + '"', template)
+            self.assertIn("`" + field + "`", (ROOT / "skills/studio-blender/references/texture-layout.md").read_text(encoding="utf-8"))
         procedure = (ROOT / "skills/studio-blender/references/texture-layout.md").read_text(encoding="utf-8")
         for field in topology.UV_LAYOUT_FIELDS:
             self.assertIn("`" + field + "`", procedure)
