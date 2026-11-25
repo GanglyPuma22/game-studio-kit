@@ -1,10 +1,13 @@
 """Validate a character run record: owner gates, spend caps and stage order.
 
 The record is bookkeeping for the character pipeline
-(skills/studio-director/references/character-pipeline.md). Validation checks
-that no stage ran ahead of its gate or its inputs, that every finished stage
-names hashed outputs and a passing check, and that recorded spend stays under
-each approved cap. It cannot prove that a person approved anything.
+(skills/studio-director/references/character-pipeline.md) and the design
+gates of skills/studio-character-design/SKILL.md. Validation checks that no
+stage ran ahead of its gate or its inputs, that the production pass waits for
+a picked look, that no gate goes round after round without a stop, that every
+finished stage names hashed outputs and a passing check, and that recorded
+spend stays under each approved cap. It cannot prove that a person approved
+anything.
 """
 
 import math
@@ -13,7 +16,12 @@ from .common import StudioError, safe_id
 from .records import required, verify_file
 
 GATES = ("concept", "voice")
-GATE_STATES = {"open", "provisional", "approved"}
+# Optional: a character whose look the owner will judge carries all three.
+DESIGN_GATES = ("target", "body", "look")
+GATE_STATES = {"open", "provisional", "approved", "stopped"}
+# A gate in one of these states has no pick to build on.
+GATE_UNPICKED = {"open", "stopped"}
+DEFAULT_GATE_ROUND_CAP = 3
 STAGE_STATES = {"pending", "running", "done", "stopped", "reopened"}
 CHECK_VERDICTS = {"pass", "fail", "not_run"}
 
@@ -28,13 +36,21 @@ def _amount(value, field):
     return value
 
 
-def _gate(name, gate, builder, root):
+def _gate(name, gate, builder, root, round_cap):
     if not isinstance(gate, dict):
         raise StudioError("gates." + name + " must be an object")
     status = gate.get("status")
     if status not in GATE_STATES:
-        raise StudioError("gates." + name + ".status must be open, provisional or approved")
-    if status == "open":
+        raise StudioError("gates." + name + ".status must be open, provisional, approved or stopped")
+    rounds = gate.get("rounds", 0)
+    if type(rounds) is not int or rounds < 0:
+        raise StudioError("gates." + name + ".rounds must be a nonnegative integer")
+    # The round the cap allows may still be in front of the owner; one more
+    # without a yes has to be recorded as a stop, not as another try.
+    if status in {"open", "provisional"} and rounds > round_cap:
+        raise StudioError("gates." + name + " has had " + str(rounds) + " rounds without approval (cap "
+                          + str(round_cap) + "); mark it stopped and report")
+    if status in GATE_UNPICKED:
         return status
     required(gate, ["choice", "file"])
     if not _text(gate["choice"]):
@@ -81,10 +97,15 @@ def validate_character_run(record, root):
     if type(record["repair_round_cap"]) is not int or record["repair_round_cap"] < 1:
         raise StudioError("repair_round_cap must be a positive integer")
 
+    round_cap = record.get("gate_round_cap", DEFAULT_GATE_ROUND_CAP)
+    if type(round_cap) is not int or round_cap < 1:
+        raise StudioError("gate_round_cap must be a positive integer")
     gates = record["gates"]
-    if not isinstance(gates, dict) or set(gates) != set(GATES):
-        raise StudioError("gates must hold exactly concept and voice")
-    gate_state = {name: _gate(name, gates[name], builder, root) for name in GATES}
+    if (not isinstance(gates, dict) or not set(GATES) <= set(gates)
+            or not set(gates) <= set(GATES) | set(DESIGN_GATES)):
+        raise StudioError("gates must hold concept and voice, and may hold target, body and look")
+    gate_state = {name: _gate(name, gates[name], builder, root, round_cap)
+                  for name in GATES + DESIGN_GATES if name in gates}
     caps = _budgets(record["budgets"], builder)
 
     stages = record["stages"]
@@ -111,7 +132,7 @@ def validate_character_run(record, root):
             if not isinstance(need, str):
                 raise StudioError(label + ".needs entries must be text")
             if need.startswith("gate:"):
-                if need[5:] not in GATES:
+                if need[5:] not in gate_state:
                     raise StudioError(label + " needs unknown gate " + need)
             elif need not in seen:
                 raise StudioError(label + " needs " + need + ", which is not an earlier stage")
@@ -119,14 +140,18 @@ def validate_character_run(record, root):
         if status not in {"pending", "reopened"}:
             for need in needs:
                 if need.startswith("gate:"):
-                    if gate_state[need[5:]] == "open":
+                    if gate_state[need[5:]] in GATE_UNPICKED:
                         raise StudioError(stage_id + " started before the " + need[5:] + " gate")
                 elif seen[need]["status"] != "done":
                     raise StudioError(stage_id + " started before " + need + " was done")
-        # The run ends at review, so both gates need the owner's confirmation
-        # whatever the review stage lists as its inputs.
+            # Final art is the expensive stage, so it waits for a picked look
+            # whatever the stage lists as its inputs.
+            if stage_id == "production" and gate_state.get("look", "open") in GATE_UNPICKED:
+                raise StudioError("production started before the look gate")
+        # The run ends at review, so every gate the record holds needs the
+        # owner's confirmation whatever the review stage lists as its inputs.
         if stage_id == "review" and status == "done":
-            for name in GATES:
+            for name in gate_state:
                 if gate_state[name] != "approved":
                     raise StudioError("review cannot finish before the owner approves the " + name
                                       + " gate (" + gate_state[name] + ")")

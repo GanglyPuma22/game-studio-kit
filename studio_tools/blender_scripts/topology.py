@@ -476,6 +476,180 @@ def audit_triangles(vertices, triangles, uv_layers=0, numpy=None):
     }
 
 
+# --------------------------------------------------------------------------
+# Texture layout: can this unwrap hold paint?
+#
+# `uv_layers` says only that a layout exists. A remesh service's automatic
+# layout exists and still cuts a body into thousands of scraps, so a line
+# painted across the chest breaks at every border. These numbers tell that
+# layout from one cut by hand or by part, without rendering anything.
+
+# Texture coordinates are compared after rounding to this many steps per unit:
+# finer than any texel on an 8k map, coarser than the float noise an exporter
+# leaves between two corners that share one point of the layout.
+UV_STEPS = 65536
+
+# At most this many triangles make an island too small to carry a mark.
+SMALL_ISLAND_TRIANGLES = 2
+
+UV_LAYOUT_FIELDS = (
+    "islands",
+    "small_islands",
+    "largest_island_share",
+    "map_used",
+    "outside_unit_square",
+    "unmapped_triangles",
+    "surface_per_uv_median",
+    "surface_per_uv_coarse",
+)
+
+
+def _island_roots(count, pairs):
+    """Union-find over triangle pairs; returns one root per triangle."""
+    parent = list(range(count))
+
+    def find(item):
+        while parent[item] != item:
+            parent[item] = parent[parent[item]]
+            item = parent[item]
+        return item
+
+    for first, second in pairs:
+        a, b = find(first), find(second)
+        if a != b:
+            parent[a] = b
+    return [find(index) for index in range(count)]
+
+
+def _python_uv_pairs(welded, steps):
+    seen = {}
+    pairs = []
+    for index, (triangle, corners) in enumerate(zip(welded, steps)):
+        for k in range(3):
+            a = (triangle[k], corners[k])
+            b = (triangle[(k + 1) % 3], corners[(k + 1) % 3])
+            key = (a, b) if a <= b else (b, a)
+            if key in seen:
+                pairs.append((seen[key], index))
+            else:
+                seen[key] = index
+    return pairs
+
+
+def _numpy_uv_pairs(numpy, welded, steps):
+    corners = numpy.concatenate(
+        [welded.reshape(-1, 1), steps.reshape(-1, 2)], axis=1
+    )
+    _, identity = numpy.unique(corners, axis=0, return_inverse=True)
+    identity = numpy.asarray(identity).reshape(-1, 3).astype(numpy.int64)
+    first = identity.reshape(-1)
+    second = identity[:, (1, 2, 0)].reshape(-1)
+    low, high = numpy.minimum(first, second), numpy.maximum(first, second)
+    key = low * (int(identity.max()) + 1 if identity.size else 1) + high
+    order = numpy.argsort(key, kind="stable")
+    same = key[order][1:] == key[order][:-1]
+    owner = numpy.repeat(numpy.arange(len(identity)), 3)[order]
+    return numpy.stack([owner[:-1][same], owner[1:][same]], axis=1).tolist()
+
+
+def _weighted_quantile(values, weights, fraction):
+    order = sorted(range(len(values)), key=values.__getitem__)
+    total = sum(weights)
+    running = 0.0
+    for index in order:
+        running += weights[index]
+        if running >= total * fraction:
+            return values[index]
+    return values[order[-1]]
+
+
+def uv_layout(vertices, triangles, corner_uvs, numpy=None):
+    """Measure one texture layout: how many pieces, how much map, how coarse.
+
+    `corner_uvs` holds a u/v pair for each corner of each triangle, in the
+    order `triangles` lists them. Two triangles belong to one island when they
+    share an edge on the surface (welded by position, as the defect counts
+    are) and both ends of that edge sit at the same place in the layout.
+
+    `surface_per_uv_median` is the length of surface one unit of the layout
+    covers, at the middle of the surface by area; divide it by the map's width
+    in texels for the length of one texel. `surface_per_uv_coarse` is the same
+    at the ninetieth percentile, the coarse tenth of the surface. `map_used`
+    is the summed area of the triangles in the layout, so an overlapping
+    layout can report more than it really covers.
+    """
+    if numpy is None:
+        numpy = numpy_module()
+    if numpy is False or numpy is None:
+        points, welded = _python_welded(vertices, triangles)
+        uvs = [[(float(u), float(v)) for u, v in corners] for corners in corner_uvs]
+        if len(uvs) != len(welded):
+            raise ValueError("one set of three texture coordinates per triangle is required")
+        steps = [
+            tuple((round(u * UV_STEPS), round(v * UV_STEPS)) for u, v in corners)
+            for corners in uvs
+        ]
+        pairs = _python_uv_pairs(welded, steps)
+        surface, layout, outside = [], [], 0
+        for triangle, corners in zip(welded, uvs):
+            a, b, c = (points[i] for i in triangle)
+            ab = [b[i] - a[i] for i in range(3)]
+            ac = [c[i] - a[i] for i in range(3)]
+            cross = (
+                ab[1] * ac[2] - ab[2] * ac[1],
+                ab[2] * ac[0] - ab[0] * ac[2],
+                ab[0] * ac[1] - ab[1] * ac[0],
+            )
+            surface.append(0.5 * sum(x * x for x in cross) ** 0.5)
+            (u0, v0), (u1, v1), (u2, v2) = corners
+            layout.append(0.5 * abs((u1 - u0) * (v2 - v0) - (u2 - u0) * (v1 - v0)))
+            outside += any(not (0.0 <= x <= 1.0) for pair in corners for x in pair)
+    else:
+        points, welded = _numpy_welded(numpy, vertices, triangles)
+        uvs = numpy.asarray(corner_uvs, dtype=numpy.float64).reshape(-1, 3, 2)
+        if len(uvs) != len(welded):
+            raise ValueError("one set of three texture coordinates per triangle is required")
+        steps = numpy.round(uvs * UV_STEPS).astype(numpy.int64)
+        pairs = _numpy_uv_pairs(numpy, welded, steps) if len(welded) else []
+        corner = points[welded].astype(numpy.float64) if len(welded) else numpy.zeros((0, 3, 3))
+        cross = numpy.cross(corner[:, 1] - corner[:, 0], corner[:, 2] - corner[:, 0])
+        surface = (0.5 * numpy.sqrt((cross * cross).sum(axis=1))).tolist()
+        layout = (
+            0.5
+            * numpy.abs(
+                (uvs[:, 1, 0] - uvs[:, 0, 0]) * (uvs[:, 2, 1] - uvs[:, 0, 1])
+                - (uvs[:, 2, 0] - uvs[:, 0, 0]) * (uvs[:, 1, 1] - uvs[:, 0, 1])
+            )
+        ).tolist()
+        outside = int(((uvs < 0.0) | (uvs > 1.0)).any(axis=(1, 2)).sum())
+        welded = welded.tolist()
+    count = len(welded)
+    if not count:
+        return dict.fromkeys(UV_LAYOUT_FIELDS)
+    sizes = {}
+    for root in _island_roots(count, pairs):
+        sizes[root] = sizes.get(root, 0) + 1
+    scale, weight, unmapped = [], [], 0
+    for area, mapped in zip(surface, layout):
+        if area <= 0.0:
+            continue
+        if mapped <= 1e-14:
+            unmapped += 1
+            continue
+        scale.append((area / mapped) ** 0.5)
+        weight.append(area)
+    return {
+        "islands": len(sizes),
+        "small_islands": sum(1 for size in sizes.values() if size <= SMALL_ISLAND_TRIANGLES),
+        "largest_island_share": max(sizes.values()) / count,
+        "map_used": float(sum(layout)),
+        "outside_unit_square": int(outside),
+        "unmapped_triangles": int(unmapped),
+        "surface_per_uv_median": _weighted_quantile(scale, weight, 0.5) if scale else None,
+        "surface_per_uv_coarse": _weighted_quantile(scale, weight, 0.9) if scale else None,
+    }
+
+
 def unavailable_mesh_record(triangles, uv_layers):
     """The per-mesh fields when numpy cannot measure topology.
 

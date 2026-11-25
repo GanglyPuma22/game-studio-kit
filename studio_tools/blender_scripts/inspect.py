@@ -16,6 +16,49 @@ topology = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(topology)
 
 
+def uv_layout(obj, numpy):
+    """Island count, map use and surface per unit of the layout the game draws.
+
+    Measured in world units so the figure divides straight into a map size.
+    None when the mesh has no layout or numpy cannot measure it: unmeasured,
+    never zero islands.
+    """
+    mesh = obj.data
+    layer = next((l for l in mesh.uv_layers if l.active_render), mesh.uv_layers.active)
+    if numpy is None or layer is None or not len(mesh.loop_triangles):
+        return None
+    points = numpy.empty(len(mesh.vertices) * 3, dtype=numpy.float64)
+    mesh.vertices.foreach_get("co", points)
+    world = numpy.array(obj.matrix_world, dtype=numpy.float64)
+    points = points.reshape(-1, 3) @ world[:3, :3].T + world[:3, 3]
+    faces = numpy.empty(len(mesh.loop_triangles) * 3, dtype=numpy.int32)
+    mesh.loop_triangles.foreach_get("vertices", faces)
+    loops = numpy.empty(len(mesh.loop_triangles) * 3, dtype=numpy.int32)
+    mesh.loop_triangles.foreach_get("loops", loops)
+    uv = numpy.empty(len(mesh.loops) * 2, dtype=numpy.float32)
+    layer.data.foreach_get("uv", uv)
+    record = topology.uv_layout(
+        points, faces.reshape(-1, 3), uv.reshape(-1, 2)[loops].reshape(-1, 3, 2), numpy=numpy
+    )
+    record["layer"] = layer.name
+    return record
+
+
+def uv_layout_totals(records):
+    """A character's layout usually spans several mesh objects: add them up."""
+    measured = [r["uv_layout"] for r in records if r.get("uv_layout") and r["uv_layout"]["islands"]]
+    if not measured:
+        return None
+    return {
+        "meshes_measured": len(measured),
+        "islands": sum(m["islands"] for m in measured),
+        "small_islands": sum(m["small_islands"] for m in measured),
+        "map_used": sum(m["map_used"] for m in measured),
+        "outside_unit_square": sum(m["outside_unit_square"] for m in measured),
+        "unmapped_triangles": sum(m["unmapped_triangles"] for m in measured),
+    }
+
+
 def audit(meshes, numpy):
     """Per-mesh triangle and defect counts; the mesh itself is never touched."""
     records = []
@@ -43,6 +86,7 @@ def audit(meshes, numpy):
                     numpy=numpy,
                 ),
             }
+        record["uv_layout"] = uv_layout(obj, numpy)
         if not record["triangles"]:
             # A GLB primitive of only points or lines reports zero of every
             # defect, which reads as clean rather than as never triangulated.
@@ -87,6 +131,7 @@ record = {
     ],
     "meshes": audited,
     "topology": topology.totals(audited) if numpy is not None else dict(topology.UNAVAILABLE),
+    "uv_layout": uv_layout_totals(audited),
 }
 output.write_text(json.dumps(record, indent=2), encoding="utf-8")
 bpy.ops.wm.save_as_mainfile(filepath=str(output.with_suffix(".blend")))

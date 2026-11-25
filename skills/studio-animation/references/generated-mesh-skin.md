@@ -416,6 +416,12 @@ date, and show them the move in the viewer rather than describing it.
 - **Fused limbs.** Where the generator merged a hand into a thigh, heat
   treats them as one surface. Tear the surface there first (and cap the
   holes), or regenerate with the limbs apart, before weighting.
+- **The generator's texture layout rarely holds paint.** It is cut into
+  thousands of scraps, so drawn lines break at every border. Skinning
+  does not care, but a painted look does: lay the body out again before
+  painting ([texture layout](../../studio-blender/references/texture-layout.md)).
+  A relayout keeps every vertex, weight and move; only the runtime
+  mesh's vertex order changes when it is exported.
 - **Twist** along a forearm or thigh needs a twist bone or split weights;
   one control per segment will candy-wrap past about 90 degrees.
 

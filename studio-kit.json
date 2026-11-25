@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "game-studio-kit",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "skills": [
     {
       "name": "studio-director",
@@ -74,6 +74,10 @@
     {
       "name": "studio-video-gen",
       "path": "skills/studio-video-gen/SKILL.md"
+    },
+    {
+      "name": "studio-character-design",
+      "path": "skills/studio-character-design/SKILL.md"
     }
   ],
   "resources": [
@@ -108,6 +112,7 @@
     "skills/studio-review/references/critic-loop.md",
     "skills/studio-art-direction/references/concept-and-bases.md",
     "skills/studio-blender/references/game-asset-pitfalls.md",
+    "skills/studio-blender/references/texture-layout.md",
     "skills/studio-blender/scripts/lifecycle/Ensure-SupervisedBlenderMCP.ps1",
     "skills/studio-blender/scripts/lifecycle/Test-SupervisedBlenderMCP.ps1",
     "skills/studio-blender/scripts/lifecycle/Stop-SupervisedBlenderMCP.ps1",
@@ -177,6 +182,7 @@
     "templates/worker-brief.md",
     "templates/work-card.md",
     "templates/playtest-harness.gd",
+    "templates/texture-relayout.py",
     "templates/edit-journal.json",
     "templates/critic.json",
     "studio_tools/run_policy.py",
@@ -222,6 +228,10 @@
     "studio_tools/character_run.py",
     "templates/character-run.json",
     "skills/studio-director/references/character-pipeline.md",
+    "skills/studio-character-design/references/target-sheet.md",
+    "skills/studio-character-design/references/body-report-card.md",
+    "skills/studio-character-design/references/look-bench.md",
+    "skills/studio-character-design/references/pilot-audit.md",
     "studio_tools/model_qa/evidence.py",
     "studio_tools/model_qa/surface.py",
     "skills/studio-cinematic/references/playbook.md",
