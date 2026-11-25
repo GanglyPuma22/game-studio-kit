@@ -47,7 +47,7 @@ MAX_UNITS = 20
 # Reserved for job types that other queues may move onto later. Listing one
 # here does not make the service run it.
 RESERVED_TYPES = {
-    "salvage-batch": "Salvage's existing Colab batches (tools/colab_batch); still run by Salvage's own queue",
+    "salvage-batch": "another game's existing Colab batches (tools/colab_batch); still run by that game's own queue",
 }
 WHERE = ("here", "colab")
 GPUS = ("L4", "T4", "A100")

@@ -74,7 +74,7 @@ not installed, and it is reported that way.
 | `--session` | Use it when | What it costs |
 |---|---|---|
 | `handoff` (default) | The agent's last action before handing over the keyboard. | The command blocks until the player quits, so that session is the agent's whole turn. |
-| `attended` | Maxim plays while the agent keeps desktop, voice or computer-use access to narrate, watch or take notes. | Nothing waits for the exit, so no return code, elapsed time or surviving descendant is ever observed for that run. |
+| `attended` | The person plays while the agent keeps desktop, voice or computer-use access to narrate, watch or take notes. | Nothing waits for the exit, so no return code, elapsed time or surviving descendant is ever observed for that run. |
 | `driven` | A harness supplies the input and may declare `--result` files. | Bounded by `--max-minutes` and judged by assertions, which is the weakest evidence of the three about how the game feels. |
 
 `--max-minutes 0` removes the cap and is legal only for `handoff` and `attended`, where a person decides when the session ends. A `driven` session has nobody at the controls and stays bounded. `attended` goes further: nothing waits for it, so a cap could only be written into the receipt and never applied, and a non-zero `--max-minutes` there is refused rather than recorded.

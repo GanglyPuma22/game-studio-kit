@@ -1,6 +1,6 @@
 # Giant trees and ground scatter
 
-The tree advice is adapted from `vegetation-artist/SKILL.md` in blender-skills at revision `8f778d2405a214b508d4c7d80742be8e43acdd52` (Copyright (c) 2026 blender-skills contributors; MIT; see [license](../../../third_party/blender-skills/LICENSE)) and tested in one lane: Skybreak's 88 m Tallgrove trees in a flat-colour, outlined look, rendered in Godot from a warden's views (ground, mid-swing, across the map, beside a branch). Read [outline readability](outline-readability.md) for how the comparisons were made.
+The tree advice is adapted from `vegetation-artist/SKILL.md` in blender-skills at revision `8f778d2405a214b508d4c7d80742be8e43acdd52` (Copyright (c) 2026 blender-skills contributors; MIT; see [license](../../../third_party/blender-skills/LICENSE)) and tested in one lane: one game's 88 m forest trees in a flat-colour, outlined look, rendered in Godot from a warden's views (ground, mid-swing, across the map, beside a branch). Read [outline readability](outline-readability.md) for how the comparisons were made.
 
 ## A stylized giant tree
 

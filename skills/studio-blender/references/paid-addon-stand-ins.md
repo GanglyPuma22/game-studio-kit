@@ -1,6 +1,6 @@
 # Paid Blender addons and free stand-ins
 
-Four paid addons were proposed for environment work. None has been bought. Each entry states the job, how its output would reach Godot, what goes wrong, the licence verdict, and what a free stand-in showed in one test lane (Skybreak, 2026-10-28; renders in a flat-colour, outlined look, method in [outline readability](outline-readability.md)).
+Four paid addons were proposed for environment work. None has been bought. Each entry states the job, how its output would reach Godot, what goes wrong, the licence verdict, and what a free stand-in showed in one test lane (one game, 2026-10-28; renders in a flat-colour, outlined look, method in [outline readability](outline-readability.md)).
 
 **Licence verdict stays UNVERIFIED** until someone quotes the vendor's own clause on commercial game use for the exact tier being bought. A product page or a reseller summary is not that clause.
 

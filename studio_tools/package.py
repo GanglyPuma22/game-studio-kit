@@ -1,6 +1,7 @@
 """Validate the complete skill/resource graph in a relocated source tree."""
 
 import re
+import tomllib
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 from .common import read_json, relative, StudioError, sha256
@@ -59,6 +60,38 @@ def _valid_yaml_scalar(text):
     return ": " not in text and " #" not in text and not text.endswith(":")
 
 
+def _python_version_errors(root, manifest_version):
+    """The Python package's two version declarations against the manifests.
+
+    A staged copy carries a "+suffix" on its manifest version while the Python
+    package keeps the source release version (docs/plugin-staging.md), so only
+    an unsuffixed manifest version is compared with the Python one.
+    """
+    declared = {}
+    pyproject = root / "pyproject.toml"
+    if pyproject.is_file():
+        try:
+            declared["pyproject.toml"] = tomllib.loads(
+                pyproject.read_text(encoding="utf-8")
+            ).get("project", {}).get("version")
+        except tomllib.TOMLDecodeError:
+            return ["pyproject.toml does not parse"]
+    module = root / "studio_tools/__init__.py"
+    if module.is_file():
+        found = re.search(
+            r'^__version__ = "([^"]+)"$', module.read_text(encoding="utf-8"), re.M
+        )
+        declared["studio_tools.__version__"] = found.group(1) if found else None
+    errors = []
+    if len(set(declared.values())) > 1:
+        errors.append("pyproject.toml and studio_tools.__version__ disagree")
+    if isinstance(manifest_version, str) and "+" not in manifest_version:
+        for name, version in declared.items():
+            if version != manifest_version:
+                errors.append(name + " version disagrees with package")
+    return errors
+
+
 def check(root):
     root = Path(root).resolve()
     errors = []
@@ -71,6 +104,7 @@ def check(root):
             errors.append("plugin name/skills disagree with studio-kit.json")
         if plugin.get("version") != manifest.get("version"):
             errors.append("plugin version disagrees with package")
+        errors.extend(_python_version_errors(root, manifest.get("version")))
         claude_path = root / ".claude-plugin/plugin.json"
         if claude_path.is_file():
             claude = read_json(claude_path)

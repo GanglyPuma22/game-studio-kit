@@ -69,4 +69,4 @@ A line that moves with a moving character over detailed scenery for the whole sh
 
 ## Tooling
 
-Keep the method spec-driven: one small spec per shot (hand keys, colour, frame range, cuts) and generic scripts for masks, fills and the before/after. The recipe above is enough to build it with OpenCV and NumPy in a few hundred lines. For provenance only: the first project's version lives in the Skybreak repo under `tools/cine/strays/`; reuse it if you have access, otherwise build from this page.
+Keep the method spec-driven: one small spec per shot (hand keys, colour, frame range, cuts) and generic scripts for masks, fills and the before/after. The recipe above is enough to build it with OpenCV and NumPy in a few hundred lines. For provenance only: the first project's version lives in that game's own repository under `tools/cine/strays/`; reuse it if you have access, otherwise build from this page.

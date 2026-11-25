@@ -28,9 +28,8 @@ TEMPLATE = ROOT / "templates/playtest-harness.gd"
 RECEIPTS = ("playtest.json", "exit.json", "process/process.json", "diagnostics.json")
 # check-package counts the manifest's own skills but cannot read prose, so the
 # documents that tell an agent how many entrypoints exist are checked here.
-NUMBER_WORDS = {10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen", 14: "fourteen", 15: "fifteen", 16: "sixteen", 17: "seventeen", 18: "eighteen"}
-CATALOG_DOCS = ("AGENTS.md", "README.md", "docs/agent-start.md", "docs/setup-windows.md",
-                "docs/contributing.md", "references/tool-routing.md")
+NUMBER_WORDS = ("ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
+                "eighteen", "nineteen", "twenty", "twenty-one", "twenty-two", "twenty-three", "twenty-four")
 CATALOG_NOUN = r"(?:skills|entrypoints|folders)"
 
 
@@ -801,23 +800,26 @@ class PlaytestDocumentationTests(unittest.TestCase):
         self.assertIn("_route_complete() and _measurement_ready()", template)
         self.assertIn('checks["measurement_settled"] = _route_complete() and _measurement_ready()', template)
 
-    def test_catalog_count_agrees_with_the_manifest_everywhere(self):
-        count = len(read_json(ROOT / "studio-kit.json")["skills"])
+    def test_no_document_states_the_catalog_size(self):
         from studio_tools.package import REQUIRED_SKILLS
         names = {skill["name"] for skill in read_json(ROOT / "studio-kit.json")["skills"]}
         self.assertEqual(names, set(REQUIRED_SKILLS) | {"studio-tripo"})
-        for name in CATALOG_DOCS:
-            text = (ROOT / name).read_text(encoding="utf-8")
-            self.assertRegex(
-                text, rf"(?i)\b{NUMBER_WORDS[count]}\b[^.]{{0,40}}?{CATALOG_NOUN}\b",
-                f"{name} does not state the shipped catalog size",
+        # studio-kit.json is the list. A count written in prose went stale in
+        # an unchecked file each time a skill was added, so no file states one.
+        # The two dated validation records keep the count that was true then.
+        records = {ROOT / "docs/validation.md", ROOT / "docs/audit-improvements.md"}
+        documents = [
+            path
+            for path in (*ROOT.glob("*.md"), *(ROOT / "docs").rglob("*.md"), *(ROOT / "references").rglob("*.md"))
+            if path not in records
+        ]
+        self.assertIn(ROOT / "docs/claude-code.md", documents)
+        counted = "|".join((*NUMBER_WORDS, r"1\d", r"2\d"))
+        for path in documents:
+            self.assertNotRegex(
+                path.read_text(encoding="utf-8"), rf"(?i)\b(?:{counted})\b[^.\n]{{0,40}}?{CATALOG_NOUN}\b",
+                f"{path.relative_to(ROOT)} states a catalog size",
             )
-            for number, word in NUMBER_WORDS.items():
-                if number != count:
-                    self.assertNotRegex(
-                        text, rf"(?i)\b{word}\b[^.]{{0,40}}?{CATALOG_NOUN}\b",
-                        f"{name} still claims {word} entrypoints",
-                    )
 
     def test_plugin_manifest_tracks_the_package_version_and_names_playtesting(self):
         plugin = read_json(ROOT / ".codex-plugin/plugin.json")
