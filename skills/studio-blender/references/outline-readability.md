@@ -1,6 +1,6 @@
 # Detail that reads in a flat-colour, outlined look
 
-Measured in one test lane (Skybreak, 2026-10-28): flat colour per material slot or per vertex colour, a hard light/shadow step, and an inverted-hull outline pushed out along vertex normals. Results will differ for a painterly or physically based look; the method transfers.
+Measured in one test lane (one game, 2026-10-28): flat colour per material slot or per vertex colour, a hard light/shadow step, and an inverted-hull outline pushed out along vertex normals. Results will differ for a painterly or physically based look; the method transfers.
 
 ## Measure at play distance, at true pixel size
 

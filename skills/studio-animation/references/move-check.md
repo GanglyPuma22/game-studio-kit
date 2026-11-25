@@ -6,7 +6,7 @@ a procedural pose or a new skin turns into on the real body. This file is the st
 checks exist, which ones block, how a move is sampled, how known problems are carried, and where
 the check is enforced. Each game keeps its own recorder, limits, joint ranges and accepted
 exceptions. How to animate and fix until the check passes, and the stop rule for fix loops, are in
-`generated-mesh-skin.md` (beside this file, added with kit PR #71). Where the two differ on a number, this file wins.
+`generated-mesh-skin.md` (beside this file). Where the two differ on a number, this file wins.
 
 ## When it runs
 
@@ -66,14 +66,17 @@ a game tunes them per character from moves the person approved.
 | twist-speed | a limb rolling fast about its own length (an elbow or knee flip) | blocker | 720 deg/s |
 | hit-hand | the drawn fist or jaws away from the gameplay contact point | blocker | 1.5 m within 0.1 s |
 | hinge | an elbow or knee bending the wrong way, on the drawn pose | note | 10 deg |
+| shake | a joint reversing direction on consecutive ticks (a twitch under the joint-speed limit) | note | 8 reversals over 120 deg/s in 0.35 s |
+| open-edge | skin that is not closed: a run of edges with a triangle on one side only, which opens onto the hollow inside when the sides part | blocker | 8 points |
+| hair-gap | hair laid on the body as its own shell standing further off the skin under its roots than at rest | note | 0.3 m |
 | head-aim, balance, jerk, weight | the head off its target, centre of mass off the feet, limb or hip acceleration | note | 75 deg; 0.8 m; 3000 and 450 m/s2 |
 
 Roll is undefined for a limb swung nearly opposite its rest (more than 135 degrees), so don't
 measure joint-range roll there. twist-speed still catches a flip.
 
 **Blockers are the same for every character from its first recording.** They are what a person
-sees at once on pause: a tear, a limb through the body, skin inside skin, anything under the
-floor, a foot or joint turned past what a body does, a pop, and a strike that misses its own
+sees at once on pause: a tear, an open edge in the skin, a limb through the body, skin inside
+skin, anything under the floor, a foot or joint turned past what a body does, a pop, and a strike that misses its own
 hit point. A new character starts with joint-range quiet until its ranges are set from moves the
 person approved. Its other blockers apply from day one.
 

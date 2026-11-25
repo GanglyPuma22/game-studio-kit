@@ -220,7 +220,7 @@
           "upstream": ".claude/skills/vegetation-artist/SKILL.md",
           "upstream_sha256": "3b1f43f0f456b95f5c00f1372f64db75f34967c581b02068d80ee6ef63d476ec",
           "local": "skills/studio-blender/references/vegetation-and-scatter.md",
-          "sha256": "914cade631fc34615547c33875dece3423dbeec851c07ad0d72d6b1b55c6c841",
+          "sha256": "a0fe3f27c4d197e40323b0b53e2e6cbe983ce41d9f3f73becffb2ac811dd739b",
           "change": "Studio-authored adaptation tested in a game lane: trunk flare, tapered branches and LOD advice kept; alpha leaf cards rejected for an outlined look; scatter results are studio measurements; no upstream code copied"
         }
       ],

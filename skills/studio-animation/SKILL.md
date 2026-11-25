@@ -11,6 +11,8 @@ Inputs: editable mesh and dimensions, intended motion language, rig eligibility,
 
 For a one-piece generated or sculpted character that should be animated as it is (no regenerate, no cutting into rigid pieces), read [one skin on a generated mesh](references/generated-mesh-skin.md): weld-then-weight in Blender, the four weight cleanups, loose shells, what to measure, and the motion rules that made an engine-posed skin read as fluid.
 
+Choose the motion source before animating. For a move a person can act out, start from motion capture or a filmed person. Use video-to-rig or hand-keyed poses only for moves no person can act. Let the captured motion drive the body and legs, and pull the striking limb onto the gameplay contact point during the reach. A clip sped up to fit gameplay timing needs its follow-through added back as a cosmetic tail.
+
 Use [Blender](../studio-blender/SKILL.md) for nonhumanoid bones, shape keys or procedural/keyframed motion. A simple two-bone or deforming setup is sufficient for a bounded response when it preserves silhouette and readable contact. For humanoid services, verify provider-specific body/topology/texture eligibility first; never assume an alien body is supported.
 
 Establish a neutral rest pose and deliberate pivot/root, name deform bones and weight groups, and check weight sums and parent dependencies. Test the maximum intended bend/twist, compressed/extended shapes and attachment points before animating. Save rest and stress evidence even if the rig is small.

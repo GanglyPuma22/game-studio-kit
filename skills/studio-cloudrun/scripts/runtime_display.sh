@@ -3,12 +3,12 @@
 # NVIDIA GPU, for engines that need a window to render. Writes $JOB/display.env
 # (DISPLAY, VK_ICD_FILENAMES) and $JOB/env.txt (what was found).
 #
-# Learned on Salvage's Colab runs (Oct 2026, L4, driver 580): Xvfb :99 started
+# Learned on one game's Colab runs (Oct 2026, L4, driver 580): Xvfb :99 started
 # with Mesa GLX and -noreset works; Vulkan then reaches the L4 through the
 # host's NVIDIA ICD (/usr/lib64-nvidia). Presenting to that screen fails
 # (VkResult -13), which stalls each frame: frames render correctly, so clips
 # and stills are fine, but frame timings are not to be trusted. A job that
-# needs GPU timings has to skip presenting (Salvage built an engine for that).
+# needs GPU timings has to skip presenting (that game built an engine for that).
 # When no NVIDIA ICD works, the software driver (lavapipe) is used and env.txt
 # says gpu=software, so nobody mistakes the result for a GPU run.
 set -u

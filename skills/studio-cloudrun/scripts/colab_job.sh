@@ -1,11 +1,11 @@
 #!/bin/bash
-# Service host side (the always-on box, e.g. Aptivio in WSL): run one job on a
+# Service host side (the always-on box, for example a WSL machine): run one job on a
 # Colab runtime (a GPU, or a CPU-only runtime for "gpu": "CPU") from start to
 # finish, then stop the runtime.
 #   colab_job.sh JOB.json
 # Needs: the colab CLI signed in by the person, git access to the job's repo
 # (GH, default git@github.com:), python3.
-# Colab login: COLAB_AUTH (default oauth2; on Aptivio, ADC is another Google
+# Colab login: COLAB_AUTH (default oauth2; on one host, ADC was another Google
 # account with no units). Each session gets its own private CLI state file
 # ($WORK/state/<session>.json, mode 600, never copied into results) when the
 # CLI accepts one; set COLAB_SHARED_CONFIG=1 to use the CLI's default state.

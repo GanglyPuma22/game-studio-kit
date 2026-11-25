@@ -26,7 +26,7 @@ A job is one JSON file ([template](references/job-format.md)):
 ```json
 {
   "schema": 1,
-  "id": "skybreak-polish-clips-1",
+  "id": "mygame-polish-clips-1",
   "type": "godot-capture",
   "repo": "Owner/game",
   "ref": "claude/some-branch",
@@ -45,7 +45,7 @@ A job is one JSON file ([template](references/job-format.md)):
 - **Pick the cheapest runtime that fits.** A job that runs Godot `--headless` (bots, sims, benches) needs no GPU and no screen: set `"gpu": "CPU"` (plus `"high_mem": true` for more cores) and a `max_units` ceiling with a low `max_rate`, so it refuses to run at a GPU's rate. A GPU only when the job draws (clips, stills) or runs a model.
 - Check it before anything runs: `python <KIT>/scripts/studio.py cloudrun validate --job job.json` and `... cloudrun plan --job job.json` (prints every step the runner will take).
 
-`studio cloudrun types` lists the job types and the model recipes. Salvage's Colab batches are listed as reserved: they stay on Salvage's own queue.
+`studio cloudrun types` lists the job types and the model recipes. One job type is listed as reserved: another game's own Colab batches, which stay on that game's queue.
 
 ## Model runs (music, sound effects)
 
@@ -53,7 +53,7 @@ A `model-run` job names a recipe shipped in [recipes/](recipes) and a plan; it h
 
 ```json
 {
-  "schema": 1, "id": "skybreak-swings-2", "type": "model-run",
+  "schema": 1, "id": "mygame-swings-2", "type": "model-run",
   "recipe": "stable-audio-open-sfx", "gpu": "L4",
   "plan": {"steps": 100, "guidance": 7, "seconds": 5,
            "cues": [{"id": "heavy-sword-swing", "prompt": "...", "seeds": [2311, 2312]}]},
@@ -90,7 +90,7 @@ COLAB_SESSION=<unique name> bash <KIT>/skills/studio-cloudrun/scripts/colab_job.
 
 The runner signs in with `--auth=oauth2` (COLAB_AUTH to change) and keeps a private CLI state file per session; see references/runtime-notes.md.
 
-It takes its own runtime and does not wait for the queue. It still needs the person's go, since it spends units, and it still waits (without spending) when the account holds no free GPU of that type. A running queue, Salvage batch or other session is never a reason to hold a job back: start it and let it wait for a GPU. The service can also run several queued jobs at once (`MAX_PAR` in `service.env`).
+It takes its own runtime and does not wait for the queue. It still needs the person's go, since it spends units, and it still waits (without spending) when the account holds no free GPU of that type. A running queue, another game's batch or other session is never a reason to hold a job back: start it and let it wait for a GPU. The service can also run several queued jobs at once (`MAX_PAR` in `service.env`).
 
 The number of GPUs at once is the Colab account's limit, not this kit's: in Oct 2026 the account held 2 L4s and refused a third. A job that can use another type (`"gpu": "T4"`) may start while both L4s are busy; whether types share one limit is not yet established.
 

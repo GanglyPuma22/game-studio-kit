@@ -16,7 +16,7 @@ Implementation validation date: September 5, 2026. This matrix distinguishes exe
 | ElevenLabs effects/speech/music | Implemented bounded profiles; mocked contract tests | No live voice/music/effects generation or rights certification |
 | Gaea installed-version build recipe | Implemented and mocked | No entitled/native installation or UI graph build executed |
 | Blender MCP 1.9.1 / protocol 5 supervised Windows lifecycle | Packaged and policy-tested; explicit host config required | Migrated exact package revision still needs native Windows start/reuse/conflict/stop and current-app-client restart qualification; static PowerShell checks are not native behavior evidence |
-| Owned blocking `launch`, launch inventory, identity manifest receipts | Implemented; offline child-process tests | Godot flag sets mirror the Salvage regional launcher; no native engine run executed by the suite |
+| Owned blocking `launch`, launch inventory, identity manifest receipts | Implemented; offline child-process tests | Godot flag sets mirror one game's regional launcher; no native engine run executed by the suite |
 | Cleanroom bench snapshots and host preflight/apply | Implemented; offline tests, Linux snapshot readers executed | Windows registry, `powercfg`, `nvidia-smi` and the apply script are unverified until run by hand on the target host with `-WhatIf` |
 | macOS / other engines | Extension targets | Not tested |
 

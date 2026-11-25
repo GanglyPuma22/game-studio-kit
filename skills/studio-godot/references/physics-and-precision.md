@@ -98,8 +98,8 @@ Two independent strategies exist, and they solve different halves of the problem
   benefit of keeping gameplay logic itself origin-relative where practical; it raises the
   distance at which precision becomes a problem, it does not make magnitude irrelevant.
 
-For a project like Salvage (planetary terrain, physics-heavy, player routinely far from
-origin), treat this as a design decision to make explicitly and record, not a default to
+For a project with planetary terrain, heavy physics and a player routinely far from
+origin, treat this as a design decision to make explicitly and record, not a default to
 inherit silently: pick floating-origin, double-precision, or both (floating-origin to keep
 render-side numbers small even inside a double-precision CPU build, since GPU precision is
 usually still single), and verify the choice against an actual at-distance measurement rather
