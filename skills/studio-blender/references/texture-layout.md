@@ -1,6 +1,6 @@
 # Texture layout a character can be painted on
 
-Measured in one game (Tetherquake, 2026-11-22 and 23) on two generated giants of about 30,000 triangles each; the ice giant's relayout went into the game and its findings are marked below. A generator's or remesh service's automatic layout exists, passes every export check and still cannot hold paint: it cuts the body into thousands of scraps, so a line drawn across the chest breaks at each border and most of the map is empty. Laying the body out again is a two-minute machine step. Do it once, before anything is painted, baked or reviewed for looks.
+Measured in one game (2026-11-22 and 23) on two generated giants of about 30,000 triangles each; the ice giant's relayout went into the game and its findings are marked below. A generator's or remesh service's automatic layout exists, passes every export check and still cannot hold paint: it cuts the body into thousands of scraps, so a line drawn across the chest breaks at each border and most of the map is empty. Laying the body out again is a two-minute machine step. Do it once, before anything is painted, baked or reviewed for looks.
 
 ## Measure first
 
