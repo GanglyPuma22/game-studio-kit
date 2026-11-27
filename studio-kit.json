@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "game-studio-kit",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "skills": [
     {
       "name": "studio-director",
@@ -74,6 +74,10 @@
     {
       "name": "studio-video-gen",
       "path": "skills/studio-video-gen/SKILL.md"
+    },
+    {
+      "name": "studio-direction-sheet",
+      "path": "skills/studio-direction-sheet/SKILL.md"
     }
   ],
   "resources": [
@@ -231,7 +235,12 @@
     "skills/studio-cinematic/references/lessons.md",
     "skills/studio-video-gen/references/runway.md",
     "skills/studio-video-gen/references/openrouter.md",
-    "skills/studio-video-gen/scripts/video_job.py"
+    "skills/studio-video-gen/scripts/video_job.py",
+    "skills/studio-direction-sheet/references/decisions.md",
+    "skills/studio-direction-sheet/references/keep-kill.md",
+    "skills/studio-direction-sheet/references/avoid-ledger.md",
+    "skills/studio-direction-sheet/scripts/avoid_ledger.py",
+    "templates/direction-sheet.md"
   ],
   "commands": [
     "check-package",

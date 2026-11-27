@@ -15,6 +15,8 @@ Use [Blender](../studio-blender/SKILL.md) for nonhumanoid bones, shape keys or p
 
 Establish a neutral rest pose and deliberate pivot/root, name deform bones and weight groups, and check weight sums and parent dependencies. Test the maximum intended bend/twist, compressed/extended shapes and attachment points before animating. Save rest and stress evidence even if the rig is small.
 
+Before keying a move whose look matters (an attack, an ability, an idle that sells a character), fill a [direction sheet](../studio-direction-sheet/SKILL.md): palette, the one moment and its frame, anticipation-release-settle, smears, focal point, loop and avoid-list. Anticipation length stays the game's tuning value.
+
 Author at least the clips needed by the work card, each with name, duration, sample rate, loop flag and in-place/root-motion rule. Use named NLA tracks for the packaged collection exporter. Keep unrelated actions and competing live action/NLA evaluation out of the export. Check first/last frame equality for loops and intentional anticipation/settling for responses.
 
 The original `blender fixture` creates a nonhumanoid harbor bell with `Root`/`Frond`, a two-second `idle` loop, one-second `response`, and ten rest/stress/motion images. This is a deformation pipeline test, not a finished creature performance. Its scripts are [fixture authoring](../../studio_tools/blender_scripts/fixture.py) and [hierarchy export](../../studio_tools/blender_scripts/export.py).

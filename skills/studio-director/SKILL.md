@@ -51,6 +51,7 @@ preserve unique run logs and classify completed output before reporting status.
 | Sound effects or music from open models on a Colab GPU (model-run recipes) | [studio-audio](../studio-audio/SKILL.md) Colab models route, run by [studio-cloudrun](../studio-cloudrun/SKILL.md) |
 | Trailer or story cinematic made with video-generation models (blockout, look stills, renders, edit) | [studio-cinematic](../studio-cinematic/SKILL.md); paid renders through [studio-video-gen](../studio-video-gen/SKILL.md) |
 | Native appearance/input/motion/mix acceptance | [studio-review](../studio-review/SKILL.md) |
+| Before briefing any animation, visual effect or generated shot: what it looks like, when it hits, what to avoid; then keep or kill the result | [studio-direction-sheet](../studio-direction-sheet/SKILL.md) with the game's avoid ledger |
 | A whole character end to end (concept and voice approved by the owner, then model, QA, animation, voice lines, effects, sounds, integration and one review page without further stops) | [character pipeline](references/character-pipeline.md) with a [character run record](../../templates/character-run.json) |
 | Overnight, unattended or production-contract run | [overnight-run](references/overnight-run.md) |
 
